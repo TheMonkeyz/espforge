@@ -33,7 +33,8 @@ Pick the names once; they are hard to change later:
       CONFIG_FORGE_REPO="TheMonkeyz/kitchen-timer"
       ```
       Then delete `build\v55\sdkconfig` and reconfigure (L12).
-- [ ] **`README.md`**: what the device does, for its users first; keep the developer sections.
+- [ ] **`README.md`**: what the device does, for its users first; the web flasher link ("Try it on the board") pointing at
+  your `ota_site`, and your board; keep the developer sections.
 - [ ] **`CHANGELOG.md`**: keep the `# Changelog` header, replace the sections with `## v0.1.0-rc.1 - <date>`.
 - [ ] **`tools/harness/baseline.json`**: reset to `{}`, then run the harness on the first good build with
       `--update-baseline`, review `baseline.proposed.json` and copy it over (docs/TESTING.md §5).

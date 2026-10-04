@@ -11,6 +11,15 @@ of the settings page); CI that builds, tests and publishes releases; and the les
 ([docs/LESSONS.md](docs/LESSONS.md)). The repository itself builds a small starter app for the Waveshare
 ESP32-S3-Touch-AMOLED-1.75.
 
+## Try it on the board
+
+**[Install from the web flasher](https://themonkeyz.github.io/espforge/)**: plug the Waveshare
+ESP32-S3-Touch-AMOLED-1.75 into a computer by USB, open the page in Chrome or Edge (desktop; they can talk to USB
+devices), pick **Stable** or **Beta** (release candidates) and press Install. Then set up Wi-Fi from your phone with
+the display's setup network or Easy Connect (press and hold the screen). Later versions arrive over Wi-Fi: the display
+offers them on its system screen and on its settings page. Release notes: [CHANGELOG.md](CHANGELOG.md); all builds:
+[Releases](https://github.com/TheMonkeyz/espforge/releases).
+
 ## The loop
 
 ```
