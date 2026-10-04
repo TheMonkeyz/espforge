@@ -1,0 +1,91 @@
+{
+ "_comment": "Limits for tools/harness/harness.py (compare()). Placeholders until the first measured run on the board: run 'harness.py --update-baseline', then set each limit from its ref and copy baseline.proposed.json over this file. 'max' = higher is worse, 'min' = lower is worse.",
+ "boot_s.ready": {
+  "max": 20,
+  "note": "placeholder until the first measured run"
+ },
+ "failed_allocs": {
+  "max": 0,
+  "note": "placeholder until the first measured run"
+ },
+ "idle_internal_drop_kb": {
+  "max": 8,
+  "note": "placeholder until the first measured run"
+ },
+ "internal_free_kb": {
+  "min": 20,
+  "note": "placeholder until the first measured run"
+ },
+ "internal_largest_kb": {
+  "min": 8,
+  "note": "placeholder until the first measured run"
+ },
+ "internal_min_kb": {
+  "min": 8,
+  "note": "placeholder until the first measured run"
+ },
+ "lvgl_internal_fallbacks": {
+  "max": 0,
+  "note": "placeholder until the first measured run"
+ },
+ "page_kb": {
+  "max": 64,
+  "note": "placeholder until the first measured run"
+ },
+ "psram_min_kb": {
+  "min": 500,
+  "note": "placeholder until the first measured run"
+ },
+ "reconnect_s": {
+  "max": 45,
+  "note": "placeholder until the first measured run"
+ },
+ "snapshot_ms.hello": {
+  "max": 5000,
+  "note": "placeholder until the first measured run"
+ },
+ "snapshot_ms.setup": {
+  "max": 5000,
+  "note": "placeholder until the first measured run"
+ },
+ "snapshot_ms.system": {
+  "max": 5000,
+  "note": "placeholder until the first measured run"
+ },
+ "swipe_fps.drag_slow": {
+  "min": 15,
+  "note": "placeholder until the first measured run"
+ },
+ "swipe_fps.hello_to_system": {
+  "min": 20,
+  "note": "placeholder until the first measured run"
+ },
+ "swipe_fps.system_to_hello": {
+  "min": 20,
+  "note": "placeholder until the first measured run"
+ },
+ "swipe_gap_max_ms.drag_slow": {
+  "max": 250,
+  "note": "placeholder until the first measured run"
+ },
+ "swipe_gap_max_ms.hello_to_system": {
+  "max": 200,
+  "note": "placeholder until the first measured run"
+ },
+ "swipe_gap_max_ms.system_to_hello": {
+  "max": 200,
+  "note": "placeholder until the first measured run"
+ },
+ "swipe_render_avg_ms.drag_slow": {
+  "max": 80,
+  "note": "placeholder until the first measured run"
+ },
+ "swipe_render_avg_ms.hello_to_system": {
+  "max": 80,
+  "note": "placeholder until the first measured run"
+ },
+ "swipe_render_avg_ms.system_to_hello": {
+  "max": 80,
+  "note": "placeholder until the first measured run"
+ }
+}

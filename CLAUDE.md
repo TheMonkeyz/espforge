@@ -1,0 +1,84 @@
+# Notes for AI-assisted sessions
+
+Read first, in this order: `README.md`, `docs/WORKFLOW.md` (the loop), `docs/TESTING.md` (how to prove a change),
+`docs/LESSONS.md` (what went wrong before, L1..), `docs/PROTOCOL.md` (what the tools read from the firmware),
+`docs/COMPONENTS.md` (the framework's components), then this project's `docs/HISTORY.md` and
+`docs/ARCHITECTURE.md` once they exist (templates in `docs/templates/`). Project values (app name, repo, OTA site,
+screens, build dir) are in `forge.json`.
+
+## The loop
+
+1. Change, then a test build labelled above the current release (`version.txt`, touch `CMakeLists.txt`).
+2. Flash and probe: `python tools/harness/harness.py --flash <bin>` or the devloop helper + test console.
+3. Prove it on the device: log lines, snapshots, the harness's checks and baseline.
+4. The user tries it (real fingers, real phone).
+5. "Document and commit": ARCHITECTURE, TESTING, this file, CHANGELOG.
+6. Claude tags and tests a release candidate (`harness.py --ota vX.Y.Z-rc.N`); a stable tag only with the user's OK.
+
+Details: `docs/WORKFLOW.md`, `docs/RELEASING.md`. Skills in `.claude/skills/` hold the step lists.
+
+## Rules that are not negotiable
+
+- **Stage parts under unique names and compare md5 before flashing** (`tools/devloop/stage.py`). A reused path has
+  delivered a stale file (L1).
+- **Check `ota: Running <ver> from ota_N` in a fresh log before testing** (L2).
+- **Label test builds above the current release**; delete `version.txt` when done (L9, L10).
+- **Build exactly what you commit.** Set later work aside with `git stash push -u`, build, commit, `git stash pop`
+  (L14).
+- **Run the host tests before tagging** when a C file they compile changed: `wsl make -C tests/host` (L15).
+- **Ask before a stable tag.** Release candidates Claude may tag, push and test itself (L18).
+- **One-line progress note before anything that takes more than a minute** (build, flash, log window) (L41).
+- **Ask the user to interact during the log window, and say exactly when and what** (L42).
+- **Never take over the user's screen.** Ask first; prefer the flash helper (L43).
+- **Relay `>>> ASK THE USER` from the harness at once** (L44).
+- **Every fix gets a test that fails on the old code** (harness, Playwright or host test) (L57).
+- **Reset cached board facts (`.devloop/ip`, `.devloop/key`) after a flash or an install** (L7).
+- **Never restart a board in the first 60 s after an update** (it rolls back) (L23).
+- **Report what the log shows**, not what a message suggests (L46).
+
+Lessons by topic (memory, LVGL, touch, Wi-Fi, OTA, Windows tooling…): `docs/LESSONS.md`. Add a lesson there when a
+bug teaches something general; add the project-specific fact below.
+
+## Working setup (this PC)
+
+- **Board:** Waveshare ESP32-S3-Touch-AMOLED-1.75 on **COM5** of a Windows 11 PC (`forge.json` `port` empty = auto).
+- **ESP-IDF v5.5.4** at `C:\Espressif\esp-idf` (CI uses the same version, from `forge.json` `idf`). In PowerShell:
+  `. C:\Espressif\esp-idf\export.ps1`, then
+  `idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build`.
+- **GitHub CLI** signed in as TheMonkeyz; not on the PATH of older shells: Git Bash
+  `"/c/Program Files/GitHub CLI/gh.exe"`, PowerShell `& "C:\Program Files\GitHub CLI\gh.exe"`.
+- **Host tests** run in WSL (Ubuntu): `wsl make -C tests/host`. **Settings page tests**: `cd tools/webtest && npm test`
+  (Node in `C:\Program Files\nodejs`).
+- **Two ways to work:**
+  1. **Claude Code on the PC** (preferred): builds, `idf.py`, the harness and `gh` run directly. The flash helper
+     still owns the COM port while it is logging; the harness talks to it.
+  2. **Claude desktop app / cloud**: builds run in a cloud container, the shell has **no USB** and can't type into
+     Windows terminals. The user starts `tools\devloop\start_flash_helper.bat` once; Claude stages the parts, runs
+     `python tools/devloop/devloop.py flash 120` (or writes `.devloop/flash.request`), waits for
+     `.devloop/flash.done` and reads `.devloop/serial_log.txt`. The cloud can't reach the board's IP: no
+     snapshots, no harness. Cloud build recipe: `docs/WORKFLOW.md`.
+- The display's IP is in the log (`web: Settings page: https://<ip>/`); its key comes from the console (`key`).
+
+## How the user likes to work
+
+- Short progress notes; no screen takeover; changes verified on the device (log + snapshot) before they are called
+  done.
+- Stable releases only with their OK; rc releases Claude publishes and tests, then reports.
+- New features → minor version bump.
+- **French = Canadian French (Québec), standard written:** no anglicisms, no slang; **1er** for the first of the
+  month; check grammar agreement when a noun changes.
+- New display text goes in `main/i18n_strings.h` (`X(T_ID, "English", "Français")`), never a bare literal on screen;
+  page text goes in `I18N` in `main/web/index.html`. Check French in snapshots: it is longer and wraps.
+
+## Bugs hit, and their fixes
+
+Number them; one entry per bug: symptom, cause, fix, the test that guards it. General lessons go to docs/LESSONS.md.
+
+## User preferences learned
+
+Add each preference the user states (gestures, wording, timing, look) with the date, in their words when possible.
+
+## Useful facts
+
+Board facts, API quirks, numbers measured on this hardware, test recipes: anything a future session would otherwise
+rediscover.

@@ -1,0 +1,769 @@
+# Lessons
+
+What the project this framework came from (weather_amoled, published as TheMonkeyz/esp32-s3-weather: an ESP32-S3
+AMOLED weather display, built with Claude in six days, September 29 to October 4, 2026) learned the hard way. Each
+lesson is a rule, where it came from, and how to check it. "bug N" refers to the numbered list in that project's
+CLAUDE.md; "vX" is the release where it was found or fixed.
+
+Cite lessons by number (L12) in commits and fix plans. Add new ones at the end of their section with the next free
+number; never renumber.
+
+Contents: [Flashing and transfers](#flashing-and-transfers) ·
+[Builds, versions and releases](#builds-versions-and-releases) ·
+[The harness as a release gate](#the-harness-as-a-release-gate) ·
+[Flaky and time-window tests](#flaky-and-time-window-tests) · [Working with the user](#working-with-the-user) ·
+[Debugging method](#debugging-method) · [ESP32 memory](#esp32-memory) · [RTOS and tasks](#rtos-and-tasks) ·
+[Flash writes and caches](#flash-writes-and-caches) · [Display](#display) · [LVGL](#lvgl) ·
+[Touch controllers](#touch-controllers) · [Wi-Fi setup and offline](#wi-fi-setup-and-offline) ·
+[Web, HTTPS and captive portal](#web-https-and-captive-portal) · [OTA](#ota) ·
+[Parsing and robustness](#parsing-and-robustness) · [i18n](#i18n) · [Tooling on Windows](#tooling-on-windows)
+
+---
+
+## Flashing and transfers
+
+**L1. Stage every image under a unique name and compare md5 before flashing.**
+Why: weather_amoled, September 29-30: twice a rebuilt file pushed from the *same* staging path delivered the previous
+build; once a fresh staging directory did too. Each time a test "failed" on code that wasn't on the board.
+Check: `python tools/devloop/stage.py` copies each part to `.devloop/stage/` under a new name and prints both md5s;
+refuse to write `flash.request` unless they match.
+
+**L2. Before testing, read which image is running, in a fresh log.**
+Why: September 30 the board was found on an older release candidate in `ota_1`, not the test build just flashed;
+the test was void.
+Check: `ota: Running <ver> from ota_N, channel …` (docs/PROTOCOL.md §3) after the last flash or restart, and the
+version is the one you built. The harness's `--expect vX` fails on any other version.
+
+**L3. A USB flash writes `ota_data_initial.bin` too.**
+Why: with two OTA slots, a board last updated over Wi-Fi keeps booting `ota_1`, whatever was written to `ota_0`.
+Check: the flash helper flashes every part in `<build_dir>/flasher_args.json` (it includes `otadata`); after the
+flash, L2.
+
+**L4. Ask for a generous log window, then stop it as soon as the line you need is there.**
+Why: waiting out a 330 s window for a line that came at 20 s cost minutes per iteration. `serial_log.txt` is only
+written when the window ends (within ~1 s of a stop).
+Check: tail `.devloop/serial_live.txt`; `python tools/devloop/devloop.py stop` (or Q / Esc in the helper window).
+
+**L5. Read the helper's result before the log.**
+Why: a failed flash followed by a log of the old firmware looks like a firmware bug.
+Check: `flash.status` (`flash_failed`?), then `flash.done` (`exit=0`, `errors`, `warnings`, `resets`,
+`stopped_early`), then grep the log. `flash.status` says `logging` ~2 s before `serial_live.txt` is recreated: delete
+the old one before waiting on it.
+
+**L6. The flash helper picks up changes to its own script only after a restart.**
+Why: an edited `flash_helper.ps1` kept running the old code; `monitor.ps1` is reloaded on every run.
+Check: after editing the helper, ask the user to close and restart `start_flash_helper.bat`.
+
+**L7. Anything cached about the board is reset after a flash or an install.**
+Why: v1.12.0-rc.3: a cached "no key" from the firmware before a flash made the harness skip its key-protected
+checks.
+Check: the tools clear `.devloop/ip` and `.devloop/key` after every flash and OTA install (docs/PROTOCOL.md §1).
+
+**L8. Check whether someone else is using the board before flashing.**
+Why: the board, the helper and the COM port are shared between the user and every session.
+Check: `flash.status` is `idle` and `serial_live.txt` isn't growing.
+
+## Builds, versions and releases
+
+**L9. Label every test build above the current release.**
+Why: a board running a build labelled below the stable release is offered that release and may install it. The
+firmware compares X.Y.Z first; for the same X.Y.Z a test label counts below any rc: `v1.12.0-fix.N` is offered
+`v1.12.0-rc.N`, while `v1.12.1-x` never is.
+Check: `version.txt` (git-ignored) holds e.g. `v0.2.0-name.3`; order in docs/PROTOCOL.md §5; delete `version.txt`
+when done, or later builds keep the label.
+
+**L10. `version.txt` is read at CMake configure time: touch `CMakeLists.txt` after changing it.**
+Why: an unchanged CMakeLists kept the old label in the image. A build outside a git checkout without `version.txt`
+reports `1`.
+Check: `diag: firmware vX` / `test: pong vX` in the next log.
+
+**L11. Test builds go to their own build directory with their own sdkconfig.**
+Why: keeps the repo's `sdkconfig` out of the way and test config lines (debug prints, profiler) out of commits.
+Check: `idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build`.
+
+**L12. After changing `sdkconfig.defaults`, delete the build's sdkconfig and reconfigure.**
+Why: an existing sdkconfig keeps its values; an option present as "not set" ignores the new default.
+Check: grep `build\v55\sdkconfig` for the option after `idf.py … reconfigure`.
+
+**L13. The PC and CI build with the same ESP-IDF version. Change both together.**
+Why: weather_amoled CI used v5.4.2 while the PC had v5.5.4 until v1.9.0; test builds didn't match releases (Easy
+Connect's failure event carries different data in the two, L113).
+Check: `forge.json` `idf` drives CI; `idf.py --version` on the PC.
+
+**L14. Build exactly what you commit.**
+Why: v1.12.0-rc.1: work was split out of a tree that held the next group's changes by a script; it dropped an
+`#include`, and the tag's CI build failed (no release).
+Check: `git stash push -u` to set later work aside, build the tree as it will be committed, commit, `git stash pop`.
+
+**L15. Run the host tests before tagging when a C file they compile changed.**
+Why: v1.12.1-rc.2's release failed in CI: the host tests' HTTP client stand-in (`tests/host/shim/`) lacked an event
+name the firmware had started using.
+Check: `wsl make -C tests/host`.
+
+**L16. The CHANGELOG section exists before the tag.**
+Why: it becomes the "What's new" list on the display's update screen and the settings page (`notes.json`). Tags
+without a section shipped with no notes. `-rc` sections are shown to Beta users only; the stable section repeats
+everything.
+Check: `## vX.Y.Z - YYYY-MM-DD` (or `## vX.Y.Z-rc.N - …`) at the top, one `- ` line per change, written for the person
+holding the device.
+
+**L17. Pick the version number by content: new features bump the minor.**
+Why: the user asked "why .1?" for a release with features; the v1.10.1-rc series shipped as v1.11.0.
+Check: before writing a stable section, list what the series added. A feature series starts at
+`vX.(Y+1).0-rc.1`.
+
+**L18. Claude publishes release candidates; a stable tag needs the user's OK.**
+Why: the user's rule (October 2): "you may publish and test rc releases" but stable needs permission. A tag is a
+release: every device installs what it builds.
+Check: docs/RELEASING.md.
+
+**L19. If CI fails but a local build works, suspect `main/idf_component.yml` versions.**
+Why: CI uses the component manager; a cloud build without network uses vendored copies.
+Check: compare the versions pinned there with what the local build resolved (`dependencies.lock`).
+
+**L20. In a cloud build, changing sdkconfig re-runs CMake: keep `IDF_COMPONENT_MANAGER=0` in the environment.**
+Why: otherwise CMake looks for `idf_component_manager` and fails (network allowlists blocked PyPI, the component
+registry, dl.espressif.com, Docker Hub; only GitHub worked).
+Check: docs/WORKFLOW.md "Working without USB".
+
+## The harness as a release gate
+
+**L21. A gate fails on what it didn't measure.**
+Why: October 2 evaluation: a third of the metrics had no limit, and a reused log window dropped every boot metric
+without a word; the run "passed".
+Check: a baseline metric not measured is MISSING, a measured one without a limit is NEW; both fail like a
+REGRESSION. A test that skips something on purpose says so with `ctx.skip(pattern, reason)`.
+
+**L22. Tests keep their own log positions.**
+Why: a test that moved the shared log mark hid a crash from the restart check.
+Check: `at = len(ctx.log.lines())`, `wait(..., start=at)`; only the harness calls `log.mark()`.
+
+**L23. Never restart a board in the first 60 s after an update.**
+Why: October 1: the harness restarted rc.2 right after the user installed it; the bootloader rolled back, and the
+harness tested the old build and reported a pass.
+Check: `GET /api/update` `pending_verify` and `uptime_s`; wait for `marked valid`; `--expect vX`.
+
+**L24. Give the mock every state the page can be in.**
+Why: a JavaScript parameter named `t` hid the page's translation function `t()`; the Install button never showed.
+It shipped in two releases because nothing tested the "update offered" state (L145).
+Check: the mock server scripts every state (`POST /__update`); one Playwright test per state.
+
+**L25. Straight synthetic touches pass while real fingers fail. The user tries it before it is done.**
+Why: the harness's drags passed every time while the user's curved swipes were missed, quick flicks went to LVGL and
+fast fingers produced false "up"s (bug 21h, bug 23).
+Check: after the harness, ask the user to try the gesture during a log window, and read the log of that try.
+
+**L26. A floor equal to the worst case seen is not a floor; sample the lowest path.**
+Why: the internal RAM check read only the normal boot; the reconnect path (three TLS clients and a JSON parse) went
+to 5 KB unseen.
+Check: measure memory at the end of the heaviest path too (`internal_min_kb.reconnect`), set limits with margin.
+
+**L27. `--update-baseline` proposes; a person reviews.**
+Why: rewriting the baseline erased hand-tuned limits and their notes.
+Check: it writes `baseline.proposed.json` (new `ref`s, limits and notes kept, new metrics marked); diff it, copy it
+over `baseline.json`, say why in the commit.
+
+**L28. Heavy test-console commands start their own task.**
+Why: the render bench on the 3 KB console stack reset the board. A console task with a PSRAM stack crashed on an
+NVS read (L64).
+Check: the console task only parses and dispatches; `testcon` stack internal.
+
+**L29. Match a command's reply from the command's position, events from the test's position.**
+Why: an event can be logged before the console's reply to the command that caused it.
+Check: `Log.wait(start=…)` with the right start.
+
+**L30. A simulated tap lasts 120 ms.**
+Why: a 60 ms tap fell entirely inside a 100 ms redraw and was never seen.
+Check: `tap` / `press` defaults in the touch injector.
+
+**L31. Background work on the device skews measurements: let it settle.**
+Why: an automatic render bench 45 s after boot blocked the screen 1.5 s and swallowed the harness's swipes; a map
+saved to flash after a place change made a measured drag crawl (3 fps, first frame after 2 s).
+Check: no automatic benchmarks (on request only); wait until background writers have been quiet ~5 s.
+
+**L32. Check the result of a move by state, and start where the move is possible.**
+Why: a drag test checked the screen name, but a page change stays on the same screen; from the last page "drag up"
+bounced and the check still passed.
+Check: query the page/state through the console; go to a known start first.
+
+**L33. An unexpected restart fails the test, even if every check passed.**
+Why: restarts hide bugs (a rollback, a watchdog).
+Check: the harness scans for `rst:0x` and decodes `Backtrace:` with `addr2line` against the ELF of the build on the
+board (any other ELF gives wrong names).
+
+**L34. An outage of an outside service is not a firmware failure.**
+Why: October 3: Open-Meteo timed out 10 of 16 requests from the display while the PC got answers in 0.07 s; five
+tests of an rc failed for it.
+Check: wait out the device's "service unreachable" state (minutes), note it in the report, fail only on firmware
+behaviour.
+
+**L35. A command that gets no answer makes the harness send `where`.**
+Why: `where` takes no lock; the failure then says where the display stuck. That is how the raw-frame hangs were
+found (L52).
+Check: docs/PROTOCOL.md §2.
+
+## Flaky and time-window tests
+
+**L36. A wait outlasts the firmware's own retry.**
+Why: after the network came back, the first fetch is retried after 30 s; a 30 s wait failed a run when one request
+timed out.
+Check: read the firmware's retry interval before choosing a timeout (75 s there).
+
+**L37. A flaky check needs several runs before it is called fixed.**
+Why: v1.10.0's Easy Connect channel pick passed sometimes; after the fix, 4 runs out of 4.
+Check: run the suite 3-4 times; report n/N.
+
+**L38. A rule with a time window needs a test that crosses the window.**
+Why: v1.12.0-rc.3: "setup opens by itself for 15 minutes only" passed review and failed on the board: the window
+ended while setup was open, and nothing closed it.
+Check: a console switch that shortens the window for one boot (`wifi offline-boot-short`: 60 s), and a test past it.
+
+**L39. Two snapshots of a live screen differ anyway: compare at one instant.**
+Why: a status page ticking every second made every picture comparison fail.
+Check: a firmware-side comparison (`pictest`) instead of two HTTP snapshots.
+
+**L40. Probe right after the periodic event.**
+Why: the minute tick and the update check each re-rendered whole pages; drags at random times rarely hit it.
+Check: trigger the event (`POST /api/update {"action":"check"}`, wait for the minute line), then measure.
+
+## Working with the user
+
+**L41. Post a one-line progress note before anything that takes more than a minute.**
+Why: long silences read as "stuck".
+Check: "Building v0.2.0-x.3 (~2 min)", "Flashing, then a 120 s log".
+
+**L42. Ask the user to touch the board during the log window, and say exactly when and what.**
+Why: a gesture made before or after the window leaves no trace.
+Check: "Now, for the next 60 s: swipe left twice, then long-press the centre."
+
+**L43. Never take over the user's screen; prefer the flash helper.**
+Why: the user's rule from the first day.
+Check: no computer-use or terminal typing without asking first.
+
+**L44. Relay `>>> ASK THE USER` from the harness at once.**
+Why: steps like the Easy Connect phone scan have a time limit.
+Check: watch the harness output (and `.devloop/harness.ask`) while it runs.
+
+**L45. The user's words are the best signal for feel.**
+Why: "follow the finger", "a 0.1 s delay before a drag", "corruption on the graph" each found a bug no frame-rate
+number showed.
+Check: turn each phrase into a measurement (drag start ms, pixel comparison) and a test.
+
+**L46. Report what the log shows, not what a message suggests.**
+Why: a harness line "Installing…" was relayed as an install while it meant something else.
+Check: quote the log line.
+
+**L47. Decisions that belong to the user are asked at the right moment, not up front.**
+Why: the October 3 fix plan held four product questions (security model, alert re-chime, reboot on OOM, setup
+timeout); everything else was done first.
+Check: the fix plan marks items that depend on an answer.
+
+**L48. Put the user's settings back after a test.**
+Why: tests change language, presence delays, quiet hours, channels.
+Check: read the values first (`GET`), restore them in a `finally`, even on failure.
+
+**L49. Snapshots can't show touch problems: ask the user to tap through a new screen.**
+Why: bug 18: a full-size arc caught every tap on a new screen (L91); the snapshot looked perfect.
+Check: a log window while the user taps every row.
+
+**L50. Sliders act while dragging and save on release.**
+Why: the user expects the screen to change under the finger.
+Check: a preview call during the drag, one NVS write at the end.
+
+## Debugging method
+
+**L51. Logs over guesses.**
+Why: every hard bug in weather_amoled was found by reading or adding a log line: three Wi-Fi offline causes, the
+esp_lcd race, drag delays, a double flash save.
+Check: before a fix, a log line that shows the cause.
+
+**L52. For hangs: breadcrumbs plus a lock-free `where`.**
+Why: the display hangs of v1.11.0 took days of symptoms and minutes of fix once breadcrumbs (`slide_phase`,
+`raw_phase`, `raw_band`, `lvgl_inflight`) printed by a command that takes no lock pointed at the race.
+Check: `forge_core` breadcrumb providers; `where` on the console.
+
+**L53. Measure the parts before optimising a part.**
+Why: font kerning was 71% of rendering; LVGL's layout pass was 4.4 of 7.7 ms of a list's frame while the obvious
+suspect (per-icon pictures) saved nothing; the flash mode was worth 30%.
+Check: time each part in a throwaway build, or the LVGL profiler (docs/TESTING.md).
+
+**L54. Throwaway builds for temporary logging and fake inputs. Never commit them.**
+Why: the drag-delay culprits were found by logging each cache invalidation with `__builtin_return_address(0)` and
+each redraw with `esp_backtrace_print()`; alerts, lightning and offline boots were tested with fake inputs.
+Check: label them (`vX-alerttest.0`), `git checkout` the files after, flash a clean build.
+
+**L55. Fake inputs live where the real ones do.**
+Why: fake lightning marks at fixed screen positions didn't follow zooms and looked like a bug; at fixed lat/lon they
+behaved.
+Check: inject at the data layer, in the data's own units.
+
+**L56. Read the source before relying on an API's behaviour.**
+Why: `lv_obj_scroll_to_y()` clamps at the ends, `lv_obj_scroll_by()` sends bubbling events, esptool writes a QIO
+bootloader's header as "dio", a static array is internal RAM. Each cost hours.
+Check: `managed_components/lvgl__lvgl`, the ESP-IDF Kconfig and source.
+
+**L57. Reproduce off the board when you can; check the test fails on the old code.**
+Why: host tests reproduced parser crashes in seconds.
+Check: `git show HEAD:main/x.c > /tmp/x.c`, run the new test against it, see it fail.
+
+**L58. Debug build for memory corruption.**
+Why: corruption crashes far from its cause.
+Check: `sdkconfig.debug` (heap poisoning, end-of-stack watchpoint, stack protector); read the log for
+`CORRUPT HEAP`, `Stack canary`, `Stack protection fault`. Its performance numbers don't count.
+
+**L59. Keep crash details without a watcher.**
+Why: crashes used to exist only if someone was watching USB at the time.
+Check: core dump to flash, summarised at the next boot (`diag: coredump …`) and erased; decode with
+`xtensa-esp32s3-elf-addr2line -pfC -e <elf>`. The partition comes with a USB install (L128).
+
+## ESP32 memory
+
+**L60. Internal RAM is the scarce resource; small `malloc`s land there first.**
+Why: `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384` puts every allocation under 16 KB in internal RAM. LVGL's thousands
+of small allocations left 10 KB free and 0 KB "min ever"; the HTTPS page then arrived truncated (L119).
+Check: `forge_lvgl`'s `lvgl_mem` (LVGL heap in PSRAM via `CONFIG_LV_USE_CUSTOM_MALLOC`; the linker needs
+`-u lv_malloc_core`); `heap` on the console; the harness's `internal_min_kb`.
+
+**L61. A static array in a `.c` file is internal RAM. Big ones get `EXT_RAM_BSS_ATTR`.**
+Why: 3.8 KB of zoom tables dropped the internal low point to 3 KB; 46 radar structs (48 KB of palettes) moved to
+PSRAM raised it from 9 to 50 KB.
+Check: `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y`; `idf.py size-components`; never touch such data from an ISR
+(L80).
+
+**L62. Big structs never on the stack.**
+Why: bug 3: arrays of ~1 KB structs on the radar task's stack overflowed it.
+Check: `static` (plus L61), or heap in PSRAM.
+
+**L63. Size stacks from measured high-water marks; paths that end in a restart log their own.**
+Why: six task stacks needed ~12.7 KB more than given; Easy Connect's success path ran on the 2.3 KB system event
+task with ~600 B spare; a snapshot rendered a screen on a 7 KB HTTPS stack with 992 B spare. The periodic report
+never sees a path that restarts.
+Check: `diag: tasks` lines; `uxTaskGetStackHighWaterMark` logged at the end of rare paths;
+`CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE`, `CONFIG_ESP_MAIN_TASK_STACK_SIZE`.
+
+**L64. Task stacks that touch flash or NVS stay in internal RAM.**
+Why: a PSRAM stack crashed on an NVS read (flash busy = PSRAM cache off). TLS key generation needs an 8 KB internal
+stack for the same reason.
+Check: `xTaskCreate` (internal) rather than a PSRAM stack for those tasks.
+
+**L65. Big PSRAM users fragment PSRAM for the others.**
+Why: with a 2.2 MB picture cache, lodepng's 2-3 MB decodes failed. A row-by-row PNG decoder using the ROM's inflate
+needs ~50 KB.
+Check: `forge_core/png_rows`; `heap` largest block; the harness's `psram_min_kb`.
+
+**L66. Route library heaps to PSRAM where they allow it.**
+Why: cJSON parse trees (~100 KB for a 10 KB forecast) and TLS sessions (~40-60 KB each) otherwise eat internal RAM.
+Check: `cJSON_InitHooks` with PSRAM malloc; `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y`.
+
+**L67. Count failed allocations and fallbacks; expect 0.**
+Why: memory pressure shows up as odd behaviour long before a crash.
+Check: `heap` reports `failed_allocs` and `lvgl_fallbacks`.
+
+**L68. Don't grow a struct saved as one NVS blob; use typed keys.**
+Why: a blob is accepted only if its size matches: the first field added would drop the user's settings. Places were
+moved to typed keys in v1.12.0; new presence settings went into separate keys.
+Check: `nvs_set_i32`/`nvs_set_str` per field; read old blobs once and rewrite them.
+
+**L69. Check every NVS write.**
+Why: a refused write silently lost a setting.
+Check: `forge_core/nvs_check`; the API answers 500 "not saved" and the page shows it.
+
+## RTOS and tasks
+
+**L70. Waits that users may interrupt use task notifications, not `vTaskDelay`.**
+Why: bug 12: after a dropped connection the radar slept 20 s and ignored swipes.
+Check: `ulTaskNotifyTake(pdTRUE, ticks)`; long downloads check a "wanted elsewhere" flag and bail.
+
+**L71. Anything that blocks the UI task for more than ~50 ms loses quick flicks.**
+Why: rendering a whole cached picture at once blocked LVGL 60-180 ms; a flick could start and end unseen.
+Check: background rendering in 64-row strips (~15-25 ms each); `diag: display` longest lock hold.
+
+**L72. LVGL calls from outside the LVGL task hold the display lock, briefly.**
+Why: LVGL isn't thread-safe; long holds stall the UI.
+Check: `display_lock()` / `display_unlock()` (board API); `diag: display` names the longest holder.
+
+**L73. Background work yields to the user.**
+Why: flash writes and picture rendering during a drag made it stutter.
+Check: background writers wait for "UI busy" to clear (finger down, move running).
+
+**L74. Restarts asked for during the update-confirm window wait for it.**
+Why: a restart before confirmation rolls the update back (L126).
+Check: `forge_ota` restart-when-safe for every restart path (settings, Wi-Fi save, Easy Connect).
+
+## Flash writes and caches
+
+**L75. Flash writes stall the whole chip.**
+Why: during an erase or write the code and PSRAM caches are off; a background map save made drags crawl.
+Check: schedule writes when the UI is idle (L73).
+
+**L76. Erase and write sector by sector, yielding between.**
+Why: bug 10: one large `esp_partition_erase_range` tripped the task watchdog (IDLE0).
+Check: 4 KB at a time with `vTaskDelay(1)` between.
+
+**L77. Check what a save stores.**
+Why: a download for one place finishing after a switch was saved as the other place's map.
+Check: tag the data with its key at download start; compare at save time.
+
+**L78. Write the header last.**
+Why: a power cut mid-save must leave the old entry invalid, not a valid header over half the data.
+Check: data sectors first, header (with a checksum) last.
+
+**L79. QIO flash makes code from flash ~30% faster, but only a USB install changes the bootloader.**
+Why: the program runs from flash through a 16 KB cache and LVGL's code is large; full-screen renders went 67 → 45 ms.
+ESP-IDF writes a QIO bootloader's header as "dio" and the bootloader switches itself; boards updated over the air
+keep their old bootloader (DIO speed).
+Check: `CONFIG_ESPTOOLPY_FLASHMODE_QIO=y`; the boot log's flash mode; keep a DIO bootloader to reproduce OTA-updated
+boards.
+
+**L80. Code and data in PSRAM or flash are unreachable from an ISR while the cache is off.**
+Why: an interrupt during a flash write that touches PSRAM data crashes.
+Check: ISR code `IRAM_ATTR`, ISR data internal; `EXT_RAM_BSS_ATTR` data only from tasks.
+
+## Display
+
+**L81. `esp_lcd` isn't thread-safe: its transfer-done interrupt runs on the LVGL task's core.**
+Why: v1.11.0: with the interrupt on the other core, raw frames hung for good every few slides.
+Check: `isr_cpu_id` = the LVGL core in the panel IO config.
+
+**L82. No `esp_lcd` call while a band is in flight; any call from outside LVGL waits for LVGL's last band.**
+Why: v1.12.0: `display_brightness()` from the presence task (core 0) wrote a command while LVGL's last band was
+still on the bus.
+Check: an in-flight counter (`lvgl_inflight`) waited on, bounded (100-200 ms), before every out-of-LVGL call.
+
+**L83. Every wait in the display path is bounded and leaves a breadcrumb.**
+Why: an unbounded wait turns a race into a frozen device with no log.
+Check: 200 ms caps; `where` prints the phase.
+
+**L84. Compile with `-O2`.**
+Why: bug 13: `-Og` made animations choppy.
+Check: `CONFIG_COMPILER_OPTIMIZATION_PERF=y`.
+
+**L85. Turn off image antialiasing for full-screen scaling.**
+Why: antialiased scaling of a 466×466 image cost frames.
+Check: `lv_image_set_antialias(img, false)`.
+
+**L86. Draw buffers live in internal DMA RAM: size them deliberately.**
+Why: two 32-line buffers (2 × 30 KB) were the balance between band count and internal RAM; bigger ones starved
+TLS (L119).
+Check: `heap` DMA free after boot.
+
+**L87. A full LVGL redraw is the floor for animation speed: measure it before promising fps.**
+Why: LVGL 9.2 can't redraw a full 466×466 screen in under ~65-85 ms on this chip (no single hot spot); the 60 fps
+moves had to be pictures copied straight to the panel (~8 ms from PSRAM, ~11 ms on an 80 MHz QSPI bus).
+Check: `fps`, the render bench; docs/TESTING.md profiling. weather_amoled measured LVGL 8, 9.2 and 9.6 and two draw
+units on October 4: stay on 9.2.2.
+
+**L88. Panel quirks belong to the board component.**
+Why: the CO5300 needs areas starting on an even and ending on an odd pixel (a rounder callback) and a +6 column
+offset; the app must not know.
+Check: `boards/<name>/board/`.
+
+## LVGL
+
+**L89. Events bubble from children: check the target.**
+Why: bug 16: a list's `LV_EVENT_SCROLL` bubbled up through the pager; its handler read state from
+`lv_event_get_target()` and crashed on null user data.
+Check: use `lv_event_get_current_target()` and ignore events whose target is another object.
+
+**L90. Decorative objects are clickable by default and swallow presses.**
+Why: bug 7: long-press never fired over icon blobs and boxes.
+Check: clear `LV_OBJ_FLAG_CLICKABLE` (a `passthrough()` helper). After opening an overlay with a long-press, ignore
+presses for 800 ms and call `lv_indev_wait_release()`, or the same release closes it.
+
+**L91. A full-size `lv_arc` is a full-size touch target.**
+Why: bug 18: on a settings screen it caught every tap and drag; rows, Done and scrolling did nothing.
+Check: arcs non-clickable with a separate touch zone; L49.
+
+**L92. Turn off font kerning.**
+Why: kerning lookups (`stbtt_GetGlyphKernAdvance`, a linear scan) were 71% of all rendering.
+Check: fonts created with `LV_FONT_KERNING_NONE`.
+
+**L93. LVGL's bundled lodepng returns an `lv_draw_buf_t*`, not raw pixels.**
+Why: bug 1.
+Check: use `db->data` and `db->header.stride`; bytes are R,G,B,A; free with `lv_draw_buf_destroy`.
+
+**L94. A redraw that changes nothing is not free.**
+Why: setting the same label text, a flag already set, a style again, a theme transition or a pending layout each
+invalidated a cached picture, and the next drag waited 0.2-0.5 s (bug 21f).
+Check: compare before setting; set flags only when they change; `CONFIG_LV_THEME_DEFAULT_TRANSITION_TIME=0`; find the
+culprits with a throwaway build logging each invalidation with a backtrace (L54).
+
+**L95. Mark only what changed, where it changed.**
+Why: marking every picture out of date each minute and at each update check made the next drag render a whole page
+(~0.13-0.2 s).
+Check: dirty-rows API for clocks; mark only screens that show the changed data.
+
+**L96. Content changed on a hidden screen marks its picture out of date.**
+Why: otherwise a drag shows the old content for a moment.
+Check: every `ui_*` setter for a hidden screen calls the cache's dirty function.
+
+**L97. Drawing outside LVGL hides the touch from LVGL: reset its input after.**
+Why: bug 21b: after a drag drawn outside LVGL, the next swipe was ignored, or the last point replayed as a stray tap.
+Check: forget the touch, clear `wait_until_release`, `lv_indev_reset()`.
+
+**L98. `lv_obj_scroll_to_y()` stops at the ends; `lv_obj_scroll_by()` sends bubbling events.**
+Why: past the ends the list didn't move while the picture did (a smeared graph); `scroll_by`'s SCROLL_BEGIN/END
+bubbled and re-triggered layout every frame (4.4 of 7.7 ms).
+Check: `lv_obj_scroll_by_raw()` for moves you draw yourself.
+
+**L99. Decide a touch's axis like LVGL, and before LVGL.**
+Why: a 2:1 rule missed curved swipes on a round screen; deciding at 16 px while LVGL scrolled at 10 gave quick flicks
+to LVGL's slow scroll.
+Check: larger axis after 10 px, in the touch read hook; LVGL's scroll limit raised to 20
+(`lv_indev_set_scroll_limit`).
+
+**L100. Zoom out from a wider picture, not by shrinking the old one.**
+Why: bug 11: shrinking exposed black borders.
+Check: load the wider image first, animate it from 2× down to 1×.
+
+**L101. The picture of the screen shown must equal the panel; test it pixel by pixel.**
+Why: a pixel comparison found the smeared hourly graph that no frame-rate number showed.
+Check: `pictest` on the console; snapshot `picture` against `current`.
+
+## Touch controllers
+
+**L102. The CST9217 needs an ack after each read.**
+Why: bug 6: without writing `D0 00 AB` after each read it stops reporting. NACKs while idle are normal (silence the
+`i2c.master` logs); coordinates are mirrored in X and Y.
+Check: board component's touch read.
+
+**L103. A touch chip that NACKs instead of reporting "up": 5 failed reads in a row = up, and every finger loop is
+capped.**
+Why: bug 21c, 22b: a loop waiting for a clean "up" never ended, once while holding the display lock.
+Check: one `finger()`-style function used by every loop; caps (3 s for a pure wait, 20 s while following); log when
+a cap fires.
+
+**L104. Don't poll a touch chip faster than ~10 ms.**
+Why: bug 23b: read every millisecond (each read acked), the CST9217 answered "not in contact" for long stretches with
+the finger on it; every fix built on those false "up"s only moved the problem.
+Check: reads at most every 10 ms; a "fresh reading" flag; speed samples from fresh readings only (a repeated point
+measured a flick as 0 px/ms).
+
+**L105. Inject simulated touches at the controller read.**
+Why: then wake-up, long-press and gestures run the real code.
+Check: `forge_lvgl` touch inject (`tap`, `press`, `swipe`, `drag` on the console).
+
+**L106. To find lost touches, log every read with its time.**
+Why: bug 23a: reads 60 ms apart showed LVGL had the touch (its frames took 35-60 ms).
+Check: a throwaway build logging `t_ms x y state` per read.
+
+## Wi-Fi setup and offline
+
+**L107. No reconnect attempts while a setup mode is on.**
+Why: bug 20a: reconnect attempts made the radio hop channels; phones dropped off the setup AP and Easy Connect
+failed.
+Check: pause the reconnect timer when the AP or DPP starts, resume when it stops; `wifi status` `retries`.
+
+**L108. `stop_dns_server()` leaks its socket: start the DNS server once, never stop it.**
+Why: bug 20b: port 53 stayed taken, the next setup AP had no captive portal (bind `errno 112`).
+Check: `components/dns_server`; the harness re-joins the setup network after Easy Connect.
+
+**L109. Easy Connect (DPP) listens on the phone's channel.**
+Why: bug 20c: the phone stays on its network's channel; on another channel the exchange ended in
+`ESP_ERR_DPP_AUTH_TIMEOUT`. It worked online only because the station was already there.
+Check: listen on the saved (or strongest) network's channel.
+
+**L110. Find the saved network by name before a broadcast scan.**
+Why: bug 20d: a broadcast scan (40-80 ms per channel, 16 records kept) missed a router on a busy channel and picked
+channel 11 instead of 1.
+Check: probe requests with the SSID, 120 ms per channel; broadcast only as fallback.
+
+**L111. `esp_supp_dpp_bootstrap_gen()` only queues work.**
+Why: calling `esp_supp_dpp_start_listen()` right after it returns `ESP_FAIL`.
+Check: start listening from the `ESP_SUPP_DPP_URI_READY` callback.
+
+**L112. To see DPP steps, `CONFIG_WPA_DEBUG_PRINT=y` in the test build's sdkconfig only.**
+Why: lines `wpa: DPP: …` show each step; too noisy to ship.
+Check: `build\v55\sdkconfig` only (L11).
+
+**L113. `ESP_SUPP_DPP_FAIL` carries different data on IDF 5.4 and 5.5.**
+Why: an error code on 5.4, a `wifi_event_dpp_failed_t *` on 5.5 (`failure_reason`).
+Check: L13.
+
+**L114. Test offline paths without touching the router.**
+Why: the October 1 bugs only appeared with the network unreachable at boot.
+Check: console `wifi offline` (fake SSID in the station config, saved credentials untouched), `offline-boot` (next
+boot only, RTC flag); the PC's Wi-Fi card joins the setup AP like a phone.
+
+**L115. Wi-Fi names and passwords go into the driver's fixed fields with their length.**
+Why: a 32-byte SSID has no NUL there; `strlcpy` kept 31 bytes (a legal network saved but never joined) and Easy
+Connect's handler read past it into the password.
+Check: copy with explicit lengths; validate 1-32 byte names, passwords empty, 8-63 chars or 64 hex.
+
+**L116. The setup AP has a per-device password and opens by itself only for a while.**
+Why: a published shared password plus an AP that came up during every router outage exposed the API.
+Check: password generated at first start (letters and digits without look-alikes), shown on screen and in the QR;
+automatic opening limited (15 min there), long-press always works (L38).
+
+**L117. Answer the OS connectivity check on the setup network, or Windows opens a browser.**
+Why: a PC that is online through Ethernet opened msftconnecttest → msn.com when the harness joined.
+Check: console `portal windows-quiet` before joining. `netsh` answers in the display language: check for English
+(L147).
+
+**L118. The captive portal's DNS answers only on the setup network.**
+Why: it answered on the home LAN too.
+Check: bind to the AP interface.
+
+## Web, HTTPS and captive portal
+
+**L119. Hardware AES needs internal DMA memory; without it HTTPS pages arrive truncated.**
+Why: bug 4: the page's buttons "did nothing"; the AES peripheral failed to allocate DMA bounce buffers mid-response.
+With LVGL's heap in PSRAM it was turned back on (snapshots 2.2 → 1.5 s).
+Check: send pages in 1 KB chunks; if a page arrives truncated, look at internal DMA memory first; the harness checks
+the page arrives whole.
+
+**L120. Two httpd servers need different control ports.**
+Why: bug 5: the HTTPS server's default control port is already 32769.
+Check: HTTP 32768, HTTPS 32769; `max_uri_handlers` = routes + wildcard.
+
+**L121. Serve the captive portal over HTTP on the AP interface; HTTPS on the home network.**
+Why: bug 14: sign-in browsers won't accept a self-signed certificate. iOS needs a small HTML body with the 302.
+Geolocation only works on HTTPS pages.
+Check: decide with `getsockname()` on the socket; on the home network redirect to the device's own address, never
+the Host header.
+
+**L122. Every change carries the device's key; the Host must be the device.**
+Why: "anyone on the LAN can reconfigure the display" (October 2 evaluation). A custom header also forces a CORS
+preflight the server never answers, so another site's page can't send one; a foreign Host is DNS rebinding.
+Check: `X-Key` on every POST and `/api/snapshot` (401), JSON only (415), Host check (421); key in the QR as a URL
+fragment (`#k=`), compared in constant time. Get it with `key` on the console (docs/PROTOCOL.md).
+
+**L123. Non-ASCII through curl from Git Bash is mangled.**
+Why: bug 17: "Montréal" was stored as Latin-1.
+Check: write the JSON to a file (`printf` with `\u00e9`) and `curl --data-binary @file`.
+
+**L124. The certificate is per device: after an erase, the browser warning comes back.**
+Why: a new key is generated on first start (~180 ms; 8 KB internal stack).
+Check: expected; say so to the user.
+
+**L125. A long blocking handler blocks the whole server.**
+Why: a Wi-Fi scan blocks the httpd task 2-3 s.
+Check: the page scans only on request.
+
+## OTA
+
+**L126. Confirm a new image only after it has run 60 s connected to Wi-Fi.**
+Why: until v1.12.0 any image that stayed up 60 s was confirmed, before Wi-Fi had even started: one whose network
+never worked would have been kept. Without Wi-Fi, confirm after 10 min (a home without Wi-Fi keeps a working device).
+Check: `ota: New firmware ran N s…: marked valid`; tools wait for it (L23).
+
+**L127. Say so when an update was rolled back.**
+Why: a silent rollback looks like "the update didn't happen".
+Check: `esp_ota_get_last_invalid_partition()` at boot; shown once (log, screen, `rolled_back` in the API).
+
+**L128. The bootloader and partition table only change with a USB / web-flasher install.**
+Why: rollback needs `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` in the bootloader; QIO needs a QIO bootloader (L79); a new
+partition (core dump) needs a new table.
+Check: tell users when a release needs one USB install; the firmware copes without the partition.
+
+**L129. The updater installs only the same project name and a strictly higher version.**
+Why: protects against a wrong image on the site.
+Check: `esp_app_desc.project_name` = `forge.json` `app`; the version offered = the image's.
+
+**L130. Devices poll a fixed URL: never rename the repository or the account.**
+Why: every device looks for updates at the Pages address built in.
+Check: `forge.json` `ota_site`; docs/RELEASING.md.
+
+**L131. A failed download keeps Install, and the device re-checks soon.**
+Why: it hid the update until the next check, up to 6 h. A check missed during an outage waited 6 h too.
+Check: back to "available" with the reason; re-check 2 min later and when the station comes back.
+
+**L132. Keep the notes small.**
+Why: the device reads `notes.json` into a fixed buffer (24 KB in weather_amoled).
+Check: `forge.json` `notes_max_bytes`; `make_flasher_site.py` caps it.
+
+## Parsing and robustness
+
+**L133. `esp_http_client_init()` can return NULL.**
+Why: seven unchecked calls in the October 2 evaluation.
+Check: `forge_core/http_once`.
+
+**L134. Every array a parser indexes is checked.**
+Why: a reply missing `daily.time` crashed every fetch: a reboot loop that the rollback couldn't catch, because the
+image was already confirmed.
+Check: `cJSON_Is*` and sizes before every use; host tests with partial replies (`tests/host`).
+
+**L135. Cap after sorting, never before.**
+Why: alerts were capped at four before the severity sort; a red warning listed fifth was dropped.
+Check: a host test with the important item last.
+
+**L136. Identify a thing by its stable code, not by a feed's id.**
+Why: Environment Canada re-issues change the feature id; "new alert" chimed again at every re-issue.
+Check: the identity key is documented and host-tested.
+
+**L137. Index by date, not by position, across midnight.**
+Why: the hourly view and "Today" showed yesterday's data between midnight and the next refresh.
+Check: find today's index by date; a host test at 00:05.
+
+**L138. Bound every decoder and scanner.**
+Why: a shape scanner looped forever on `-]`; a wrapped chunk length overflowed a 32-bit `size_t`.
+Check: size limits (e.g. 4096 px, 8-bit, 256-entry palette), host tests with hostile inputs.
+
+**L139. Cut UTF-8 strings without splitting a character.**
+Why: truncated names showed garbage.
+Check: `forge_core/utf8`; host test.
+
+**L140. Reset backoff when the network comes back.**
+Why: a failed fetch kept its backoff (up to 10 min) across a reconnect.
+Check: fetch at once on `GOT_IP`.
+
+## i18n
+
+**L141. An empty translation is not a missing one.**
+Why: `""` showed as nothing on screen.
+Check: `tr()` falls back to English on empty too; a host test checks every text in every language, with the same
+printf conversions as English.
+
+**L142. Check fit with snapshots, not by estimate.**
+Why: an Inuktitut draft looked fine in a width estimate; six labels collided or wrapped on the board. French is
+longer and wraps badly on a round screen.
+Check: set the language through the API, snapshot every screen (including scrolled and overlay pseudo-screens),
+shorten, give long lines explicit `\n`.
+
+**L143. Protect tokens from generated translations.**
+Why: an automatic syllabics converter turned unit letters into syllabics ("56 ᐢ").
+Check: unit letters in backticks in the source TSV.
+
+**L144. Never a bare string literal on screen.**
+Why: untranslated text slips through.
+Check: display text in `main/i18n_strings.h` (`X(T_ID, "en", "fr")`); page text in `I18N` in `main/web/index.html`.
+Framework components return codes; the app translates.
+
+**L145. A JavaScript name that shadows the translation function breaks the page.**
+Why: `function fwNotes(t)` hid `t()`; the Install button never showed (L24).
+Check: never name a parameter `t`; Playwright fails on any page error.
+
+## Tooling on Windows
+
+**L146. Microsoft Store Python virtualises `AppData\Local`.**
+Why: Playwright started from the harness couldn't see its browsers.
+Check: copy `%LOCALAPPDATA%\ms-playwright\chromium_headless_shell-*` to `tools/webtest/.browsers` after a Playwright
+update.
+
+**L147. `netsh` answers in the Windows display language.**
+Why: the PC-as-phone code reads English words.
+Check: the harness stops with a clear message on another language.
+
+**L148. Don't write edit scripts in shell heredocs.**
+Why: Python edit scripts in heredocs mangled `\n` and `\d` more than once.
+Check: write scripts with the Write tool, then run them.
+
+**L149. `.github/` is a protected path for remote file tools.**
+Why: Claude in the cloud couldn't write workflow files into the PC folder.
+Check: hand the file to the user, or edit on GitHub; Claude Code on the PC can write it.
+
+**L150. Git on the PC folder from a Linux VM.**
+Why: lock files and temporary objects need delete permission; modes and line endings showed every file changed.
+Check: `git config core.fileMode false`, `core.autocrlf false`.
+
+**L151. `gh` is not on the PATH of shells started before its install.**
+Why: sessions predate the install.
+Check: Git Bash: `"/c/Program Files/GitHub CLI/gh.exe"`; PowerShell: `& "C:\Program Files\GitHub CLI\gh.exe"`.
+
+**L152. A Playwright fixture option must not be named `offline`.**
+Why: it is Playwright's own option and takes the whole browser offline, mock server included.
+Check: name it `noInternet`.
+
+**L153. No PIL on the PC: parse images with the standard library.**
+Why: snapshot comparisons need BMP → rows without extra packages.
+Check: `struct` / `zlib` (`tools/snapshot.py`).

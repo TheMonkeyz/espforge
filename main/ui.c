@@ -1,0 +1,465 @@
+// The starter app's screens (see ui.h). Small on purpose: it shows the framework's paths (pager, screen registry,
+// snapshots, simulated touch, Wi-Fi setup, updates, two languages) and is the part a new project replaces.
+#include "ui.h"
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
+#include "esp_app_desc.h"
+#include "board.h"
+#include "pager.h"
+#include "screens.h"
+#include "net.h"
+#include "web.h"
+#include "app_text.h"
+
+static const char *TAG = "ui";
+
+#define C_BG     lv_color_hex(0x000000)       // AMOLED: black pixels are off
+#define C_TEXT   lv_color_hex(0xF2F4F7)
+#define C_DIM    lv_color_hex(0x8B95A1)
+#define C_ACCENT lv_color_hex(0x4DA3FF)
+
+extern const uint8_t ttf_start[] asm("_binary_montserrat_ttf_start");
+extern const uint8_t ttf_end[]   asm("_binary_montserrat_ttf_end");
+
+static lv_font_t *f_big, *f_mid, *f_small;
+static lv_obj_t *scr_main, *pager, *scr_msg, *scr_setup;
+static lv_obj_t *h_title, *h_clock, *h_date, *h_sub, *h_hint;
+static lv_obj_t *s_title, *s_lines, *s_qr, *s_scan;
+static lv_obj_t *m_title, *m_body;
+static ota_status_t ota_st;              // last forge_ota status (copied under the display lock)
+
+static lv_font_t *mkfont(int px)
+{
+    // No kerning: it cost 71 % of render time in weather_amoled. 96 cached glyphs per size.
+    return lv_tiny_ttf_create_data_ex(ttf_start, ttf_end - ttf_start, px, LV_FONT_KERNING_NONE, 96);
+}
+
+static lv_obj_t *base_screen(void)
+{
+    lv_obj_t *s = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s, C_BG, 0);
+    lv_obj_remove_flag(s, LV_OBJ_FLAG_SCROLLABLE);
+    return s;
+}
+
+// Labels are never clickable: a decorative object that is clickable swallows presses (long-press never fired)
+static lv_obj_t *label(lv_obj_t *parent, lv_font_t *f, lv_color_t c, int y, int w)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_style_text_font(l, f, 0);
+    lv_obj_set_style_text_color(l, c, 0);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(l, w);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, y);
+    lv_obj_remove_flag(l, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(l, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_label_set_text(l, "");
+    return l;
+}
+
+// Set only when it changes: a redraw that changes nothing still costs a frame (and invalidates cached pictures)
+static void set_text(lv_obj_t *l, const char *s)
+{
+    if (strcmp(lv_label_get_text(l), s)) lv_label_set_text(l, s);
+}
+
+static lv_obj_t *make_qr(lv_obj_t *parent, int size)
+{
+    lv_obj_t *qr = lv_qrcode_create(parent);
+    lv_qrcode_set_size(qr, size);
+    lv_qrcode_set_dark_color(qr, lv_color_black());
+    lv_qrcode_set_light_color(qr, lv_color_white());
+    lv_obj_set_style_border_color(qr, lv_color_white(), 0);
+    lv_obj_set_style_border_width(qr, 6, 0);
+    lv_obj_remove_flag(qr, LV_OBJ_FLAG_CLICKABLE);
+    return qr;
+}
+
+static void long_pressed(lv_event_t *e)
+{
+    ESP_LOGI(TAG, "long-press: Wi-Fi setup");
+    ui_wifi_setup(NULL);
+}
+
+/* ---------- hello and system pages ---------- */
+
+static void fmt_uptime(char *out, int n)
+{
+    int64_t s = esp_timer_get_time() / 1000000;
+    if (s < 3600) snprintf(out, n, "%d min", (int)(s / 60));
+    else if (s < 86400) snprintf(out, n, "%d h %02d", (int)(s / 3600), (int)(s / 60 % 60));
+    else snprintf(out, n, "%d d %d h", (int)(s / 86400), (int)(s / 3600 % 24));
+}
+
+static void update_line(char *out, int n)
+{
+    switch (ota_st.state) {
+    case OTA_CHECKING:    snprintf(out, n, "%s", tr(T_UPD_CHECKING)); break;
+    case OTA_UP_TO_DATE:  snprintf(out, n, "%s", tr(T_UPD_UP_TO_DATE)); break;
+    case OTA_AVAILABLE:   snprintf(out, n, tr(T_UPD_AVAILABLE), ota_st.latest); break;
+    case OTA_DOWNLOADING: snprintf(out, n, tr(T_UPD_DOWNLOADING), ota_st.progress); break;
+    case OTA_DONE:        snprintf(out, n, "%s", tr(T_UPD_DONE)); break;
+    case OTA_FAILED: {
+        static const tid_t why[] = { [OTA_E_NO_SITE] = T_OTA_NO_SITE, [OTA_E_BAD_SITE] = T_OTA_BAD_SITE,
+            [OTA_E_NO_IMAGE] = T_OTA_NO_IMAGE, [OTA_E_NO_START] = T_OTA_NO_START, [OTA_E_WRONG] = T_OTA_WRONG,
+            [OTA_E_INTERRUPTED] = T_OTA_INTERRUPTED, [OTA_E_INVALID] = T_OTA_INVALID };
+        int e = ota_st.err;
+        snprintf(out, n, tr(T_UPD_FAILED), e > 0 && e <= OTA_E_INVALID ? tr(why[e]) : ota_st.error);
+        break;
+    }
+    default:              snprintf(out, n, "%s", tr(T_UPD_IDLE));
+    }
+}
+
+static void hello_refresh(void)
+{
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    char buf[64];
+    if (tm.tm_year > 120) {                               // the clock is set (SNTP)
+        snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
+        set_text(h_clock, buf);
+        tr_date_long(&tm, buf, sizeof(buf));
+        set_text(h_date, buf);
+    } else {
+        set_text(h_clock, "--:--");
+        set_text(h_date, "");
+    }
+    set_text(h_title, tr(T_HELLO));
+    set_text(h_sub, tr(T_HELLO_SUB));
+    set_text(h_hint, tr(T_SWIPE_HINT));
+}
+
+static void system_refresh(void)
+{
+    char lines[400], up[24], upd[96], ip[20] = "-", ssid[NET_SSID_MAX + 1] = "", wifi[80];
+    wifi_ap_record_t ap;
+    if (net_is_connected() && net_get_ssid(ssid, sizeof(ssid)) && esp_wifi_sta_get_ap_info(&ap) == ESP_OK)
+        snprintf(wifi, sizeof(wifi), tr(T_SYS_WIFI), ssid, ap.rssi);
+    else
+        snprintf(wifi, sizeof(wifi), "%s", tr(T_SYS_OFFLINE));
+    net_get_ip(ip, sizeof(ip));
+    fmt_uptime(up, sizeof(up));
+    update_line(upd, sizeof(upd));
+    int n = snprintf(lines, sizeof(lines), tr(T_SYS_VERSION), esp_app_get_description()->version);
+    n += snprintf(lines + n, sizeof(lines) - n, "\n%s\n", wifi);
+    n += snprintf(lines + n, sizeof(lines) - n, tr(T_SYS_IP), ip);
+    n += snprintf(lines + n, sizeof(lines) - n, "\n");
+    n += snprintf(lines + n, sizeof(lines) - n, tr(T_SYS_MEMORY),
+                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+    n += snprintf(lines + n, sizeof(lines) - n, "\n");
+    n += snprintf(lines + n, sizeof(lines) - n, tr(T_SYS_UPTIME), up);
+    snprintf(lines + n, sizeof(lines) - n, "\n%s", upd);
+    set_text(s_title, tr(T_SYSTEM));
+    set_text(s_lines, lines);
+    set_text(s_scan, tr(T_SYS_SCAN));
+    static char qr_text[80];                              // the settings page with the key (web.c)
+    char url[80];
+    if (web_url(url, sizeof(url))) {
+        if (strcmp(url, qr_text)) {
+            strlcpy(qr_text, url, sizeof(qr_text));
+            lv_qrcode_update(s_qr, qr_text, strlen(qr_text));
+        }
+        lv_obj_remove_flag(s_qr, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_scan, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_qr, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_scan, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+// Every second, only what the user can see (the other page is refreshed before a snapshot or when shown)
+static void tick(lv_timer_t *t)
+{
+    if (lv_screen_active() != scr_main) return;
+    if (pager_current(pager) == 0) hello_refresh();
+    else system_refresh();
+}
+
+static void page_settled(int page, void *user)
+{
+    ESP_LOGI(TAG, "page %s", page ? "system" : "hello");
+    if (page == 1) system_refresh();
+    else hello_refresh();
+}
+
+static void main_create(void)
+{
+    scr_main = base_screen();
+    pager = pager_create(scr_main, false, 2, NULL, page_settled, NULL);
+    lv_obj_add_event_cb(pager, long_pressed, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_t *p0 = pager_page(pager, 0), *p1 = pager_page(pager, 1);
+    h_title = label(p0, f_mid, C_ACCENT, 70, 300);
+    h_clock = label(p0, f_big, C_TEXT, 130, 360);
+    h_date = label(p0, f_small, C_TEXT, 215, 360);
+    h_sub = label(p0, f_small, C_DIM, 265, 340);
+    h_hint = label(p0, f_small, C_DIM, 330, 300);
+    s_title = label(p1, f_mid, C_ACCENT, 40, 300);
+    s_lines = label(p1, f_small, C_TEXT, 84, 380);
+    s_qr = make_qr(p1, 92);
+    lv_obj_align(s_qr, LV_ALIGN_TOP_MID, 0, 300);
+    s_scan = label(p1, f_small, C_DIM, 410, 260);
+    hello_refresh();
+    system_refresh();
+    lv_timer_create(tick, 1000, NULL);
+}
+
+/* ---------- message screen (start-up) ---------- */
+
+static void msg_create(void)
+{
+    scr_msg = base_screen();
+    m_title = label(scr_msg, f_mid, C_ACCENT, 120, 320);
+    m_body = label(scr_msg, f_small, C_TEXT, 180, 340);
+    lv_obj_add_flag(scr_msg, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(scr_msg, long_pressed, LV_EVENT_LONG_PRESSED, NULL);
+}
+
+void ui_message(const char *title, const char *body)
+{
+    display_lock(-1);
+    set_text(m_title, title);
+    set_text(m_body, body);
+    if (lv_screen_active() != scr_msg && lv_screen_active() != scr_setup) lv_screen_load(scr_msg);
+    display_unlock();
+}
+
+void ui_home(void)
+{
+    display_lock(-1);
+    hello_refresh();
+    pager_go(pager, 0, false);
+    if (lv_screen_active() != scr_main) lv_screen_load_anim(scr_main, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, false);
+    display_unlock();
+}
+
+/* ---------- Wi-Fi setup ----------
+ * Page 1: the setup network (this device's own access point and captive portal): scan to join, the settings page
+ * opens by itself. Page 2 (Android 10+): Wi-Fi Easy Connect (DPP). The phone scans this QR code and sends the
+ * network it's connected to, password included. The radio can't do both at once, so the setup network runs on
+ * page 1 and Easy Connect listens on page 2. Swipe to switch. */
+
+static lv_obj_t *su_title, *su_note, *su_qr, *su_body, *su_dot[2];
+static int su_page;
+static bool su_can_close;           // a tap closes it (not in first-time setup: there is no saved network)
+static volatile bool su_open;
+static lv_timer_t *su_timer;
+static char su_note_text[96];
+static char su_ap_qr[96];           // "WIFI:T:WPA;S:<setup SSID>;P:<this device's password>;;"
+
+static void su_dots(void)
+{
+    for (int i = 0; i < 2; i++) {
+        lv_obj_set_size(su_dot[i], i == su_page ? 18 : 7, 7);
+        lv_obj_set_style_bg_color(su_dot[i], i == su_page ? C_TEXT : C_DIM, 0);
+    }
+}
+
+// Easy Connect callbacks (system event task: take the display lock)
+static void su_dpp_uri(const char *uri)
+{
+    display_lock(-1);
+    if (su_page == 1 && lv_screen_active() == scr_setup) {
+        lv_qrcode_update(su_qr, uri, strlen(uri));
+        lv_obj_remove_flag(su_qr, LV_OBJ_FLAG_HIDDEN);
+    }
+    display_unlock();
+}
+
+static void su_dpp_done(bool ok, const char *ssid)
+{
+    display_lock(-1);
+    if (ok) {
+        lv_label_set_text(su_title, tr(T_WIFI_RECEIVED));
+        lv_label_set_text_fmt(su_body, tr(T_WIFI_GOT), ssid);
+        lv_obj_add_flag(su_qr, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_label_set_text(su_body, tr(T_WIFI_DPP_FAIL));
+    }
+    display_unlock();
+}
+
+static void su_texts(int page)                      // texts only (snapshots use this without starting anything)
+{
+    su_page = page;
+    su_dots();
+    if (page == 0) {
+        lv_label_set_text(su_title, tr(T_WIFI_SETUP));
+        snprintf(su_ap_qr, sizeof(su_ap_qr), "WIFI:T:WPA;S:" SETUP_AP_SSID ";P:%s;;", net_setup_ap_pass());
+        lv_qrcode_update(su_qr, su_ap_qr, strlen(su_ap_qr));
+        lv_obj_remove_flag(su_qr, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text_fmt(su_body, tr(T_WIFI_JOIN), SETUP_AP_SSID, net_setup_ap_pass());
+    } else {
+        lv_label_set_text(su_title, tr(T_WIFI_DPP_TITLE));
+        lv_obj_add_flag(su_qr, LV_OBJ_FLAG_HIDDEN);          // until the code is generated
+        lv_label_set_text(su_body, tr(T_WIFI_DPP_HOW));
+    }
+    lv_label_set_text(su_note, su_note_text[0] ? su_note_text : !su_can_close ? "" :
+                               net_is_connected() ? tr(T_TAP_CANCEL) : tr(T_TAP_RETRY));
+}
+
+static void su_show_page(int page)
+{
+    su_texts(page);
+    if (page == 0) {
+        net_dpp_stop();
+        net_setup_ap_start();
+    } else {
+        net_setup_ap_stop_any();
+        if (!net_dpp_start(su_dpp_uri, su_dpp_done)) lv_label_set_text(su_body, tr(T_WIFI_DPP_NONE));
+    }
+    ESP_LOGI(TAG, "Wi-Fi setup page %d (%s)", page, page ? "Easy Connect" : "setup network");
+}
+
+static void su_close(void)
+{
+    ESP_LOGI(TAG, "Wi-Fi setup closed");
+    su_open = false;
+    if (su_timer) { lv_timer_delete(su_timer); su_timer = NULL; }
+    net_dpp_stop();
+    net_setup_ap_stop();
+    lv_screen_load_anim(scr_main, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, false);
+}
+
+// Online: close after 10 min. Offline: close after 5 idle min so the saved network is tried again (setup pauses
+// those attempts, and the router may just have been rebooting); main.c reopens setup if it still fails.
+static void su_timeout(lv_timer_t *t)
+{
+    if (!su_can_close) return;                          // first-time setup stays
+    if (!net_is_connected() && net_ap_clients() > 0) return;   // a phone is on the setup network
+    su_close();
+}
+
+static void su_gesture(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    if (!in) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(in);
+    if (dir == LV_DIR_LEFT && su_page == 0) su_show_page(1);
+    else if (dir == LV_DIR_RIGHT && su_page == 1) su_show_page(0);
+    lv_indev_wait_release(in);
+}
+
+static void su_tap(lv_event_t *e)
+{
+    if (su_can_close) su_close();
+}
+
+static void setup_create(void)
+{
+    scr_setup = base_screen();
+    lv_obj_add_flag(scr_setup, LV_OBJ_FLAG_CLICKABLE);
+    su_title = label(scr_setup, f_mid, C_ACCENT, 40, 320);
+    su_note = label(scr_setup, f_small, C_DIM, 78, 330);
+    su_qr = make_qr(scr_setup, 150);
+    lv_obj_align(su_qr, LV_ALIGN_TOP_MID, 0, 122);
+    su_body = label(scr_setup, f_small, C_TEXT, 292, 360);
+    for (int i = 0; i < 2; i++) {
+        su_dot[i] = lv_obj_create(scr_setup);
+        lv_obj_remove_style_all(su_dot[i]);
+        lv_obj_remove_flag(su_dot[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_radius(su_dot[i], 4, 0);
+        lv_obj_set_style_bg_opa(su_dot[i], LV_OPA_COVER, 0);
+        lv_obj_align(su_dot[i], LV_ALIGN_BOTTOM_MID, i == 0 ? -10 : 10, -16);
+    }
+    lv_obj_add_event_cb(scr_setup, su_gesture, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(scr_setup, su_tap, LV_EVENT_SHORT_CLICKED, NULL);
+}
+
+void ui_wifi_setup(const char *note)
+{
+    display_lock(-1);
+    if (note) strlcpy(su_note_text, note, sizeof(su_note_text));
+    else su_note_text[0] = 0;
+    su_can_close = !net_in_portal();
+    su_open = true;
+    su_show_page(0);
+    if (su_timer) lv_timer_delete(su_timer);
+    su_timer = lv_timer_create(su_timeout, (net_is_connected() ? 10 : 5) * 60 * 1000, NULL);
+    if (lv_screen_active() != scr_setup) lv_screen_load(scr_setup);
+    lv_indev_t *in = lv_indev_active();
+    if (in) lv_indev_wait_release(in);                              // the long-press isn't also a tap
+    display_unlock();
+}
+
+bool ui_wifi_setup_open(void) { return su_open; }
+
+bool ui_wifi_setup_close(void)
+{
+    display_lock(-1);
+    bool close = su_open && su_can_close && net_ap_clients() == 0;
+    if (close) su_close();
+    display_unlock();
+    return close;
+}
+
+void ui_wifi_setup_end(void)
+{
+    display_lock(-1);
+    if (su_timer) { lv_timer_delete(su_timer); su_timer = NULL; }
+    net_dpp_stop();
+    display_unlock();
+}
+
+/* ---------- updates, language ---------- */
+
+void ui_ota(const ota_status_t *st)
+{
+    display_lock(-1);
+    ota_st = *st;
+    if (lv_screen_active() == scr_main && pager_current(pager) == 1) system_refresh();
+    display_unlock();
+}
+
+void ui_texts_changed(void)
+{
+    display_lock(-1);
+    hello_refresh();
+    system_refresh();
+    if (su_open) su_texts(su_page);
+    display_unlock();
+}
+
+/* ---------- screen registry (test console, snapshots) ---------- */
+
+static lv_obj_t *get_hello(void) { return pager_page(pager, 0); }
+static lv_obj_t *get_system(void) { return pager_page(pager, 1); }
+static lv_obj_t *get_setup(void) { return scr_setup; }
+static lv_obj_t *get_msg(void) { return scr_msg; }
+static void show_hello(void) { pager_go(pager, 0, false); lv_screen_load(scr_main); }
+static void show_system(void) { system_refresh(); pager_go(pager, 1, false); lv_screen_load(scr_main); }
+static void show_setup(void) { ui_wifi_setup(NULL); }
+static bool shown_hello(void) { return lv_screen_active() == scr_main && pager_current(pager) == 0; }
+static bool shown_system(void) { return lv_screen_active() == scr_main && pager_current(pager) == 1; }
+static bool shown_setup(void) { return lv_screen_active() == scr_setup; }
+static bool shown_msg(void) { return lv_screen_active() == scr_msg; }
+static void prep_setup(void) { if (!su_open) su_texts(0); }   // texts only: no access point is started
+
+static const screen_def_t screens[] = {
+    { "hello",   get_hello,  show_hello,  hello_refresh,  shown_hello },
+    { "system",  get_system, show_system, system_refresh, shown_system },
+    { "setup",   get_setup,  show_setup,  prep_setup,     shown_setup },
+    { "message", get_msg,    NULL,        NULL,           shown_msg },
+};
+
+void ui_init(void)
+{
+    display_lock(-1);
+    f_big = mkfont(64);
+    f_mid = mkfont(30);
+    f_small = mkfont(20);
+    main_create();
+    msg_create();
+    setup_create();
+    screens_register(screens, sizeof(screens) / sizeof(screens[0]));
+    lv_screen_load(scr_msg);
+    display_unlock();
+    web_set_snapshot(screens_snapshot, screens_snapshot_free);
+}

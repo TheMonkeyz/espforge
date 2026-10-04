@@ -1,0 +1,22 @@
+menu "espforge"
+
+    config FORGE_SETUP_SSID
+        string "Setup network name"
+        default "Forge-Setup"
+        help
+            Name of the access point the device opens for Wi-Fi setup (captive portal). Same as setup_ssid in
+            forge.json (tools/harness joins it from the PC).
+
+    config FORGE_TLS_NAME
+        string "Name in the HTTPS certificate"
+        default "espforge device"
+        help
+            Common name of the per-device self-signed certificate, followed by the last 3 bytes of the MAC.
+
+    config FORGE_REPO
+        string "GitHub repository (owner/name)"
+        default "TheMonkeyz/espforge"
+        help
+            Used in the User-Agent of the firmware's own HTTP requests.
+
+endmenu
