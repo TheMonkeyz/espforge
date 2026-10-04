@@ -26,6 +26,7 @@ int main(void)
     CHECK(!strcmp(fit("Cafe \xE2\x98\x95"), "Cafe"), "emoji last: [%s]", out);
     // a ZWJ family emoji (man, ZWJ, woman) and a heart with its variation selector: nothing left of them
     CHECK(!strcmp(fit("A\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9" "B \xE2\x9D\xA4\xEF\xB8\x8F C"), "AB C"), "[%s]", out);
+    CHECK(!strcmp(fit("\xF0\x9F\x92\xA9\xF0\x9F\x92\xA9"), "\xE2\x80\xA6"), "all emoji: an ellipsis, not nothing: [%s]", out);
     CHECK(!strcmp(fit("two  spaces"), "two  spaces"), "spaces kept when nothing was removed: [%s]", out);
     CHECK(!strcmp(fit("bad \xC3"), "bad"), "a cut UTF-8 sequence dropped: [%s]", out);
     char small[6];

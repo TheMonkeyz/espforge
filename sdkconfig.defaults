@@ -56,3 +56,6 @@ CONFIG_FORGE_SETUP_SSID="Forge-Setup"
 CONFIG_FORGE_TLS_NAME="espforge device"
 CONFIG_FORGE_REPO="TheMonkeyz/espforge"
 CONFIG_FORGE_OTA_SITE="https://themonkeyz.github.io/espforge/"
+# Faster key generation on the NIST curves (precomputed tables): Easy Connect must answer the phone's request before
+# it leaves the channel (a phone on a 5 GHz network only visits the 2.4 GHz channel briefly). See docs/LESSONS.md.
+CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM=y

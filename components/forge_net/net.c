@@ -158,6 +158,11 @@ static void cmd_wifi(int argc, char **argv);
 void net_init(void)
 {
     nvs_init();
+#if CONFIG_ESP_WIFI_DEBUG_PRINT
+    // Debug builds only (docs/TESTING.md, "Easy Connect steps"): the supplicant's DPP steps are DEBUG lines; the
+    // build also needs CONFIG_LOG_MAXIMUM_LEVEL_DEBUG. (ESP-IDF 5.5 renamed CONFIG_WPA_DEBUG_PRINT to this.)
+    esp_log_level_set("wpa", ESP_LOG_DEBUG);
+#endif
     testcon_register("wifi", "wifi status|offline|online|offline-boot|offline-boot-short", cmd_wifi);
     svc_ntp = svc_add("pool.ntp.org", "SNTP", NULL);
     ESP_ERROR_CHECK(esp_netif_init());
@@ -420,15 +425,14 @@ static void dpp_pick_channel(int connected)
     net_load_creds(saved, sizeof(saved), pass, sizeof(pass));
     int seen = 0, ch = 0;
     const char *why = "default";
-    if (connected) {
-        snprintf(dpp_chan, sizeof(dpp_chan), "%d", connected);
-        ESP_LOGI(TAG, "Easy Connect: channel %d (the network it is connected to)", connected);
-        return;
-    }
+    // The scan is kept even when the channel is known from the connection: skipping it (QR code in 0.15 s instead of
+    // ~2 s) made every Easy Connect attempt time out (ESP_ERR_DPP_AUTH_TIMEOUT, 2 tries, October 4), while the
+    // attempts after a scan had worked. The app shows a placeholder code meanwhile (main/ui.c).
     // The saved network first, by name: a probe request carrying its name is answered more reliably than a broadcast
     // one, and only its records come back (a broadcast scan keeps the 16 strongest). The broadcast scan at 40-80 ms per
     // channel missed a router on a busy channel (v1.10.0 harness run: it picked the strongest network, channel 11).
     if (saved[0] && (ch = scan_channel(saved, 120, &seen))) why = "saved network";      // ~1.6 s
+    else if (connected) { ch = connected; why = "the network it was connected to"; }
     else if ((ch = scan_channel(NULL, 80, &seen))) why = "strongest network";          // ~1 s more
     if (ch < 1 || ch > 13) ch = 6;
     snprintf(dpp_chan, sizeof(dpp_chan), "%d", ch);
@@ -510,6 +514,11 @@ bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done)
     esp_wifi_disconnect();                                 // listening needs the radio (also cancels an attempt)
     ESP_LOGI(TAG, "Easy Connect: not trying the saved network meanwhile");
     esp_wifi_set_mode(WIFI_MODE_STA);
+    // Listen only once the station has really left (it took ~2 ms here, but the listen must not race it) and with
+    // power save off: the radio must be awake on the channel for the phone's request (an AUTH_TIMEOUT followed the
+    // first attempt made straight from a connection, October 4; the attempts after a 2 s scan had worked)
+    for (int i = 0; i < 50 && net_is_connected(); i++) vTaskDelay(pdMS_TO_TICKS(20));
+    esp_wifi_set_ps(WIFI_PS_NONE);
     dpp_pick_channel(connected);
     esp_err_t err = ESP_OK;
     if (!dpp_inited) {
@@ -539,6 +548,7 @@ void net_dpp_stop(void)
     dpp_active = false;
     dpp_uri_cb = NULL;
     dpp_done_cb = NULL;
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);                    // ESP-IDF's default for a station
     ESP_LOGI(TAG, "Easy Connect stopped");
     resume_saved();
 }

@@ -11,5 +11,6 @@
 void textfit_init(const uint8_t *ttf, size_t len);   // the embedded font; false coverage (keep all) if it can't be read
 bool textfit_has(uint32_t cp);                       // the font draws this character
 // in -> out without the characters the font lacks (emoji, their joiners and variation selectors), spaces left
-// doubled by a removal collapsed, trimmed. Returns out's length. Without textfit_init: a plain copy.
+// doubled by a removal collapsed, trimmed; nothing left at all (a name all in emoji): "…". Returns out's length.
+// Without textfit_init: a plain copy.
 size_t textfit(const char *in, char *out, size_t n);

@@ -86,6 +86,12 @@ size_t textfit(const char *in, char *out, size_t n)
         o += len;
     }
     if (dropped) while (o && out[o - 1] == ' ') o--;
+    // Nothing left (a name all in emoji): something visible, or the line read as "no network" (the user, October 4)
+    if (dropped && !o && n > 3) {
+        const char *mark = textfit_has(0x2026) ? "\xE2\x80\xA6" : "?";   // "…"
+        o = strlen(mark);
+        memcpy(out, mark, o);
+    }
     out[o] = 0;
     return o;
 }

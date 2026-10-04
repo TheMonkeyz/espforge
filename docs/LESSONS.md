@@ -572,9 +572,11 @@ Check: probe requests with the SSID, 120 ms per channel; broadcast only as fallb
 Why: calling `esp_supp_dpp_start_listen()` right after it returns `ESP_FAIL`.
 Check: start listening from the `ESP_SUPP_DPP_URI_READY` callback.
 
-**L112. To see DPP steps, `CONFIG_WPA_DEBUG_PRINT=y` in the test build's sdkconfig only.**
-Why: lines `wpa: DPP: …` show each step; too noisy to ship.
-Check: `build\v55\sdkconfig` only (L11).
+**L112. To see DPP steps, `CONFIG_ESP_WIFI_DEBUG_PRINT=y` in the test build's sdkconfig only.**
+Why: lines `wpa: DPP: …` show each step; too noisy to ship. ESP-IDF 5.5 renamed the option (it was
+`CONFIG_WPA_DEBUG_PRINT`): the old name is dropped silently when the build reconfigures, and no line appears (L171).
+Check: `build\v55\sdkconfig` only (L11); the INFO lines (request received, response sent, confirm timeout) give the
+timing; the hex dumps need `CONFIG_LOG_MAXIMUM_LEVEL_DEBUG` too and slow the answer ~4x.
 
 **L113. `ESP_SUPP_DPP_FAIL` carries different data on IDF 5.4 and 5.5.**
 Why: an error code on 5.4, a `wifi_event_dpp_failed_t *` on 5.5 (`failure_reason`).
@@ -859,3 +861,23 @@ Why: the Easy Connect code appeared 0.15 s after its page settled; the empty spo
 the user. A faint, grey placeholder code of the same size and density now holds its place (and is in the drag's
 picture), and the real one fades up over 300 ms. Make the placeholder harmless if scanned or read (plain text here,
 not a broken link).
+
+## Easy Connect with a phone on 5 GHz (October 4)
+
+**L171. A debug setting that "does nothing" may have been renamed.**
+Why: `CONFIG_WPA_DEBUG_PRINT=y` (weather_amoled's note) built without a single `wpa:` line on IDF 5.5: the option is
+`CONFIG_ESP_WIFI_DEBUG_PRINT` now. Then the DPP lines were DEBUG level and needed `CONFIG_LOG_MAXIMUM_LEVEL_DEBUG`.
+Check: after the build, grep the generated sdkconfig for the option you set; grep the log for the tag.
+
+**L172. Before blaming a change, run the old firmware the same way.**
+Why: Easy Connect failed 5 times on espforge; three changes were suspected in turn (the skipped channel scan, power
+save, timing). The user said it worked in weather_amoled: flashed with the same logging, it failed identically (phone
+on the router's 5 GHz band: request received on channel 1, answer acknowledged, no Auth Confirm). One A/B try would
+have saved four.
+Check: same build options, same steps, both firmwares, one log each; compare step by step.
+
+**L173. Easy Connect's answer time: enable fixed-point ECC.**
+Why: the board must create a key pair before answering the phone's request; a phone on a 5 GHz network only visits
+the 2.4 GHz channel briefly. `CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM` (off by default) cut the answer to 236 ms
+(INFO logging) from ~900 ms (debug logging). It did not fix the 5 GHz case (L172); it can only help.
+Check: `wpa: DPP: Authentication Request` -> `Sending authentication response` times (debug build).
