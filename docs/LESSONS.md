@@ -897,3 +897,9 @@ Why: the board's log could only say "no confirmation came"; three theories (chan
 seven tries. Android's own Wi-Fi log over wireless debugging (`adb pair` / `adb connect`, Wi-Fi verbose logging on)
 showed in one try that the board's answer was correct and the phone's confirmation was not acknowledged.
 Check: docs/TESTING.md, "Easy Connect: the phone's side".
+
+**L176. A deployment that reports success may not be served: check what users get.**
+Why: espforge v0.1.0's Pages deployment succeeded, yet the site kept serving rc.6 for 30 minutes (devices on Stable
+saw nothing). Re-running only the `pages` job failed on a duplicate artifact; a fresh run from `main` fixed it.
+Check: after every release, `curl -sI <ota_site>channels.json` (`Last-Modified`, `stable`); recovery in
+docs/RELEASING.md, "The site still serves the old files".

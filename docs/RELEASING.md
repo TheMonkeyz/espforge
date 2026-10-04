@@ -71,8 +71,18 @@ were published as rc.2 and rc.3). The CHANGELOG keeps no section for a tag that 
 1. Ask the user, saying what is in it (the rc series' changelog lines) and the proposed number.
 2. Write the stable `## vX.Y.Z - <date>` section (everything from the rc sections, in user words), commit.
 3. Same checks as an rc, then `git tag vX.Y.Z` on that commit and `git push origin main vX.Y.Z`.
-4. Watch CI; check `channels.json` `stable`; `harness.py --ota vX.Y.Z` on a device on Stable (or Beta: Beta falls back
-   to Stable when no newer rc exists).
+4. Watch CI; check that the site **serves** it: `curl -sI <ota_site>channels.json` (its `Last-Modified` after the
+   deploy) and its `stable`. Then `harness.py --ota vX.Y.Z` on a device on Stable (or Beta: Beta falls back to
+   Stable when no newer rc exists).
+
+### The site still serves the old files
+
+espforge v0.1.0: the tag's `pages` job and its deployment both reported success, and 30 minutes later GitHub Pages still
+served the rc.6 files (`Last-Modified` of the previous deployment, fetched again from the origin). Never re-run only
+the `pages` job of that run: the re-run uploads a second `github-pages` artifact into the same run and
+`deploy-pages` fails ("Multiple artifacts named github-pages"). Deploy afresh instead:
+`gh workflow run firmware.yml --ref main` (the `pages` job builds the site from the published releases); served
+within a minute.
 
 ## CI (`.github/workflows/firmware.yml`)
 
@@ -83,7 +93,7 @@ were published as rc.2 and rc.3). The CHANGELOG keeps no section for a tag that 
 | `host-tests` | push, PR, tag | `make -C tests/host` (cJSON at ESP-IDF's version) and the harness's unit tests. |
 | `webtest` | push, PR, tag | Playwright against the mock device; screenshots uploaded. |
 | `release` | `v*` tags, after the three above pass | GitHub release with the parts; pre-release if the tag has a `-`. |
-| `pages` | after a release, or *Run workflow* on `main` | Newest stable release + newest pre-release above it → `make_flasher_site.py site` → GitHub Pages. Fails if no stable release exists yet. |
+| `pages` | after a release, or *Run workflow* on `main` | Newest stable release + newest pre-release above it → `make_flasher_site.py site` → GitHub Pages; Beta only before the first stable release (L159). |
 
 Actions are pinned to commit SHAs (the comment names the tag); Dependabot proposes updates monthly
 (`.github/dependabot.yml`). esptool is pinned too.
