@@ -389,13 +389,13 @@ void net_setup_ap_stop_any(void) { ap_down(); }
 
 /* ---------------- Wi-Fi Easy Connect (DPP enrollee) ----------------
  * The display shows a DPP QR code; an Android phone (10+) scans it (camera or any QR scanner) and sends
- * the network it's connected to (SSID + password). Needs STA mode without connection attempts, so the
- * setup AP and our reconnects are paused while it listens. */
+ * the network it's connected to (SSID + password). No connection attempts while it listens (they made the radio hop
+ * channels), and the setup AP held on its channel (dpp_hold_channel: without it the phone's confirmation was missed). */
 
-// Listen on ONE channel, the one the phone is most likely on: the saved network's if it is in range, else the
-// strongest network's. The phone stays on its own network's channel; the display needs ~0.3 s to answer, and a
-// phone that had hopped to another channel to talk to us was already back home (Auth Confirm timeout). Online,
-// the display was on the router's channel anyway, which is why Easy Connect only worked then.
+// Listen on ONE channel: the saved network's if it is in range, else the strongest network's. (weather_amoled
+// concluded the phone must be on that channel, as Easy Connect "only worked online"; the phone's own log showed the
+// real cause, October 4: the phone visits the channel fine, but its confirmation was not ACKed because nothing held
+// the display's radio there. See dpp_hold_channel.)
 static char dpp_chan[4] = "6";
 
 // One scan; returns the channel of the strongest 2.4 GHz record (of `ssid` if given), 0 if none. *seen = records.
@@ -437,6 +437,22 @@ static void dpp_pick_channel(int connected)
     if (ch < 1 || ch > 13) ch = 6;
     snprintf(dpp_chan, sizeof(dpp_chan), "%d", ch);
     ESP_LOGI(TAG, "Easy Connect: channel %d (%s, %d networks seen)", ch, why, seen);
+}
+
+/* The setup AP runs on the Easy Connect channel while it listens, to keep the radio parked there. ESP-IDF stops listening
+ * when the phone's request arrives (ROC cancelled), computes the answer (~0.24 s), and sends it with a short wait on
+ * the channel; the phone confirms ~7 ms after receiving it. With the station off every network nothing held the
+ * radio on the channel, and the phone's log showed its confirmation not ACKed: Auth Confirm timeout, every time with
+ * a Pixel 8 Pro (October 4; ESP-IDF issues #12151, #17672 report the same). An AP never leaves its channel. */
+static void dpp_hold_channel(int ch)
+{
+    if (!ap_active) ap_up();
+    wifi_config_t c;
+    if (esp_wifi_get_config(WIFI_IF_AP, &c) == ESP_OK && c.ap.channel != ch) {
+        c.ap.channel = ch;
+        esp_wifi_set_config(WIFI_IF_AP, &c);
+    }
+    ESP_LOGI(TAG, "Easy Connect: setup AP held on channel %d (keeps the radio there for the phone's confirmation)", ch);
 }
 
 static net_dpp_uri_cb_t dpp_uri_cb;
@@ -513,13 +529,13 @@ bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done)
     esp_timer_stop(retry_timer);
     esp_wifi_disconnect();                                 // listening needs the radio (also cancels an attempt)
     ESP_LOGI(TAG, "Easy Connect: not trying the saved network meanwhile");
-    esp_wifi_set_mode(WIFI_MODE_STA);
     // Listen only once the station has really left (it took ~2 ms here, but the listen must not race it) and with
     // power save off: the radio must be awake on the channel for the phone's request (an AUTH_TIMEOUT followed the
     // first attempt made straight from a connection, October 4; the attempts after a 2 s scan had worked)
     for (int i = 0; i < 50 && net_is_connected(); i++) vTaskDelay(pdMS_TO_TICKS(20));
     esp_wifi_set_ps(WIFI_PS_NONE);
     dpp_pick_channel(connected);
+    dpp_hold_channel(atoi(dpp_chan));
     esp_err_t err = ESP_OK;
     if (!dpp_inited) {
         err = esp_supp_dpp_init(dpp_event);

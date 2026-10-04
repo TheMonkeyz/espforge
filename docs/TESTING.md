@@ -226,3 +226,21 @@ after N seconds (the offline setup path, before `wifi offline-boot` existed); fa
 ## Project checks
 
 Each project lists here its screens, pseudo-screens, app suites and recipes (alert sounds, presence, sensors).
+
+## Easy Connect: the phone's side
+
+The board's log says what the board saw; only the phone's log says why the phone stopped. Android (11+), no cable:
+
+1. On the phone: Developer options (tap Build number 7 times) → **Wireless debugging** on → **Pair device with pairing
+   code**. Note the IP:port and the code; also turn on **Enable Wi-Fi verbose logging**.
+2. On the PC (Android SDK Platform-Tools, unzipped anywhere): `adb pair <ip>:<pairing port> <code>` (use the IP, not
+   the mDNS name; a failed try uses the code up: ask for a new one), then `adb mdns services` for the connect port and
+   `adb connect <ip>:<port>`.
+3. `adb logcat -c`, then `adb logcat -v time > phone_dpp.txt` in the background; the user scans; then
+   `grep -E "DPP|DppManager" phone_dpp.txt`.
+4. Read: `DPP-TX ... type=0` (the phone's request), `DPP: Authentication Response from ...` (the board's answer
+   arrived), `type=2 ... result=no-ACK` (its confirmation not received: the board's radio was elsewhere),
+   `DPP-CONF-SENT` (the network was sent). The link drops when the phone changes network; the phone keeps its log.
+
+Together with the board's side (`CONFIG_ESP_WIFI_DEBUG_PRINT=y` in the test build's sdkconfig only, LESSONS L112) this
+located the Easy Connect failure in one try (L174, L175).

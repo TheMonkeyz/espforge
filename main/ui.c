@@ -183,12 +183,14 @@ static void system_refresh(void)
     }
 }
 
-// Every second, only what the user can see (the other page is refreshed before a snapshot or when shown)
+// Every second, both pages: the one not shown too, because a swipe shows a picture of it rendered in the background
+// (slide.c, refreshed every 2 s): with its texts updated only when shown, a swipe showed stale ones for a moment
+// ("Wi-Fi offline" after a restart). Changing an off-screen label costs no redraw.
 static void tick(lv_timer_t *t)
 {
     if (lv_screen_active() != scr_main) return;
-    if (pager_current(pager) == 0) hello_refresh();
-    else system_refresh();
+    hello_refresh();
+    system_refresh();
 }
 
 static void page_settled(int page, void *user)
@@ -254,8 +256,8 @@ void ui_home(void)
 /* ---------- Wi-Fi setup ----------
  * Page 1: the setup network (this device's own access point and captive portal): scan to join, the settings page
  * opens by itself. Page 2 (Android 10+): Wi-Fi Easy Connect (DPP). The phone scans this QR code and sends the
- * network it's connected to, password included. The radio can't do both at once, so the setup network runs on
- * page 1 and Easy Connect listens on page 2. The two pages are a pager like hello | system, so they follow the finger
+ * network it's connected to, password included. The setup network stays up on page 2: it holds the radio on Easy
+ * Connect's channel (forge_net's dpp_hold_channel). The two pages are a pager like hello | system, so they follow the finger
  * (slide.c); each page has all its own objects (title, note, QR code, text, dots): a drag's picture of the page coming
  * in holds only that page. */
 
@@ -354,7 +356,7 @@ static void su_radio_task(void *arg)
             net_dpp_stop();
             net_setup_ap_start();
         } else if (mode == RADIO_DPP) {
-            net_setup_ap_stop_any();
+            // The setup network stays up: net_dpp_start keeps it on the Easy Connect channel (it holds the radio there)
             if (!net_dpp_start(su_dpp_uri, su_dpp_done)) {
                 display_lock(-1);
                 lv_label_set_text(su[1].body, tr(T_WIFI_DPP_NONE));

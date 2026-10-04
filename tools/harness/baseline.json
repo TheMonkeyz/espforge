@@ -6,9 +6,9 @@
   "ref": 4.8
  },
  "easy_connect_qr_s": {
-  "max": 1.0,
-  "ref": 0.15,
-  "note": "connected: the router channel without a scan (was ~2.1 s)"
+  "max": 4.0,
+  "ref": 2.55,
+  "note": "with the channel scan (restored in rc.5; skipping it gave ~0.15 s and was cleared of blame, L172) plus the setup AP held on the channel (L174); the placeholder covers the wait"
  },
  "failed_allocs": {
   "max": 0,

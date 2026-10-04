@@ -873,11 +873,27 @@ Check: after the build, grep the generated sdkconfig for the option you set; gre
 Why: Easy Connect failed 5 times on espforge; three changes were suspected in turn (the skipped channel scan, power
 save, timing). The user said it worked in weather_amoled: flashed with the same logging, it failed identically (phone
 on the router's 5 GHz band: request received on channel 1, answer acknowledged, no Auth Confirm). One A/B try would
-have saved four.
+have saved four. (The 5 GHz explanation drawn from it was wrong too: the phone's own log found the cause, L174.)
 Check: same build options, same steps, both firmwares, one log each; compare step by step.
 
 **L173. Easy Connect's answer time: enable fixed-point ECC.**
 Why: the board must create a key pair before answering the phone's request; a phone on a 5 GHz network only visits
 the 2.4 GHz channel briefly. `CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM` (off by default) cut the answer to 236 ms
-(INFO logging) from ~900 ms (debug logging). It did not fix the 5 GHz case (L172); it can only help.
+(INFO logging) from ~900 ms (debug logging). It was not the fix (L174); it can only help.
 Check: `wpa: DPP: Authentication Request` -> `Sending authentication response` times (debug build).
+
+**L174. Easy Connect: keep the radio on the channel; the setup AP holds it there.**
+Why: ESP-IDF's enrollee stops listening (ROC cancelled) when the phone's request arrives, computes its answer, and sends
+it with a short wait on the channel. A Pixel 8 Pro confirmed 7 ms after receiving the answer: "no-ACK" in the phone's
+log, Auth Confirm timeout on the board, 7 failures out of 7 (espforge and weather_amoled alike). Whether a phone's
+confirmation lands is timing, which is why ESP-IDF issues #12151 / #17672 report 3-10 retries and why weather_amoled
+saw it "only work online" (associated, the radio stayed on the router's channel). With the setup AP up on the Easy
+Connect channel (`dpp_hold_channel` in forge_net), the confirmation is ACKed: 5 out of 5 (online, offline, switching
+networks both ways).
+Check: the phone's log shows `DPP-TX-STATUS ... type=2 ... result=SUCCESS`; the board logs `Easy Connect: received`.
+
+**L175. When the other side decides, read the other side's log.**
+Why: the board's log could only say "no confirmation came"; three theories (channel scan, power save, 5 GHz) cost
+seven tries. Android's own Wi-Fi log over wireless debugging (`adb pair` / `adb connect`, Wi-Fi verbose logging on)
+showed in one try that the board's answer was correct and the phone's confirmation was not acknowledged.
+Check: docs/TESTING.md, "Easy Connect: the phone's side".

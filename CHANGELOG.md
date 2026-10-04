@@ -16,7 +16,11 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 - A settings page for Wi-Fi, language and updates: scan the code on the system screen with your phone.
 - English and French (Canada), on the display and on the settings page.
 - Updates over Wi-Fi from the Stable or Beta channel, with release notes before you install. A new version that fails to start goes back to the previous one by itself.
-- Known issue: Easy Connect may not finish when your phone is connected to a 5 GHz network. Use the setup network (the first Wi-Fi setup page) instead.
+
+## v0.1.0-rc.6 - 2026-10-04
+- Easy Connect works reliably: the display used to miss the phone's last message, so the phone said "That didn't work".
+- The setup network stays available while the Easy Connect page is shown.
+- Swiping to the system screen shows its current details right away.
 
 ## v0.1.0-rc.5 - 2026-10-04
 - Easy Connect answers the phone faster.
