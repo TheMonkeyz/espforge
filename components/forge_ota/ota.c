@@ -183,6 +183,12 @@ static void check(void)
     xSemaphoreGive(mux);
     cJSON *c = cJSON_GetObjectItem(ch, chan);
     if (!cJSON_IsObject(c)) c = cJSON_GetObjectItem(ch, "stable");      // no beta right now: stable
+    if (!cJSON_IsObject(c) && cJSON_IsObject(ch)) {                      // nothing released on it yet (a new
+        cJSON_Delete(ch);                                                // project before its first stable)
+        ESP_LOGI(TAG, "%s channel offers nothing yet", chan);
+        set_state(OTA_UP_TO_DATE, OTA_E_NONE);
+        return;
+    }
     const char *ver = cJSON_GetStringValue(cJSON_GetObjectItem(c, "version"));
     const char *man = cJSON_GetStringValue(cJSON_GetObjectItem(c, "manifest"));
     if (!ver || !man) { cJSON_Delete(ch); set_state(OTA_FAILED, OTA_E_BAD_SITE); return; }

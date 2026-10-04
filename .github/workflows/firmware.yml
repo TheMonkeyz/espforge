@@ -206,9 +206,12 @@ jobs:
           EOF
           )
           echo "stable=$stable beta=$beta"
-          if [ "$stable" = "-" ]; then echo "::error::No stable release yet: tag vX.Y.Z first"; exit 1; fi
-          gh release download "$stable" --dir "rel/stable" --pattern "*.bin" --pattern "flash-parts.json"
-          args="--stable rel/stable"
+          if [ "$stable" = "-" ] && [ "$beta" = "-" ]; then echo "::error::No release to publish"; exit 1; fi
+          args=""
+          if [ "$stable" != "-" ]; then          # none before a new project's first vX.Y.Z: a Beta-only site
+            gh release download "$stable" --dir "rel/stable" --pattern "*.bin" --pattern "flash-parts.json"
+            args="--stable rel/stable"
+          fi
           if [ "$beta" != "-" ]; then
             gh release download "$beta" --dir "rel/beta" --pattern "*.bin" --pattern "flash-parts.json"
             args="$args --beta rel/beta"

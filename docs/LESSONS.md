@@ -794,3 +794,8 @@ Check: the flash helper drops requests present at its start.
 Why: weather_amoled's map cache sat at espforge's coredump address; ESP-IDF logged
 `Incorrect size of core dump image` at every boot, and the harness fails on E lines.
 Check: diag erases a core dump partition that holds no valid dump.
+
+**L159. A new project has release candidates before any stable release.**
+Why: espforge's first tag (v0.1.0-rc.1) built and released, then the Pages job stopped on "no stable release yet",
+a rule written for a project that already had one; and the firmware read a missing stable channel as a bad site.
+Check: the site is Beta-only until vX.Y.Z (`make_flasher_site.py site --beta`); "nothing offered" = up to date.

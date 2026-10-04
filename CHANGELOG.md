@@ -8,6 +8,9 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.1.0-rc.2 - 2026-10-04
+- Before the first stable release, a display on the Stable channel says it is up to date instead of showing an error.
+
 ## v0.1.0-rc.1 - 2026-10-04
 - Two screens to swipe between: a welcome screen with the time and date, and a system screen with the firmware version, network, memory and update status.
 - Press and hold anywhere for the Wi-Fi setup screen.
