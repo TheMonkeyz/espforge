@@ -1,6 +1,8 @@
 // espforge starter app: the framework's start-up order, Wi-Fi setup paths and settings route, with two screens.
 // A new project keeps this skeleton and replaces the screens (ui.c) and the work loop at the end.
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -115,6 +117,8 @@ static void first_setup(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "starting");
+    setenv("TZ", CONFIG_APP_TZ, 1);   // the clock's time zone (menuconfig "Starter app"); SNTP sets UTC
+    tzset();
     cJSON_InitHooks(&(cJSON_Hooks){ .malloc_fn = json_alloc, .free_fn = free });
     diag_mark("start");
     net_init();                 // NVS first: settings, the language, the saved network

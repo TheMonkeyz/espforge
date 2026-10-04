@@ -204,8 +204,8 @@ static void main_create(void)
     s_title = label(p1, f_mid, C_ACCENT, 40, 300);
     s_lines = label(p1, f_small, C_TEXT, 84, 380);
     s_qr = make_qr(p1, 92);
-    lv_obj_align(s_qr, LV_ALIGN_TOP_MID, 0, 300);
-    s_scan = label(p1, f_small, C_DIM, 410, 260);
+    lv_obj_align(s_qr, LV_ALIGN_TOP_MID, 0, 262);
+    s_scan = label(p1, f_small, C_DIM, 372, 300);   // y 372 + 2 lines: still inside the circle
     hello_refresh();
     system_refresh();
     lv_timer_create(tick, 1000, NULL);

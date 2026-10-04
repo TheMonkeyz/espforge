@@ -204,7 +204,8 @@ static void sta_config(const char *ssid, const char *pass)
     put_field(wc.sta.ssid, sizeof(wc.sta.ssid), ssid);
     put_field(wc.sta.password, sizeof(wc.sta.password), pass);
     wc.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA_PSK : WIFI_AUTH_OPEN;
-    esp_wifi_set_config(WIFI_IF_STA, &wc);
+    esp_err_t e = esp_wifi_set_config(WIFI_IF_STA, &wc);
+    if (e != ESP_OK) ESP_LOGE(TAG, "station config not set: %s", esp_err_to_name(e));
 }
 
 void net_test_offline_next_boot(bool short_setup) { test_offline_boot = short_setup ? TEST_MAGIC ^ TEST_SHORT : TEST_MAGIC; }
@@ -213,8 +214,8 @@ void net_test_offline(void)
 {
     ESP_LOGW(TAG, "TEST: saved network replaced by \"" TEST_SSID "\" until 'wifi online' or a restart");
     esp_timer_stop(retry_timer);
-    sta_config(TEST_SSID, "unreachable");
     esp_wifi_disconnect();                        // the disconnect event schedules retries (to the fake network)
+    sta_config(TEST_SSID, "unreachable");
 }
 
 void net_test_online(void)
@@ -222,11 +223,14 @@ void net_test_online(void)
     char ssid[33] = "", pass[65] = "";
     if (!net_load_creds(ssid, sizeof(ssid), pass, sizeof(pass))) return;
     ESP_LOGW(TAG, "TEST: saved network \"%s\" restored", ssid);
+    // Disconnect first: it also cancels an attempt in progress. esp_wifi_set_config() refuses while the station is
+    // connecting ("sta is connecting, cannot set config"), and the device then kept trying the fake network forever
+    // (espforge harness, wifi_runtime, October 4)
+    esp_timer_stop(retry_timer);
+    esp_wifi_disconnect();
     sta_config(ssid, pass);
     if (setup_on() || net_is_connected()) return;  // setup open: tried once it closes (resume_saved)
     retries = 0;
-    esp_timer_stop(retry_timer);
-    esp_wifi_disconnect();
     esp_wifi_connect();
 }
 

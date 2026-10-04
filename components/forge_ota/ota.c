@@ -312,6 +312,13 @@ void ota_restart_when_safe(void)
 
 static void ota_task(void *arg)
 {
+    // "Running ..." once the USB Serial/JTAG port is back after the reset (a PC monitor misses the first ~2.5 s):
+    // the line every test checks first (docs/PROTOCOL.md §3)
+    int64_t up_ms = esp_timer_get_time() / 1000;
+    if (up_ms < 4000) vTaskDelay(pdMS_TO_TICKS(4000 - up_ms));
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    ESP_LOGI(TAG, "Running %s from %s, channel %s%s", st.current, run ? run->label : "?", st.channel,
+             ota_pending_verify() ? " (new: not confirmed yet)" : "");
     TickType_t started = xTaskGetTickCount();
     bool validated = !ota_pending_verify(), was_online = false;
     TickType_t next_check = started + pdMS_TO_TICKS(60 * 1000);          // first check a minute after boot
@@ -382,9 +389,6 @@ void ota_start(ota_listener_t l)
         nvs_get_str(h, "channel", st.channel, &n);
         nvs_close(h);
     }
-    const esp_partition_t *run = esp_ota_get_running_partition();
-    ESP_LOGI(TAG, "Running %s from %s, channel %s%s", st.current, run ? run->label : "?", st.channel,
-             ota_pending_verify() ? " (new: not confirmed yet)" : "");
     note_rollback();
     xTaskCreatePinnedToCore(ota_task, "ota", 8192, NULL, 2, &task, 0);   // install = TLS + flash writes (IDF examples: 8 KB)
 }

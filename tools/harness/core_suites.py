@@ -41,9 +41,12 @@ def start_up(ctx):
         ctx.note('boot: no start-up in this log window, nothing checked')
         return
     v = ctx.board.version()
+    # ESP-IDF's own boot lines (App version...) come in the first ~2.5 s, while the USB Serial/JTAG port is still
+    # re-enumerating after the reset: the monitor usually misses them. Checked when present; the OTA line below is
+    # the one that counts.
     m = next((re.search(r'App version:\s+(\S+)', l) for l in lines if 'App version:' in l), None)
-    check(m, 'no "App version:" line in the start-up (ESP-IDF app_init)')
-    check(m.group(1) == v, f'ESP-IDF says App version {m.group(1)}, the console says {v}')
+    if m:
+        check(m.group(1) == v, f'ESP-IDF says App version {m.group(1)}, the console says {v}')
     ready = next((l for l in lines if re.search(CFG['ready_line'], l)), None)
     check(ready, f'no ready line /{CFG["ready_line"]}/ in the start-up')
     if ms_of(ready) is not None:
