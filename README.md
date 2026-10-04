@@ -72,14 +72,14 @@ forge.json                      the project's config: app, repo, ota_site, scree
 sdkconfig.defaults              build config (CONFIG_FORGE_* values, PSRAM, QIO, -O2, rollback, core dump)
 sdkconfig.debug                 extra checks for a debug build (heap poisoning, stack watchpoint)
 partitions.csv                  two OTA slots, otadata, NVS, core dump
-main/                           the starter app: pager with hello, system and setup screens
+main/                           the starter app: hello | system pager, Wi-Fi setup pager, settings page
 main/i18n_strings.h             every display text, English and Canadian French
 main/web/index.html             the settings page
 boards/ws_amoled175/board/      board support (component "board"): CO5300 display, CST9217 touch, QMI8658
 components/forge_core/          version, http_once, utf8, png_rows, nvs_check, diag, test console, i18n core
 components/forge_net/           Wi-Fi station, setup AP + captive portal, Easy Connect, TLS cert, web server, service health
 components/forge_ota/           updates from the Pages site, rollback confirmation
-components/forge_lvgl/          LVGL heap in PSRAM, pager, snapshots, touch injection, screen registry
+components/forge_lvgl/          LVGL heap in PSRAM, pager, moves as pictures (slide.c), text fit, snapshots, touch injection, screens
 components/dns_server/          captive-portal DNS (from ESP-IDF's example)
 tools/devloop/                  flash helper (Windows), devloop.py, stage.py; state files in .devloop/
 tools/harness/                  harness.py, board.py, core_suites.py, app_suites.py, baseline.json, reports/
@@ -95,11 +95,13 @@ docs/                           workflow, testing, releasing, lessons, protocol,
 
 ## The starter app
 
-Three screens in a pager, swiped left and right:
+Two pages to swipe between, plus Wi-Fi setup on a long-press. Swipes follow the finger at ~66 fps: forge_lvgl's
+`slide.c` draws them as pictures copied straight to the panel (LVGL's own scrolling managed ~24 fps).
 
-- **hello**: the place to start your own UI.
-- **system**: firmware version, network and device status.
-- **setup**: the Wi-Fi setup pages (setup network QR code, Easy Connect QR code).
+- **hello**: clock and date; the place to start your own UI.
+- **system**: firmware version, Wi-Fi, address, memory, uptime, update status, and the settings page's QR code.
+- **setup** / **setup1**: Wi-Fi setup, two pages of their own pager: the setup network's QR code, and Easy Connect's
+  (a faint placeholder until the code is ready, then it fades in).
 
 The settings page (`https://<ip>/`) shows device info, Wi-Fi (scan and save), language (English / français) and
 updates (channel, check, install, release notes). Everything visible goes through i18n; French is Canadian French.

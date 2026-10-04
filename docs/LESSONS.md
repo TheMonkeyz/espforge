@@ -853,3 +853,9 @@ Why: showing the Easy Connect page took the radio off the home network: the snap
 Why: a phone shared a network named with emoji: boxes on the display (TinyTTF draws a box for a missing glyph and
 never says so); and the harness crashed printing it on the Windows console (cp1252).
 Check: `textfit()` (reads the TTF's cmap; `tests/host/test_textfit.c`); the harness writes UTF-8 with replacement.
+
+**L170. Something that arrives a moment later gets a placeholder of the same shape.**
+Why: the Easy Connect code appeared 0.15 s after its page settled; the empty spot, then the pop-in, looked janky to
+the user. A faint, grey placeholder code of the same size and density now holds its place (and is in the drag's
+picture), and the real one fades up over 300 ms. Make the placeholder harmless if scanned or read (plain text here,
+not a broken link).

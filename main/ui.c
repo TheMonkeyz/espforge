@@ -269,12 +269,44 @@ static lv_timer_t *su_timer;
 static char su_note_text[96];
 static char su_ap_qr[96];           // "WIFI:T:WPA;S:<setup SSID>;P:<this device's password>;;"
 
+/* Easy Connect's code exists ~0.15 s after the page settles (more when offline: a channel scan). Until then the page
+ * shows a placeholder code of the same size and density, faint and low-contrast ("loading"), so nothing pops in and a
+ * drag's picture of the page already has it; the real code replaces it and fades up (the user found the pop-in janky).
+ * LVGL 9.2 has no blur filter: low opacity and grey modules stand in for it. */
+#define QR_FAINT LV_OPA_30
+// As long as a real DPP URI (~100 characters): the same module count. Plain text, not a DPP URI: a phone that scans
+// the faint placeholder gets a harmless message, not a broken Easy Connect link.
+static const char QR_PLACEHOLDER[] =
+    "Wait a moment: the Easy Connect code is being made. Scan again once it is bright, not faint........";
+static bool qr_real;                                 // su[1].qr holds the real code
+
+static void qr_placeholder(void)
+{
+    lv_qrcode_set_dark_color(su[1].qr, lv_color_hex(0x606060));
+    lv_qrcode_update(su[1].qr, QR_PLACEHOLDER, strlen(QR_PLACEHOLDER));
+    lv_obj_set_style_opa(su[1].qr, QR_FAINT, 0);
+    lv_obj_remove_flag(su[1].qr, LV_OBJ_FLAG_HIDDEN);
+    qr_real = false;
+}
+
+static void qr_opa(void *obj, int32_t v) { lv_obj_set_style_opa(obj, v, 0); }
+
 // Easy Connect callbacks (system event task: take the display lock)
 static void su_dpp_uri(const char *uri)
 {
     display_lock(-1);
+    lv_qrcode_set_dark_color(su[1].qr, lv_color_black());
     lv_qrcode_update(su[1].qr, uri, strlen(uri));
     lv_obj_remove_flag(su[1].qr, LV_OBJ_FLAG_HIDDEN);
+    qr_real = true;
+    lv_anim_t a;                                     // faint placeholder -> the real code (a 140 px square: cheap)
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, su[1].qr);
+    lv_anim_set_values(&a, QR_FAINT, LV_OPA_COVER);
+    lv_anim_set_time(&a, 300);
+    lv_anim_set_exec_cb(&a, qr_opa);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
     display_unlock();
 }
 
@@ -300,7 +332,7 @@ static void su_texts(void)                          // both pages' texts (snapsh
     lv_qrcode_update(su[0].qr, su_ap_qr, strlen(su_ap_qr));
     lv_label_set_text_fmt(su[0].body, tr(T_WIFI_JOIN), SETUP_AP_SSID, net_setup_ap_pass());
     lv_label_set_text(su[1].title, tr(T_WIFI_DPP_TITLE));
-    if (!net_dpp_active()) lv_obj_add_flag(su[1].qr, LV_OBJ_FLAG_HIDDEN);   // until the code is generated
+    if (!net_dpp_active() || !qr_real) qr_placeholder();   // until the code is generated
     lv_label_set_text(su[1].body, tr(T_WIFI_DPP_HOW));
     const char *note = su_note_text[0] ? su_note_text : !su_can_close ? "" :
                        net_is_connected() ? tr(T_TAP_CANCEL) : tr(T_TAP_RETRY);
@@ -326,6 +358,7 @@ static void su_radio_task(void *arg)
             if (!net_dpp_start(su_dpp_uri, su_dpp_done)) {
                 display_lock(-1);
                 lv_label_set_text(su[1].body, tr(T_WIFI_DPP_NONE));
+                lv_obj_add_flag(su[1].qr, LV_OBJ_FLAG_HIDDEN);   // no code is coming: no placeholder either
                 display_unlock();
             }
         } else {
@@ -339,6 +372,7 @@ static void su_radio(int mode) { if (su_q) xQueueSend(su_q, &mode, 0); }
 
 static void su_show_page(int page)                  // the radio for that page (in its task)
 {
+    if (page == 0 && qr_real) qr_placeholder();      // Easy Connect stops: its next code will be a new one
     su_page = page;
     su_radio(page ? RADIO_DPP : RADIO_AP);
     ESP_LOGI(TAG, "Wi-Fi setup page %d (%s)", page, page ? "Easy Connect" : "setup network");
