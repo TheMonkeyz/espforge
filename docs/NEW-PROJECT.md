@@ -60,9 +60,9 @@ Pick the names once; they are hard to change later:
    the setup network has the new name.
 2. `python tools/harness/harness.py` (after resetting the baseline, with `--update-baseline`).
 3. Commit, push `main`: CI builds (no release).
-4. Tag `v0.1.0-rc.1`: a pre-release; the `pages` job fails until a stable release exists (docs/RELEASING.md "First
-   release"). Test the release files over USB.
-5. With the owner's OK, tag `v0.1.0`: the site goes up, devices can update from then on.
+4. Tag `v0.1.0-rc.1`: a pre-release and a Beta-only site (docs/RELEASING.md "First release"). With the board on a
+   test build labelled `v0.1.0-rc.0` and the Beta channel: `harness.py --ota v0.1.0-rc.1`.
+5. With the owner's OK, tag `v0.1.0`: Stable is offered too.
 
 ## A new board
 

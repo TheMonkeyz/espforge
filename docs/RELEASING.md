@@ -90,9 +90,12 @@ Actions are pinned to commit SHAs (the comment names the tag); Dependabot propos
 
 ### First release
 
-The `pages` job needs a stable release. For a new project: tag `v0.1.0-rc.1` (pre-release, no site yet: the job fails
-with "No stable release yet"), test it from the workflow artifact or the release files over USB, then tag `v0.1.0`
-with the user's OK. From then on the site exists and rc tags move Beta.
+Before the first stable release the site is Beta-only: `channels.json` has `"stable": null` and the flasher page
+offers Beta; a device on Stable reports "up to date". So a new project's `v0.1.0-rc.1` is already installable over
+USB (flasher page) and over Wi-Fi on Beta: flash a test build labelled `v0.1.0-rc.0`, set the channel to Beta, tag the
+rc and run `harness.py --ota v0.1.0-rc.N`. Tag `v0.1.0` with the user's OK; from then on Stable is offered too.
+(espforge itself: rc.1's site job failed on a missing tag rule and a stable-only site generator, L159; rc.2 was the
+first published to Beta.)
 
 ## One-time GitHub setup
 
