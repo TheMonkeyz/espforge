@@ -318,13 +318,22 @@ static void su_show_page(int page)
     ESP_LOGI(TAG, "Wi-Fi setup page %d (%s)", page, page ? "Easy Connect" : "setup network");
 }
 
-static void su_close(void)
+// Leaving setup by any path stops what it started: the setup network pauses the saved network's retries, so one
+// left open behind another screen kept the device offline (the harness's "screen hello" after "screen setup")
+static void su_leave(void)
 {
+    if (!su_open) return;
     ESP_LOGI(TAG, "Wi-Fi setup closed");
     su_open = false;
+    su_note_text[0] = 0;                // it was for that opening (and in that opening's language)
     if (su_timer) { lv_timer_delete(su_timer); su_timer = NULL; }
     net_dpp_stop();
     net_setup_ap_stop();
+}
+
+static void su_close(void)
+{
+    su_leave();
     lv_screen_load_anim(scr_main, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, false);
 }
 
@@ -357,9 +366,9 @@ static void setup_create(void)
     scr_setup = base_screen();
     lv_obj_add_flag(scr_setup, LV_OBJ_FLAG_CLICKABLE);
     su_title = label(scr_setup, f_mid, C_ACCENT, 40, 320);
-    su_note = label(scr_setup, f_small, C_DIM, 78, 330);
-    su_qr = make_qr(scr_setup, 150);
-    lv_obj_align(su_qr, LV_ALIGN_TOP_MID, 0, 122);
+    su_note = label(scr_setup, f_small, C_DIM, 76, 330);      // up to 2 lines (T_CANT_REACH)
+    su_qr = make_qr(scr_setup, 140);
+    lv_obj_align(su_qr, LV_ALIGN_TOP_MID, 0, 132);
     su_body = label(scr_setup, f_small, C_TEXT, 292, 360);
     for (int i = 0; i < 2; i++) {
         su_dot[i] = lv_obj_create(scr_setup);
@@ -433,14 +442,19 @@ static lv_obj_t *get_hello(void) { return pager_page(pager, 0); }
 static lv_obj_t *get_system(void) { return pager_page(pager, 1); }
 static lv_obj_t *get_setup(void) { return scr_setup; }
 static lv_obj_t *get_msg(void) { return scr_msg; }
-static void show_hello(void) { pager_go(pager, 0, false); lv_screen_load(scr_main); }
-static void show_system(void) { system_refresh(); pager_go(pager, 1, false); lv_screen_load(scr_main); }
+static void show_hello(void) { su_leave(); pager_go(pager, 0, false); lv_screen_load(scr_main); }
+static void show_system(void) { su_leave(); system_refresh(); pager_go(pager, 1, false); lv_screen_load(scr_main); }
 static void show_setup(void) { ui_wifi_setup(NULL); }
 static bool shown_hello(void) { return lv_screen_active() == scr_main && pager_current(pager) == 0; }
 static bool shown_system(void) { return lv_screen_active() == scr_main && pager_current(pager) == 1; }
 static bool shown_setup(void) { return lv_screen_active() == scr_setup; }
 static bool shown_msg(void) { return lv_screen_active() == scr_msg; }
-static void prep_setup(void) { if (!su_open) su_texts(0); }   // texts only: no access point is started
+static void prep_setup(void)                         // texts only: no access point is started
+{
+    if (su_open) return;
+    su_can_close = !net_in_portal();
+    su_texts(0);
+}
 
 static const screen_def_t screens[] = {
     { "hello",   get_hello,  show_hello,  hello_refresh,  shown_hello },

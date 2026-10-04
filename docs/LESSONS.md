@@ -767,3 +767,30 @@ Check: name it `noInternet`.
 **L153. No PIL on the PC: parse images with the standard library.**
 Why: snapshot comparisons need BMP → rows without extra packages.
 Check: `struct` / `zlib` (`tools/snapshot.py`).
+
+## Found while bringing up espforge (October 4)
+
+**L154. A PC monitor misses the first ~2.5 s after a reset on USB Serial/JTAG.**
+Why: the port re-enumerates at reset; ESP-IDF's boot lines and an early `ota: Running` line were lost in one run out
+of two (espforge v0.1.0-rc.0).
+Check: print the lines tests rely on after ~4 s of uptime (forge_ota, diag do); don't make a test require
+ESP-IDF's own `App version:` line.
+
+**L155. `esp_wifi_set_config()` refuses while the station is connecting.**
+Why: "wifi online" arrived during a retry, the config change was refused (`sta is connecting, cannot set config`,
+the return value ignored) and the device kept trying the fake network forever.
+Check: stop the retry timer, `esp_wifi_disconnect()`, then set the config; log a refused config.
+
+**L156. Every way out of a screen must stop what the screen started.**
+Why: the setup screen starts the setup network, which pauses the saved network's retries; leaving it through
+the test console's `screen hello` (not its own tap) left the network open and the device offline.
+Check: one `leave` function called from every exit; the harness's `screens` suite runs before `wifi_runtime`.
+
+**L157. A request file left from an earlier session runs when the helper restarts.**
+Why: the harness gave up, the user later restarted the helper, and it flashed the hour-old request.
+Check: the flash helper drops requests present at its start.
+
+**L158. A new partition table leaves old data where the core dump now lives.**
+Why: weather_amoled's map cache sat at espforge's coredump address; ESP-IDF logged
+`Incorrect size of core dump image` at every boot, and the harness fails on E lines.
+Check: diag erases a core dump partition that holds no valid dump.

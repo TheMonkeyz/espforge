@@ -1,91 +1,113 @@
 {
- "_comment": "Limits for tools/harness/harness.py (compare()). Placeholders until the first measured run on the board: run 'harness.py --update-baseline', then set each limit from its ref and copy baseline.proposed.json over this file. 'max' = higher is worse, 'min' = lower is worse.",
+ "_comment": "Limits for tools/harness/harness.py (compare()): 'max' = higher is worse, 'min' = lower is worse; 'ref' = measured on the board. Set from espforge v0.1.0-rc.0 on the Waveshare AMOLED 1.75, October 4 2026 (4 full runs). Page swipes are plain LVGL scrolling, ~24 fps full-screen redraws: weather_amoled reached ~60 fps by drawing moves as pictures outside LVGL (docs/LESSONS.md, LVGL). After a deliberate change: --update-baseline, review, copy.",
  "boot_s.ready": {
-  "max": 20,
-  "note": "placeholder until the first measured run"
+  "max": 8,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 4.8
  },
  "failed_allocs": {
   "max": 0,
-  "note": "placeholder until the first measured run"
+  "note": "must stay at its limit",
+  "ref": 0
  },
  "idle_internal_drop_kb": {
   "max": 8,
-  "note": "placeholder until the first measured run"
+  "note": "must stay at its limit",
+  "ref": 0
  },
  "internal_free_kb": {
-  "min": 20,
-  "note": "placeholder until the first measured run"
+  "min": 100,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 131
  },
  "internal_largest_kb": {
-  "min": 8,
-  "note": "placeholder until the first measured run"
+  "min": 40,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 60
  },
  "internal_min_kb": {
-  "min": 8,
-  "note": "placeholder until the first measured run"
+  "min": 90,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 128
  },
  "lvgl_internal_fallbacks": {
   "max": 0,
-  "note": "placeholder until the first measured run"
+  "note": "must stay at its limit",
+  "ref": 0
  },
  "page_kb": {
-  "max": 64,
-  "note": "placeholder until the first measured run"
+  "max": 16,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 9
  },
  "psram_min_kb": {
-  "min": 500,
-  "note": "placeholder until the first measured run"
+  "min": 7000,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 8123
  },
  "reconnect_s": {
-  "max": 45,
-  "note": "placeholder until the first measured run"
+  "max": 30,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 3.1
  },
  "snapshot_ms.hello": {
-  "max": 5000,
-  "note": "placeholder until the first measured run"
+  "max": 3000,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 1916
  },
  "snapshot_ms.setup": {
-  "max": 5000,
-  "note": "placeholder until the first measured run"
+  "max": 3000,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 1528
  },
  "snapshot_ms.system": {
-  "max": 5000,
-  "note": "placeholder until the first measured run"
+  "max": 3000,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 1660
  },
  "swipe_fps.drag_slow": {
-  "min": 15,
-  "note": "placeholder until the first measured run"
+  "min": 18,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 24.0
  },
  "swipe_fps.hello_to_system": {
-  "min": 20,
-  "note": "placeholder until the first measured run"
+  "min": 18,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 23.1
  },
  "swipe_fps.system_to_hello": {
-  "min": 20,
-  "note": "placeholder until the first measured run"
+  "min": 18,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 24.3
  },
  "swipe_gap_max_ms.drag_slow": {
-  "max": 250,
-  "note": "placeholder until the first measured run"
+  "max": 300,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 53
  },
  "swipe_gap_max_ms.hello_to_system": {
   "max": 200,
-  "note": "placeholder until the first measured run"
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 58
  },
  "swipe_gap_max_ms.system_to_hello": {
   "max": 200,
-  "note": "placeholder until the first measured run"
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 60
  },
  "swipe_render_avg_ms.drag_slow": {
-  "max": 80,
-  "note": "placeholder until the first measured run"
+  "max": 50,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 38.8
  },
  "swipe_render_avg_ms.hello_to_system": {
-  "max": 80,
-  "note": "placeholder until the first measured run"
+  "max": 50,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 38.6
  },
  "swipe_render_avg_ms.system_to_hello": {
-  "max": 80,
-  "note": "placeholder until the first measured run"
+  "max": 50,
+  "note": "v0.1.0-rc.0, measured",
+  "ref": 35.0
  }
 }

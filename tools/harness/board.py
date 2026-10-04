@@ -381,14 +381,16 @@ class PCWifi:
         return nets
 
     def find_setup(self, timeout=30):
-        """The setup network's name as the PC sees it (Windows rescans every few seconds)."""
+        """The setup network's name as the PC sees it, else the configured name (None if not seen). Windows' list
+        ("netsh wlan show networks") is its last scan, refreshed on its own schedule: a network up for 30 s can be
+        missing from it (espforge, October 4). Joining by name doesn't need it, so callers go on with the name."""
         end = time.time() + timeout
         while True:
             names = [s for s in self.scan() if s.startswith(self.prefix)]
             if names:
                 return sorted(names)[0]
             if time.time() > end:
-                raise Fail(f'the PC sees no network starting with "{self.prefix}" within {timeout} s')
+                return None
             time.sleep(3)
 
     def state(self):
@@ -399,7 +401,7 @@ class PCWifi:
 
     def join_setup(self, password, ssid=None, timeout=40):
         """Join the setup network (WPA2 with `password`, or open when it is empty)."""
-        self.ssid = ssid or self.find_setup()
+        self.ssid = ssid or self.find_setup(10) or self.prefix   # by name: a directed connect needs no scan
         sec = self.WPA2.format(key=password) if password else self.OPEN
         path = p('setup_profile.xml')
         open(path, 'w').write(self.PROFILE.format(ssid=self.ssid, security=sec))

@@ -86,6 +86,11 @@ function Flash-Args {
 Say "Flash helper for $Root (chip $Chip, $Baud baud, build $BuildDir)" "Cyan"
 if ($Esptool.Count -eq 0) { Say "No esptool: put esptool.exe in tools\ or install Python with esptool" "Red" }
 else { Say "esptool: $($Esptool -join ' ')" }
+# Requests left from before this start: whoever wrote them has given up waiting (the harness waits ~4 min), and a
+# flash nobody watches is a surprise. Drop them (a restarted helper once flashed one left an hour earlier).
+foreach ($old in @("flash.request", "reboot.request", "stop.request", "serial.send")) {
+  if (Test-Path $old) { Remove-Item $old -Force; Say "Ignored a $old left from before this start" "Yellow" }
+}
 Say "Waiting for .devloop\flash.request / reboot.request ..." "Cyan"
 Status "idle"
 

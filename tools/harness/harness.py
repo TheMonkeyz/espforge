@@ -234,6 +234,11 @@ def main(argv=None):
             board.start_log(opts.minutes * 60, opts.flash and os.path.join(ROOT, opts.flash))
             log.wait(CFG['ready_line'], 90, 'start-up (forge.json ready_line)')
             time.sleep(3)
+        elif not any(re.search(CFG['ready_line'], l) for l in log.lines()):
+            # A window that is still at start-up (the helper restarted, or another flash): commands sent now go
+            # unanswered until the console is up
+            log.wait(CFG['ready_line'], 90, 'start-up (forge.json ready_line)')
+            time.sleep(3)
         version = board.version()
         if board.before and version != board.before:
             raise Fail(f'the board ran {board.before} before the restart and {version} after: the bootloader rolled back')

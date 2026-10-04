@@ -63,7 +63,7 @@ def start_up(ctx):
     check(ota.group(1) == v, f'the OTA line says {ota.group(1)}, the console says {v}')
     reset = next((l.split('diag: ', 1)[1] for l in lines if 'diag: boot ' in l), '')
     ctx.note(f'{v} from {ota.group(2)}, channel {ota.group(3)}' + (f'; {reset}' if reset else ''))
-    crash = next((l.split('diag: ', 1)[1] for l in lines if 'diag: coredump' in l), '')
+    crash = next((l.split('diag: ', 1)[1] for l in lines if 'diag: coredump: last crash' in l), '')
     if crash:
         ctx.note(f'the board kept a crash from before this start-up: {crash[:140]}')
 
@@ -317,7 +317,9 @@ def setup_network_and_portal(ctx):
     check(st['connected'] == '0', f'connected on an offline start-up? {st}')
     b.cmd('portal windows-quiet')                     # no browser tab popping up on this PC
     ssid = w.find_setup()
-    ctx.note(f'setup network "{ssid}" seen by the PC')
+    ctx.note(f'setup network "{ssid}" seen by the PC' if ssid else
+             f'"{CFG["setup_ssid"]}" not in the scan Windows last made: joining it by name')
+    ssid = ssid or CFG['setup_ssid']
     if ctx.opts.phone:
         ctx.ask(f'Easy Connect: open the setup screen\'s QR code with your Android phone\'s camera (the phone on your '
                 f'home Wi-Fi) now. The harness waits 3 minutes.')

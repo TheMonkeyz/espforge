@@ -69,7 +69,14 @@ static void startup_info(void)
     // xtensa-esp32s3-elf-addr2line -pfC -e build/v55/<app>.elf <addresses>), then erased
 #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH
     esp_core_dump_summary_t *cd = malloc(sizeof(*cd));
-    if (cd && esp_core_dump_image_check() == ESP_OK && esp_core_dump_get_summary(cd) == ESP_OK) {
+    esp_err_t chk = esp_core_dump_image_check();
+    if (chk != ESP_OK && chk != ESP_ERR_NOT_FOUND) {
+        // Not a crash: whatever was in the partition before (another firmware's data at that address after a new
+        // partition table). ESP-IDF logs an E line about it at every boot until it is erased.
+        ESP_LOGW(TAG, "coredump: partition held no valid dump (%s), erased", esp_err_to_name(chk));
+        esp_core_dump_image_erase();
+    }
+    if (cd && chk == ESP_OK && esp_core_dump_get_summary(cd) == ESP_OK) {
         char bt[16 * 11 + 1] = "";
         for (uint32_t i = 0, n = 0; i < cd->exc_bt_info.depth && i < 16; i++)
             n += snprintf(bt + n, sizeof(bt) - n, " 0x%08lx", (unsigned long)cd->exc_bt_info.bt[i]);
