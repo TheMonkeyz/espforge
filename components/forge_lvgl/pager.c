@@ -118,3 +118,4 @@ void pager_switch(lv_obj_t *o, int i)
 }
 
 void pager_freeze(lv_obj_t *o) { lv_obj_set_scroll_dir(o, LV_DIR_NONE); }
+bool pager_vertical(lv_obj_t *o) { return ((pager_t *)lv_obj_get_user_data(o))->vertical; }

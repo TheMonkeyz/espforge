@@ -34,6 +34,12 @@ typedef struct {
 } display_stats_t;
 void display_get_stats(display_stats_t *out, bool reset);
 
+// A frame drawn without LVGL (forge_lvgl's slide.c): fill() writes rows y0..y0+n-1, full width, RGB565
+// *byte-swapped* (panel order), into dst; each band is sent while the next one is filled. Display lock held;
+// afterwards LVGL must redraw before it flushes again (lv_obj_invalidate).
+typedef void (*display_fill_cb_t)(int y0, int n, void *dst, void *user);
+void display_raw_frame(display_fill_cb_t fill, void *user);
+
 // Called with every area LVGL sends to the panel, before the byte swap (RGB565 as LVGL draws it), in the LVGL task.
 // For a picture of the screen kept in step with the panel (drags drawn outside LVGL).
 typedef void (*display_flush_hook_t)(const lv_area_t *a, const uint8_t *px);
@@ -41,6 +47,12 @@ void display_set_flush_hook(display_flush_hook_t hook);
 
 i2c_master_bus_handle_t board_i2c_bus(void);   // the touch bus, shared with the motion sensor (imu.h) and audio
 uint32_t touch_idle_ms(void);                  // ms since a finger was last down (any task)
+// The finger now, read directly, for moves drawn outside LVGL (display lock held, LVGL not reading meanwhile):
+// 1 pressed at x,y, 0 up, -1 bus error. The chip is read at most every 10 ms: polled faster it answers "not in
+// contact" for long stretches with the finger on it. touch_fresh(): the last touch_get() read the chip.
+int touch_get(int *x, int *y);
+bool touch_fresh(void);
+void touch_forget(void);                       // the touch LVGL last saw was handled by a drag: start afresh
 // Called with each touch read LVGL makes, before LVGL handles it (gesture recognisers, waking a dark screen)
 typedef void (*touch_read_hook_t)(lv_indev_t *indev, lv_indev_data_t *data);
 void touch_set_read_hook(touch_read_hook_t hook);

@@ -19,6 +19,7 @@ DEFAULTS = {
     'monitor_baud': 115200,
     'screen': {'w': 466, 'h': 466, 'shape': 'rect'},
     'screens': [],
+    'screens_not_shown': [],
     'setup_ssid': 'Forge-Setup',
     'setup_subnet': '192.168.4',
     'ready_line': 'diag: mark app ready',

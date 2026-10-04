@@ -6,6 +6,7 @@ with your app's: same registry (@test from board.py), same ctx as core_suites.py
     METRIC_SUITES   which suite produces a metric (prefix -> suite): a baseline metric is only expected when its
                     suite ran
 """
+import re
 import time
 
 from board import CFG, SCREEN_C, check, test
@@ -15,7 +16,7 @@ APP_WATCH = [
     (r'display: .*did not finish', 'a panel transfer timed out'),
     (r'lvgl: .*(out of memory|alloc failed)', 'LVGL could not allocate'),
 ]
-METRIC_SUITES = [('swipe_', 'perf')]
+METRIC_SUITES = [('swipe_', 'perf'), ('setup_page_', 'navigation'), ('easy_connect_', 'navigation')]
 
 HOME, NEXT = 'hello', 'system'                         # the starter's two pages, side by side: hello | system
 
@@ -56,6 +57,44 @@ def long_press_opens_setup(ctx):
     b.tap()
     b.wait_screen(HOME, 6)
     ctx.note(f'long-press at {SCREEN_C}: setup; tap: back to {HOME}')
+
+
+@test('navigation')
+def setup_pages_slide(ctx):
+    """Setup's two pages (setup network | Easy Connect) follow the finger like hello | system, and the Easy Connect QR
+    code shows up quickly. User reports, October 4: the setup pages only switched after the swipe (and froze while
+    the radio switched), and the QR code took ~2 s (a channel scan the connected device doesn't need)."""
+    b = ctx.board
+    if 'setup1' not in CFG['screens']:
+        ctx.note('no "setup1" screen in forge.json: not checked')
+        return
+    b.show('setup')
+    b.wait_screen('setup', 6)
+    time.sleep(1)
+    at = len(ctx.log.lines())                         # own position (log.mark() is the harness's crash check)
+    t0 = time.time()
+    b.cmd('swipe left')
+    b.wait_screen('setup1', 3)
+    m = ctx.log.wait(r'slide: drag: first frame after (\d+) ms, (\d+) frames in (\d+) ms \((\d+) fps\), to next', 5,
+                     'the setup page following the finger', start=at)
+    fps = int(m.group(4))
+    check(fps >= 40, f'setup page drag at {fps} fps')
+    ctx.metric('setup_page_fps', fps)
+    page = ctx.log.wait(r'ui: Wi-Fi setup page 1', 5, 'Easy Connect started', start=at)
+    qr = ctx.log.wait(r'net: Easy Connect: QR code ready', 10, 'the Easy Connect QR code', start=at)
+    qr_s = (log_ms(qr.string) - log_ms(page.string)) / 1000
+    ctx.metric('easy_connect_qr_s', round(qr_s, 2))
+    b.cmd('swipe right')                                # back to the first page, then closed (online again)
+    b.wait_screen('setup', 3)
+    go_home(ctx)
+    ctx.note(f'setup -> Easy Connect by a drag at {fps} fps, its QR code {qr_s:.2f} s after the page '
+             f'({time.time() - t0:.1f} s in all, console round trips included)')
+
+
+def log_ms(line):
+    """The ESP-IDF timestamp of a log line, in ms ("I (12345) tag: ...")."""
+    m = re.search(r'\((\d+)\)', line)
+    return int(m.group(1)) if m else 0
 
 
 # ---------------------------------------------------------------- perf

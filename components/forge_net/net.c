@@ -412,12 +412,19 @@ static int scan_channel(const char *ssid, int dwell_ms, int *seen)
     return ch;
 }
 
-static void dpp_pick_channel(void)
+// connected: the channel of the network the station is on (no scan: it took ~2 s before the QR code appeared,
+// espforge October 4); 0 when offline
+static void dpp_pick_channel(int connected)
 {
     char saved[33] = "", pass[65];
     net_load_creds(saved, sizeof(saved), pass, sizeof(pass));
     int seen = 0, ch = 0;
     const char *why = "default";
+    if (connected) {
+        snprintf(dpp_chan, sizeof(dpp_chan), "%d", connected);
+        ESP_LOGI(TAG, "Easy Connect: channel %d (the network it is connected to)", connected);
+        return;
+    }
     // The saved network first, by name: a probe request carrying its name is answered more reliably than a broadcast
     // one, and only its records come back (a broadcast scan keeps the 16 strongest). The broadcast scan at 40-80 ms per
     // channel missed a router on a busy channel (v1.10.0 harness run: it picked the strongest network, channel 11).
@@ -429,6 +436,10 @@ static void dpp_pick_channel(void)
 }
 
 static net_dpp_uri_cb_t dpp_uri_cb;
+// Easy Connect starts in steps that finish in the supplicant's own task: bootstrap_gen -> URI_READY -> start_listen ->
+// the listen itself. Deinit before the listen ran made it use a deleted event group: assert in dpp_listen_start, a
+// restart (espforge, a setup page switched back within a second, October 4). net_dpp_stop waits for the listen.
+static volatile int64_t dpp_started_us, dpp_listen_us;
 static net_dpp_done_cb_t dpp_done_cb;
 static bool dpp_inited;
 
@@ -447,6 +458,7 @@ static void dpp_event(esp_supp_dpp_event_t evt, void *data)
             // bootstrap_gen() is asynchronous: listening is only possible once the code exists
             esp_err_t e = dpp_active ? esp_supp_dpp_start_listen() : ESP_OK;
             if (e != ESP_OK) ESP_LOGE(TAG, "Easy Connect: can't listen: %s", esp_err_to_name(e));
+            dpp_listen_us = esp_timer_get_time();
         }
         break;
     case ESP_SUPP_DPP_CFG_RECVD: {
@@ -490,11 +502,15 @@ bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done)
     dpp_uri_cb = on_uri;
     dpp_done_cb = on_done;
     dpp_active = true;
+    dpp_started_us = esp_timer_get_time();
+    dpp_listen_us = 0;
+    wifi_ap_record_t ap;                                   // the router's channel, while still connected to it
+    int connected = net_is_connected() && esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.primary : 0;
     esp_timer_stop(retry_timer);
     esp_wifi_disconnect();                                 // listening needs the radio (also cancels an attempt)
     ESP_LOGI(TAG, "Easy Connect: not trying the saved network meanwhile");
     esp_wifi_set_mode(WIFI_MODE_STA);
-    dpp_pick_channel();
+    dpp_pick_channel(connected);
     esp_err_t err = ESP_OK;
     if (!dpp_inited) {
         err = esp_supp_dpp_init(dpp_event);
@@ -503,6 +519,7 @@ bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done)
     if (err == ESP_OK) err = esp_supp_dpp_bootstrap_gen(dpp_chan, DPP_BOOTSTRAP_QR_CODE, NULL, NULL);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Easy Connect unavailable: %s", esp_err_to_name(err));
+        dpp_started_us = 0;                                // nothing pending: no wait in net_dpp_stop
         net_dpp_stop();
         return false;
     }
@@ -513,6 +530,10 @@ bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done)
 void net_dpp_stop(void)
 {
     if (!dpp_active) return;
+    // Not from the task that delivers DPP events (the wait would block the event it waits for): callers are the app's
+    // tasks. At most 3 s for the QR code, then 300 ms for the listen it starts.
+    while (dpp_started_us && !dpp_listen_us && esp_timer_get_time() - dpp_started_us < 3000000) vTaskDelay(pdMS_TO_TICKS(50));
+    while (dpp_listen_us && esp_timer_get_time() - dpp_listen_us < 300000) vTaskDelay(pdMS_TO_TICKS(50));
     esp_supp_dpp_stop_listen();
     if (dpp_inited) { esp_supp_dpp_deinit(); dpp_inited = false; }
     dpp_active = false;

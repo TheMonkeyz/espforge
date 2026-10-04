@@ -5,12 +5,13 @@
 IDF_PATH ?= /mnt/c/Espressif/esp-idf
 CJSON := $(IDF_PATH)/components/json/cJSON
 FORGE := ../../components/forge_core
+LVGLC := ../../components/forge_lvgl
 MAIN := ../../main
 OUT := build
 CFLAGS := -std=gnu11 -D_DEFAULT_SOURCE -g -O1 -Wall -Wno-unused-function -fsanitize=address,undefined \
           -fno-sanitize-recover=undefined -Ishim -I$(FORGE)/include -I$(MAIN) -include shim/host.h
 # test_testcon only once the firmware has the pure command table (testcon_registry.c)
-TESTS := utf8 version png i18n $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
+TESTS := utf8 version png i18n textfit $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
 
 all: $(TESTS:%=$(OUT)/test_%)
 	@set -e; for t in $(TESTS); do ./$(OUT)/test_$$t; done
@@ -22,6 +23,8 @@ $(OUT)/test_version: test_version.c $(FORGE)/version.c $(FORGE)/include/version.
 # i18n.c is pure C (its NVS half, i18n_nvs.c, is not compiled here); the texts are the app's
 $(OUT)/test_i18n: test_i18n.c $(FORGE)/i18n.c $(FORGE)/include/forge_i18n.h $(MAIN)/i18n_strings.h | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_i18n.c $(FORGE)/i18n.c
+$(OUT)/test_textfit: test_textfit.c $(LVGLC)/textfit.c $(LVGLC)/include/textfit.h $(MAIN)/montserrat.ttf | $(OUT)
+	$(CC) $(CFLAGS) -I$(LVGLC)/include -o $@ test_textfit.c $(LVGLC)/textfit.c
 $(OUT)/test_testcon: test_testcon.c $(FORGE)/testcon_registry.c $(FORGE)/include/testcon.h | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_testcon.c $(FORGE)/testcon_registry.c
 

@@ -70,6 +70,30 @@ static int read_chip(int *x, int *y)
     return 1;
 }
 
+static bool fresh;
+bool touch_fresh(void) { return fresh; }
+
+int touch_get(int *x, int *y)
+{
+    static int64_t last;
+    static int lr, lx, ly;
+    int64_t now = esp_timer_get_time();
+    bool down;
+    fresh = finger_injected(x, y, &down) || !last || now - last >= 10000;
+    if (!fresh) { *x = lx; *y = ly; return lr; }
+    last = now;
+    lr = read_chip(x, y);
+    if (lr > 0) last_down_us = now;
+    lx = *x;
+    ly = *y;
+    return lr;
+}
+
+// A drag drawn outside LVGL consumed the touch. Without this, a bus error right after it made read_cb "hold" the last
+// point LVGL had seen (the NACK guard below): a fake press there, then a release, so a tap where the drag had started.
+static volatile bool forget;
+void touch_forget(void) { forget = true; }
+
 static touch_read_hook_t read_hook;
 void touch_set_read_hook(touch_read_hook_t hook) { read_hook = hook; }
 
@@ -80,6 +104,7 @@ static void read_cb(lv_indev_t *indev, lv_indev_data_t *data)
     static int lx, ly, errs;
     static bool was;
     static uint32_t last_log;
+    if (forget) { forget = false; was = false; errs = 0; }
     uint32_t now = lv_tick_get();
     if (now - last_log > 15000) {
         ESP_LOGI(TAG, "reads ok=%d err=%d, up answers: no finger %d, other status %d", n_ok, n_err, n_nofinger,

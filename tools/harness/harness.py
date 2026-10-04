@@ -28,6 +28,12 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from board import CFG, DEV, ROOT, SUITES, Board, Fail, Log, PCWifi  # noqa: E402
 import core_suites  # noqa: E402,F401  (registers the generic suites)
+# A network name with emoji (a phone shared one over Easy Connect) crashed print() on the Windows console's code page
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, ValueError):
+        pass
 import app_suites  # noqa: E402  (registers the app's suites)
 
 ORDER = (['boot', 'console', 'memory', 'screens'] + app_suites.APP_ORDER

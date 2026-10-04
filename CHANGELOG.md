@@ -8,6 +8,13 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.1.0-rc.3 - 2026-10-04
+- Swiping between screens follows your finger smoothly (about 66 frames a second instead of 24), and the Wi-Fi setup pages swipe the same way.
+- The Easy Connect code appears at once instead of after about 2 seconds.
+- Network names with emoji show without empty boxes.
+- Fixed: switching quickly back from the Easy Connect page could restart the display.
+- Fixed: the Easy Connect page title overlapped the line below it.
+
 ## v0.1.0-rc.2 - 2026-10-04
 - Before the first stable release, a display on the Stable channel says it is up to date instead of showing an error.
 

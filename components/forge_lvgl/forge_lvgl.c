@@ -8,6 +8,7 @@
 #include "testcon.h"
 
 static const char *TAG = "test";
+static const forge_panel_t *panel;
 static forge_lock_fn lock_fn;
 static forge_unlock_fn unlock_fn;
 
@@ -105,6 +106,17 @@ static void cmd_drag(int argc, char **argv)                 // drag X1 Y1 X2 Y2 
 }
 
 void screens_testcon(void);                                 // screens.c
+void slide_init(void);                                      // slide.c
+
+const forge_panel_t *forge_lvgl_panel(void) { return panel; }
+
+void forge_lvgl_set_panel(const forge_panel_t *p)
+{
+    panel = p;
+    ui_lock(-1);
+    slide_init();
+    ui_unlock();
+}
 
 void forge_lvgl_init(forge_lock_fn lock, forge_unlock_fn unlock)
 {

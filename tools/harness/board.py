@@ -171,7 +171,9 @@ class Board:
             time.sleep(1)
         self.log.pos = 0
         self.forget()                                  # other firmware now, or the same one restarted: ask again
-        self.log.wait(r'test: console ready', 30, 'firmware with the test console')
+        # "console ready" prints at ~2.6 s, often inside the ~2.5 s a PC monitor misses after a reset (USB re-enumerates,
+        # docs/LESSONS.md L154): the later ota line or the ready line say the same
+        self.log.wait(r'test: console ready|ota: Running|' + CFG['ready_line'], 30, 'firmware with the test console')
 
     def stop_log(self):
         if self.helper_status() == 'logging':

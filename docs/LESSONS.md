@@ -801,3 +801,55 @@ a rule written for a project that already had one; and the firmware read a missi
 Then rc.2's site job never started: a new repo's `github-pages` environment lets only `main` deploy, not tags.
 Check: the site is Beta-only until vX.Y.Z (`make_flasher_site.py site --beta`); "nothing offered" = up to date;
 the environment has a `v*` tag rule (docs/NEW-PROJECT.md checklist) before the first tag.
+
+## Moves that follow the finger (espforge v0.1.0-rc.3, October 4)
+
+**L160. Ship picture-based moves in the framework, not only in the app that found them.**
+Why: espforge left weather_amoled's slide.c out as "too app-specific"; its pager scrolled with LVGL at ~24 fps and
+the user found it sluggish at once. forge_lvgl's slide.c (pictures copied to the panel) runs at 65-68 fps.
+Check: `perf` suite (`swipe_fps.*` ≥ 50) and the `slide: drag` log lines.
+
+**L161. A drag must not render anything when it starts.**
+Why: rendering the page coming in took 35-45 ms; the finger moved on meanwhile, the page started late and jumped
+("hiccups"). Neighbour pictures are now kept ready (rendered while nobody touches, refreshed every 2 s): first frame
+15 ms.
+Check: `slide: drag: first frame after N ms ... renders 0`.
+
+**L162. Don't freeze while a release is being confirmed.**
+Why: the touch chip reports brief false "ups", so an "up" counts after 60 ms; the picture stood still during that
+wait, then snapped: a stall at the end of every swipe. It now goes on at the finger's last speed (at most 80 ms).
+Check: `finger still max` in the drag line (15 ms, was 74).
+
+**L163. Synthetic swipes can't find hiccups; log what a real finger does.**
+Why: the harness's swipes were smooth at every step while the user felt hiccups. The drag line now has gap max, held
+reads (error / brief up), the longest hold, the longest still finger, samples and renders: two tries with the
+user's finger located both stalls.
+Check: ask the user to swipe during a log window, then read the `slide: drag` lines.
+
+**L164. Radio work never runs in a touch handler.**
+Why: switching setup pages stopped the setup network and scanned for Easy Connect's channel inside the swipe's
+handler: the screen froze for seconds. A task does it now; only the latest request counts.
+Check: `navigation.setup_pages_slide` (the page moves at once).
+
+**L165. Easy Connect: wait for the listen to start before deinit.**
+Why: stopping right after starting deinitialised DPP while its listen was still queued in the supplicant's task:
+assert in `dpp_listen_start` (event group deleted), a restart. `net_dpp_stop()` waits for it (≤ 3 s).
+Check: the setup page test switches back within a second, 3 runs in a row.
+
+**L166. Connected already? Use the router's channel, don't scan.**
+Why: Easy Connect's QR code took ~2.1 s: a scan for the saved network's channel, which the station already knew.
+0.15 s now (`easy_connect_qr_s`). Offline it still scans by name (see "Wi-Fi setup and offline").
+
+**L167. A test keeps its own log position; `log.mark()` is the harness's.**
+Why: a new test used `ctx.log.mark()` (returns nothing) as its start; its first wait moved the shared position past
+the line the second wait needed: a false failure.
+Check: `at = len(ctx.log.lines())`, then `ctx.log.wait(..., start=at)`.
+
+**L168. Screens whose display changes the device's state are snapshotted, not shown.**
+Why: showing the Easy Connect page took the radio off the home network: the snapshot request over HTTPS timed out.
+`forge.json` `screens_not_shown` lists them; the firmware prepares their texts off-display.
+
+**L169. Text from outside may not fit the font, and may not fit the console either.**
+Why: a phone shared a network named with emoji: boxes on the display (TinyTTF draws a box for a missing glyph and
+never says so); and the harness crashed printing it on the Windows console (cp1252).
+Check: `textfit()` (reads the TTF's cmap; `tests/host/test_textfit.c`); the harness writes UTF-8 with replacement.

@@ -60,6 +60,8 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `net: Connected, IP a.b.c.d` | Station up (`forge.json` `ip_line`). |
 | `web: Settings page: https://a.b.c.d/` | Web server up. |
 | `diag: mark <stage>` | Boot stages; `diag: mark app ready` = `forge.json` `ready_line`. |
+| `slide: drag: first frame after N ms, F frames in T ms (X fps), to next/to prev/back \| gap max N ms, held reads E err U up (longest N ms), finger still max N ms, samples N, renders N, V px/ms` | Each drag drawn as pictures (forge_lvgl). |
+| `slide: change: picture N ms, F frames in T ms (X fps)` | An in-place change or screen load slid as pictures. |
 | `diag: mark <stage> internal N KB free (largest N), DMA N KB, PSRAM N KB` | A boot stage. |
 | `diag: heap: internal N KB free (min ever N, largest block now N / worst N) \| DMA N KB (largest now N / worst N) \| PSRAM N KB free (min ever N, largest N) \| failed allocs N, LVGL in internal RAM N` | Every period (`tools/diag_summary.py`). |
 | `diag: tasks: name(cC pP) X.X% NB \| …`, `diag: cpu: core0 N% busy, core1 N% busy (window N s)` | Per task: core, priority, CPU, stack bytes never used. |
@@ -83,7 +85,7 @@ are JSON (`415` otherwise); a Host header that isn't the display's address gets 
 | `POST /api/wifi` | `{"ssid","pass"}` → saved, restart when safe. |
 | `GET /api/update` | `{"current","latest","channel","state","progress","error","pending_verify","uptime_s","err","rolled_back"?,"notes"?}` — `rolled_back`: the version that was undone (string, shown once); `err`: `ota_err_t` code; `notes`: only when `available` — `state`: `idle checking up_to_date available downloading done failed` |
 | `POST /api/update` | `{"action":"check"}`, `{"action":"install"}` or `{"channel":"stable"\|"beta"}` |
-| `GET /api/snapshot?screen=<name>` | 24-bit BMP of that screen, rendered off-display. |
+| `GET /api/snapshot?screen=<name>` | 24-bit BMP of that screen, rendered off-display. `forge.json` `screens_not_shown`: screens the harness snapshots without showing them (showing changes the device's state: the starter's Easy Connect page leaves the home network). |
 | `POST /api/settings` | App settings, starter: `{"lang":"en"\|"fr"}` |
 
 ## 5. OTA site (GitHub Pages, `tools/make_flasher_site.py`)

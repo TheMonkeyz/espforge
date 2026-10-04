@@ -131,16 +131,26 @@ def sixty_seconds_idle(ctx):
 
 @test('screens')
 def every_screen(ctx):
-    """Each screen in forge.json "screens": shown through the console, snapshot saved, not blank."""
+    """Each screen in forge.json "screens": shown through the console, snapshot saved, not blank. Those in
+    "screens_not_shown" are only snapshotted (the firmware prepares their texts off-display): showing them would change
+    the device's state (the starter's Easy Connect page takes the radio off the home network)."""
     b = ctx.board
     names = CFG['screens']
+    hidden = set(CFG.get('screens_not_shown') or [])
     if not names:
         ctx.note('forge.json lists no screens: nothing checked')
         return
-    for name in names:
-        b.show(name)
-        b.wait_screen(name, 6)
-        time.sleep(0.5)
+    # The shown ones first, then back home, then the ones only snapshotted: their texts are prepared off-display only
+    # while no other state of theirs is open (the starter's setup page 1 while setup is open on page 0)
+    order = [n for n in names if n not in hidden] + [n for n in names if n in hidden]
+    for i, name in enumerate(order):
+        if name in hidden and (i == 0 or order[i - 1] not in hidden):
+            b.show(names[0])
+            b.wait_screen(names[0], 6)
+        if name not in hidden:
+            b.show(name)
+            b.wait_screen(name, 6)
+            time.sleep(0.5)
         ms, bmp = b.snap(name, ctx.out(f'screen_{name}.png'))
         ctx.snapped.add(name)
         ctx.metric(f'snapshot_ms.{name}', round(ms))
@@ -307,7 +317,7 @@ def setup_network_and_portal(ctx):
     ctx.reset_ok = True                                # this test restarts the board on purpose
     at = len(ctx.log.lines())
     b.cmd('wifi offline-boot-short', r'test: ok')
-    ctx.log.wait(r'test: console ready', 40, 'the restart', start=at)
+    ctx.log.wait(r'test: console ready|ota: Running', 40, 'the restart', start=at)   # (L154: the first may be missed)
     end = time.time() + 75
     while b.wifi().get('ap') != '1':
         if time.time() > end:

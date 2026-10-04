@@ -56,7 +56,11 @@ static int64_t lock_t0, render_t0, last_render;
 static esp_lcd_panel_io_handle_t io;
 static SemaphoreHandle_t lvgl_mux;
 volatile int disp_phase;               // breadcrumb for the test console's "where"
+volatile int raw_band;                 // the band a raw frame is sending (with disp_phase 1-6)
 static int lvgl_inflight;              // LVGL band transfers not finished yet (its last band outlives the refresh)
+static void *buf1, *buf2;              // LVGL's two band buffers (internal, DMA), also used by display_raw_frame()
+static volatile bool raw_mode;         // a raw frame is being sent: transfers complete to raw_done, not to LVGL
+static SemaphoreHandle_t raw_done;
 
 #define CMD(c)  (((uint32_t)0x02 << 24) | ((uint32_t)(c) << 8))
 #define PIXELS  (((uint32_t)0x32 << 24) | ((uint32_t)0x2C << 8))
@@ -85,8 +89,64 @@ static bool on_trans_done(esp_lcd_panel_io_handle_t h, esp_lcd_panel_io_event_da
     if (__atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0) {
         __atomic_fetch_sub(&lvgl_inflight, 1, __ATOMIC_ACQ_REL);
         lv_display_flush_ready((lv_display_t *)ctx);
+        return false;
+    }
+    if (raw_mode) {
+        BaseType_t woken = pdFALSE;
+        xSemaphoreGiveFromISR(raw_done, &woken);
+        return woken == pdTRUE;
     }
     return false;
+}
+
+/* A whole frame without LVGL (forge_lvgl's slide.c): bands of BUF_LINES rows, filled by the caller into one buffer
+ * while the other is being sent. The caller holds the display lock, so LVGL isn't using the buffers. */
+static bool raw_wait(void)
+{
+    if (xSemaphoreTake(raw_done, pdMS_TO_TICKS(200)) == pdTRUE) return true;
+    ESP_LOGE(TAG, "raw frame: a band transfer did not finish");   // never hang the display (lock held)
+    return false;
+}
+
+void display_raw_frame(display_fill_cb_t fill, void *user)
+{
+    const int rows = BUF_LINES;
+    disp_phase = 1;
+    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);   // LVGL's last band still going out
+    while (xSemaphoreTake(raw_done, 0) == pdTRUE) {}                     // no stale tokens
+    raw_mode = true;
+    void *bufs[2] = {buf1, buf2};
+    int inflight = 0;
+    for (int y = 0, k = 0; y < DISP_H; y += rows, k ^= 1) {
+        int n = DISP_H - y < rows ? DISP_H - y : rows;
+        raw_band = y;
+        disp_phase = 2;
+        fill(y, n, bufs[k], user);                        // while the previous band is still going out
+        disp_phase = 3;
+        // No esp_lcd call while a transfer is in flight: tx_param/tx_color take the bus and then wait for the queued
+        // transfer, and called during one they hung for good, a few frames in (weather_amoled v1.11.0, breadcrumbs:
+        // phase 3). The same rule holds for any esp_lcd call from outside LVGL (display_brightness() waits too).
+        if (inflight) { if (!raw_wait()) break; inflight--; }
+        int cx1 = X_GAP, cx2 = DISP_W - 1 + X_GAP, y2 = y + n - 1;
+        uint8_t col[4] = {cx1 >> 8, cx1 & 0xFF, cx2 >> 8, cx2 & 0xFF};
+        uint8_t row[4] = {y >> 8, y & 0xFF, y2 >> 8, y2 & 0xFF};
+        lcd_cmd(0x2A, col, 4);
+        lcd_cmd(0x2B, row, 4);
+        disp_phase = 4;
+        esp_lcd_panel_io_tx_color(io, PIXELS, bufs[k], DISP_W * n * 2);
+        disp_phase = 5;
+        inflight++;
+        st.pixels += DISP_W * n;
+        tst.pixels += DISP_W * n;
+    }
+    disp_phase = 6;
+    while (inflight-- > 0) if (!raw_wait()) break;
+    disp_phase = 0;
+    raw_mode = false;
+    count_frame(0);                                       // counted like LVGL frames (fps in the test console)
+    int64_t now = esp_timer_get_time();
+    if (last_render && now - last_render < 250000) count_anim(now - last_render);
+    last_render = now;
 }
 
 static display_flush_hook_t flush_hook;
@@ -225,6 +285,8 @@ void display_init(void)
     void *b1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     void *b2 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     assert(b1 && b2);
+    buf1 = b1; buf2 = b2;
+    raw_done = xSemaphoreCreateCounting(2, 0);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_buffers(disp, b1, b2, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(disp, flush_cb);

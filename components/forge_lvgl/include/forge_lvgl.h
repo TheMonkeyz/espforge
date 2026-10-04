@@ -21,4 +21,17 @@ void finger_inject(bool down, int x, int y);   // screen pixels
 void finger_inject_end(void);                  // back to the real controller
 bool finger_injected(int *x, int *y, bool *down);
 
+/* ---- the panel, for moves drawn outside LVGL (slide.h) ----
+ * The board gives forge_lvgl direct access to its panel and touch chip (forge_lvgl can't include board.h: the board
+ * depends on it). Without it, slide.c falls back to LVGL's own (slower) animations. */
+typedef struct {
+    void (*raw_frame)(void (*fill)(int y0, int n, void *dst, void *user), void *user);   // see board.h
+    void (*set_flush_hook)(void (*hook)(const lv_area_t *a, const uint8_t *px));
+    void (*set_read_hook)(void (*hook)(lv_indev_t *in, lv_indev_data_t *data));
+    int (*touch_get)(int *x, int *y);      // 1 down, 0 up, -1 bus error; the chip read at most every 10 ms
+    bool (*touch_fresh)(void);
+    void (*touch_forget)(void);
+} forge_panel_t;
+void forge_lvgl_set_panel(const forge_panel_t *panel);   // board_init, after forge_lvgl_init
+
 uint32_t lvgl_mem_fallbacks(void);             // LVGL blocks put in internal RAM because PSRAM was full

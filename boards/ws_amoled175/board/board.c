@@ -30,7 +30,8 @@ static void cmd_fps(int argc, char **argv)
 // Breadcrumbs for "where" (no lock): what the display code is doing now
 static void where_display(char *out, size_t n)
 {
-    snprintf(out, n, " disp_phase=%d lvgl_inflight=%d", disp_phase, display_lvgl_inflight());
+    extern volatile int raw_band;
+    snprintf(out, n, " disp_phase=%d raw_band=%d lvgl_inflight=%d", disp_phase, raw_band, display_lvgl_inflight());
 }
 
 static void diag_display(void)
@@ -46,6 +47,16 @@ static void diag_display(void)
              d.hold_task[0] ? d.hold_task : "-");
 }
 
+// Direct panel and touch access for forge_lvgl's moves drawn as pictures (slide.h)
+static const forge_panel_t panel = {
+    .raw_frame = display_raw_frame,
+    .set_flush_hook = display_set_flush_hook,
+    .set_read_hook = touch_set_read_hook,
+    .touch_get = touch_get,
+    .touch_fresh = touch_fresh,
+    .touch_forget = touch_forget,
+};
+
 void board_init(void)
 {
     ESP_LOGI("board", "%s", BOARD_NAME);
@@ -55,6 +66,7 @@ void board_init(void)
     touch_register_lvgl();
     display_unlock();
     forge_lvgl_init(display_lock, display_unlock);
+    forge_lvgl_set_panel(&panel);
     testcon_register("fps", "fps [reset]", cmd_fps);
     testcon_add_where(where_display);
     diag_add_hook(diag_display);

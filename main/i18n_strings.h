@@ -41,9 +41,9 @@ X(T_OTA_ROLLED_BACK,"%s was undone: the device restarted before it was confirmed
 X(T_WIFI_SETUP,     "Wi-Fi setup",                 "Configuration Wi-Fi")
 X(T_WIFI_JOIN,      "Scan to join %s\n(password %s).\nAndroid? Swipe left to skip\nthe password",
                     "Balayez pour joindre %s\n(mot de passe %s).\nAndroid? Glissez à gauche\npour éviter le mot de passe")
-X(T_WIFI_DPP_TITLE, "Android: Easy Connect",       "Android : Easy Connect")
-X(T_WIFI_DPP_HOW,   "With your phone on your Wi-Fi,\nscan this (camera or any QR app).\nYour phone sends its network.\nSwipe right for other phones",
-                    "Téléphone connecté à votre Wi-Fi,\nbalayez ce code (caméra, appli QR).\nVotre téléphone envoie son réseau.\nGlissez à droite : autres téléphones")
+X(T_WIFI_DPP_TITLE, "Easy Connect",                "Easy Connect")      // short: the circle is ~260 px wide up there
+X(T_WIFI_DPP_HOW,   "Android phone on your Wi-Fi?\nScan this (camera or any QR app):\nit sends its network.\nSwipe right for other phones",
+                    "Téléphone Android sur votre Wi-Fi?\nBalayez ce code (caméra, appli QR) :\nil envoie son réseau.\nGlissez à droite : autres téléphones")
 X(T_WIFI_DPP_NONE,  "Easy Connect isn't available.\nSwipe right for other phones.",
                     "Easy Connect n'est pas offert.\nGlissez à droite : autres téléphones.")
 X(T_WIFI_RECEIVED,  "Wi-Fi received",              "Wi-Fi reçu")

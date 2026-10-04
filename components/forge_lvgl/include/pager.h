@@ -20,6 +20,7 @@ lv_obj_t *pager_page(lv_obj_t *pager, int i);
 void pager_go(lv_obj_t *pager, int i, bool anim);   // show page i
 int pager_current(lv_obj_t *pager);                // the page in the middle now
 int pager_count(lv_obj_t *pager);
+bool pager_vertical(lv_obj_t *pager);
 int pager_index(lv_obj_t *pager, const lv_obj_t *page);   // -1: not one of its pages
 
 // For drags drawn as pictures (outside LVGL): the finger no longer scrolls the pager (pager_freeze); a page's picture is

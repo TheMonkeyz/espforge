@@ -69,13 +69,17 @@ Kconfig: `FORGE_OTA_SITE` (the Pages URL, ending with `/`).
 |---|---|
 | `forge_lvgl.h` | `forge_lvgl_init(lock, unlock)` (called by the board), `ui_lock/ui_unlock`, the simulated finger (`finger_inject`, `finger_injected` for the board's touch driver) and the console's `tap press swipe drag`. `lvgl_mem.c` puts LVGL's heap in PSRAM (small blocks fall back to internal RAM, counted; out of memory = restart). |
 | `screens.h` | Named screens: `screens_register(defs, n)` with `get / show / prepare / shown`; console `screen [name]`; `screens_snapshot` for `/api/snapshot`. Names = `forge.json` `screens`. |
-| `pager.h` | Full-screen pager that follows the finger, snaps and bounces (LVGL scrolling). |
+| `pager.h` | Full-screen pager: pages side by side (or stacked), `pager_switch` / `pager_go`; its drags are `slide.h`'s. |
+| `slide.h` | Moves drawn as pictures copied to the panel (~66 fps, LVGL's own scrolling ~24): `slide_pager(pager)` takes over its drags (follow the finger, bounce at the ends, flick), `slide_change()` / `slide_to()` slide an in-place change or a screen load. A shadow of the panel (every flush copied) plus the current page's neighbours kept ready (rendered when idle, refreshed every 2 s): 4 pictures, 1.7 MB of PSRAM at 466x466. Log: `slide: drag: first frame after N ms, ... gap max, held reads, finger still max, renders`. Needs the board's panel hooks (`forge_lvgl_set_panel`). |
+| `textfit.h` | Text from outside (network names...) without the characters the embedded TTF lacks (emoji): `textfit_init(ttf, len)` reads its cmap; `textfit(in, out, n)`. |
 
 ## board (boards/ws_amoled175/board)
 
 `board.h`: `BOARD_NAME`, `DISP_W`, `DISP_H`, `BOARD_ROUND`, `board_init()`, `display_lock/unlock` (recursive; records
 the longest hold and who held it), `display_brightness()`, `display_get_stats()`, `display_set_flush_hook()`,
-`board_i2c_bus()`, `touch_idle_ms()`, `touch_set_read_hook()`. Also `imu.h` (QMI8658 accelerometer).
+`board_i2c_bus()`, `touch_idle_ms()`, `touch_set_read_hook()`, and for slide.c `display_raw_frame()` (a frame without
+LVGL, bands filled while the previous one is sent), `touch_get()` / `touch_fresh()` (the chip read at most every
+10 ms) and `touch_forget()`, handed over with `forge_lvgl_set_panel()`. Also `imu.h` (QMI8658 accelerometer).
 
 Rules kept in the code (see [LESSONS.md](LESSONS.md), Display and Touch): the SPI interrupt runs on the LVGL core;
 no esp_lcd call from outside LVGL while its last band is in flight (`display_brightness` waits); every touch report
