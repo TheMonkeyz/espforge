@@ -983,3 +983,12 @@ puts the manifest back. Once a PowerShell pipeline (`| Select-Object -First 10`)
 `finally` never ran and the manifest kept the local paths.
 Check: the build log says "Using component placed at <checkout>"; the script restores a manifest left by a killed run
 (its backup) before anything else; capture long builds to a file, not through a pipeline that stops early.
+
+**L187. Rendering a band of rows alone misses what reaches into it from outside.**
+Why: weather_amoled renders pictures and list scrolls a strip of rows at a time (`lv_obj_redraw` with a clip). LVGL
+skips a label whose box misses the clip, but glyphs can reach past the box (Inuktitut's syllabics come from a
+fallback font drawn 5/4 larger): after a Settings scroll in Inuktitut, the picture lacked one faint row of glyph tips
+(`pictest` 1 row off; English and French were clean). Fix: clear and draw a margin of rows (8) around each strip,
+as far as the buffer has room, and keep only the strip.
+Check: a partial renderer's output against a full render, in every language and font the app uses, not only
+English. espforge's slide.c renders whole screens (no partial strips): nothing to change there today.
