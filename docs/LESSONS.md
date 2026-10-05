@@ -955,3 +955,11 @@ first match was the ready line itself, the read position moved past it, and harn
 later with the line in the log (v0.1.1-align.1).
 Check: a wait for a line that may already have been passed searches from a known start (`start=0`, or the test's
 own position, L167); `test_harness.py` LogWaits.
+
+**L184. A test that finds a firmware bug must not take the next tests down with it.**
+Why: weather_amoled's `online_during_attempt` failed on v1.12.3 as it should (ESP-IDF refused the config, L155), but
+left the board on the fake network; its cleanup then failed too, hid the real message, and the next test failed for
+the leftover state. And a console command line is occasionally lost on the USB console with the board fine.
+Check: clean up in a way that never replaces the test's own failure (weather_amoled `recovering()`, a restart as the
+last resort); a lost read-only command is sent again once when `where` answers (board.py `READ_ONLY`). Prove a new
+test against the old firmware: it must fail there for the reason it names.
