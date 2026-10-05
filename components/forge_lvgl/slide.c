@@ -1,6 +1,6 @@
 // Moves drawn as pictures (see slide.h). Ported and trimmed from weather_amoled's slide.c (v1.12.1): the frame
 // composition, the finger rules and the drag loop are the same; its picture cache is replaced by a shadow of the panel
-// plus one picture rendered when a move starts.
+// plus the current page's neighbours, kept ready while nobody touches (rendered when a drag starts only if not ready).
 #include "slide.h"
 #include <math.h>
 #include <stdlib.h>
@@ -127,6 +127,9 @@ static int animate(frame_t *f, int to, int ms)
  * While a move runs, LVGL is paused and never sees the finger lift. The touch that started it was told to wait for its
  * release (lv_indev_wait_release), so LVGL took the next touch for the same one: quick successive swipes were missed.
  * After the move: LVGL starts afresh, and a finger already down counts as a new press. */
+// The press read_hook is tracking (a pager drag in the making)
+static struct { bool down, armed; lv_point_t p0; lv_obj_t *pager; } track;
+
 static void touch_resync(bool lifted)
 {
     int x, y;
@@ -135,6 +138,10 @@ static void touch_resync(bool lifted)
     P->touch_forget();                                   // and the board's memory of it (no fake press, then a tap)
     in->wait_until_release = 0;
     lv_indev_reset(in, NULL);
+    // And ours: LVGL read nothing during the move, so read_hook never saw this press end. A finger landing during the
+    // release animation was then taken for the old press (not armed): quick successive swipes were lost (weather_amoled
+    // fixed the same with a counter in touch_forget, v1.12.1; found aligning the two, October 4)
+    track.down = false;
 }
 
 /* The finger, read directly (LVGL paused, the display lock held). The CST9217 often stops answering (NACK) instead of
@@ -175,7 +182,6 @@ static int finger(int *x, int *y, int *errs)
 static lv_obj_t *pagers[MAX_PAGERS];
 static int npagers;
 static struct { bool queued, vertical; lv_obj_t *pager; int x0, y0, x1, y1; } drag;
-static struct { bool down, armed; lv_point_t p0; lv_obj_t *pager; } track;
 static struct { bool queued; int dir; bool vertical; void (*change)(void *); void *user; lv_obj_t *to; } chg;
 
 bool slide_busy(void) { return drag.queued || chg.queued; }
@@ -420,6 +426,11 @@ void slide_init(void)
     P->set_flush_hook(flushed);
     P->set_read_hook(read_hook);
     lv_display_add_event_cb(lv_display_get_default(), rendered, LV_EVENT_RENDER_READY, NULL);
+    // LVGL's own scroll starts after 10 px too: a read landing between its decision and ours went to LVGL (a list
+    // scrolled at ~20 fps, the touch read only between its frames). Ours decides at DRAG_PX, LVGL's at twice that
+    // (LESSONS L99).
+    lv_indev_t *in = lv_indev_get_next(NULL);
+    if (in) lv_indev_set_scroll_limit(in, 2 * DRAG_PX);
     lv_obj_invalidate(lv_screen_active());                 // a whole frame for the shadow
     for (int i = 0; i < npagers; i++) pager_freeze(pagers[i]);
     for (int i = 0; i < 2; i++) nb[i].buf = lv_draw_buf_create(W, H, LV_COLOR_FORMAT_RGB565, 0);   // 434 KB each

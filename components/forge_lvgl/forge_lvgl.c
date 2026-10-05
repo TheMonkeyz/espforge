@@ -81,19 +81,34 @@ static void cmd_press(int argc, char **argv)                // long-press: press
     ESP_LOGI(TAG, "ok press");
 }
 
+// swipe DIR [DIR...]: several swipes with only 70 ms of "up" between them (slide.c confirms a release after 60 ms): the
+// next press lands while the previous move's release animation still runs, as a quick finger does (LESSONS L181)
 static void cmd_swipe(int argc, char **argv)
 {
     int cx = lv_display_get_horizontal_resolution(NULL) / 2, cy = lv_display_get_vertical_resolution(NULL) / 2;
-    int d = (cx < cy ? cx : cy) * 2 / 3, x0 = cx, y0 = cy, x1 = cx, y1 = cy;
-    const char *dir = argc == 2 ? argv[1] : "";
-    if (!strcmp(dir, "left"))       { x0 = cx + d; x1 = cx - d; }
-    else if (!strcmp(dir, "right")) { x0 = cx - d; x1 = cx + d; }
-    else if (!strcmp(dir, "up"))    { y0 = cy + d; y1 = cy - d; }
-    else if (!strcmp(dir, "down"))  { y0 = cy - d; y1 = cy + d; }
-    else { ESP_LOGW(TAG, "error swipe: left, right, up or down"); return; }
-    finger_path(x0, y0, x1, y1, 200);
+    int d = (cx < cy ? cx : cy) * 2 / 3;
+    if (argc < 2 || argc > 5) { ESP_LOGW(TAG, "error swipe: left, right, up or down (up to 4)"); return; }
+    for (int i = 1; i < argc; i++) {
+        const char *dir = argv[i];
+        if (strcmp(dir, "left") && strcmp(dir, "right") && strcmp(dir, "up") && strcmp(dir, "down")) {
+            ESP_LOGW(TAG, "error swipe: left, right, up or down");
+            return;
+        }
+    }
+    int x1 = cx, y1 = cy;
+    for (int i = 1; i < argc; i++) {
+        const char *dir = argv[i];
+        int x0 = cx, y0 = cy;
+        x1 = cx; y1 = cy;
+        if (!strcmp(dir, "left"))       { x0 = cx + d; x1 = cx - d; }
+        else if (!strcmp(dir, "right")) { x0 = cx - d; x1 = cx + d; }
+        else if (!strcmp(dir, "up"))    { y0 = cy + d; y1 = cy - d; }
+        else                            { y0 = cy - d; y1 = cy + d; }
+        finger_path(x0, y0, x1, y1, 200);
+        if (i < argc - 1) { finger_inject(false, x1, y1); vTaskDelay(pdMS_TO_TICKS(70)); }
+    }
     finger_up(x1, y1);
-    ESP_LOGI(TAG, "ok swipe %s", dir);
+    ESP_LOGI(TAG, "ok swipe %s%s", argv[1], argc > 2 ? " ..." : "");
 }
 
 static void cmd_drag(int argc, char **argv)                 // drag X1 Y1 X2 Y2 [ms]
@@ -124,7 +139,7 @@ void forge_lvgl_init(forge_lock_fn lock, forge_unlock_fn unlock)
     unlock_fn = unlock;
     testcon_register("tap", "tap X Y", cmd_tap);
     testcon_register("press", "press X Y [ms]", cmd_press);
-    testcon_register("swipe", "swipe left|right|up|down", cmd_swipe);
+    testcon_register("swipe", "swipe left|right|up|down [more...]", cmd_swipe);
     testcon_register("drag", "drag X1 Y1 X2 Y2 [ms]", cmd_drag);
     screens_testcon();
 }

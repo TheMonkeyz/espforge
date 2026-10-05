@@ -349,6 +349,9 @@ def setup_network_and_portal(ctx):
         check(code == 200 and b'</html>' in body[-300:], f'portal page: HTTP {code}, {len(body)} bytes')
         code, _, body = http_get(SETUP_IP, '/api/info', SETUP_IP)
         check(code == 200 and b'"setup":true' in body.replace(b' ', b''), f'GET /api/info on the setup network: HTTP {code}')
+        nows = body.replace(b' ', b'')
+        check(b'"ssid":""' in nows and b'"ip":""' in nows,
+              'the setup network gets the home network name or address from /api/info')
         code, _, _ = http_get(SETUP_IP, '/api/snapshot', SETUP_IP)
         check(code in (401, 403), f'snapshot on the setup network: HTTP {code}, expected 401/403')
         check(b.wifi().get('ap_clients', '0') != '0',

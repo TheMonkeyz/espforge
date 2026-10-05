@@ -44,6 +44,22 @@ def swipe_between_pages(ctx):
 
 
 @test('navigation')
+def quick_swipes(ctx):
+    """A swipe that lands while the previous move's release animation still runs is a swipe too. LVGL reads nothing
+    during a move, so slide.c's read hook never saw the first press end, and took the second for it: nothing moved
+    (LESSONS L181). 'swipe left right' leaves 70 ms of "up" between the two."""
+    b = ctx.board
+    go_home(ctx)
+    at = len(ctx.log.lines())
+    b.cmd('swipe left right')
+    time.sleep(1.0)
+    drags = ctx.log.count(r'slide: drag: first frame', start=at)
+    check(drags == 2, f'two quick swipes made {drags} drag(s); the second was taken for the first')
+    b.wait_screen(HOME, 4)
+    ctx.note(f'two swipes 70 ms apart: {drags} drags, back on {HOME}')
+
+
+@test('navigation')
 def long_press_opens_setup(ctx):
     """A long-press opens Wi-Fi setup; a tap closes it, back where it was."""
     b = ctx.board
@@ -103,18 +119,22 @@ def measure(ctx, name, action, settle=1.0):
     """Frame rate during `action` (console commands): fps reset, act, wait for the animation to end, read fps.
     anim_fps counts frames less than 250 ms apart; gap_max_ms is the longest wait between two of them."""
     b = ctx.board
+    if time.localtime().tm_sec > 55:                 # not across a minute change: the clock's redraw right after a
+        time.sleep(62 - time.localtime().tm_sec)     # move counts in swipe_gap_max_ms (weather_amoled: 127 ms once)
     b.cmd('fps reset')
     for c in action:
         b.cmd(c)
     time.sleep(settle)
     line = b.cmd('fps', r'test: fps (.*)').group(1)
-    v = {k: float(x) for k, x in (kv.split('=') for kv in line.split() if '=' in kv)}
+    kv = dict(x.split('=', 1) for x in line.split() if '=' in x)
+    v = {k: float(x) for k, x in kv.items() if re.fullmatch(r'-?[\d.]+', x)}   # gap_max_kind is text
     check(v.get('anim_frames', 0) > 0, f'{name}: no animation frames counted ({line})')
     ctx.metric(f'swipe_fps.{name}', round(v['anim_fps'], 1))
     ctx.metric(f'swipe_gap_max_ms.{name}', round(v['gap_max_ms']))
     ctx.metric(f'swipe_render_avg_ms.{name}', round(v['render_avg_ms'], 1))
     ctx.note(f'{name}: {v["anim_fps"]:.1f} fps, {int(v["anim_frames"])} frames, render avg {v["render_avg_ms"]:.1f} ms '
-             f'max {v["render_max_ms"]:.1f} ms, worst gap {v["gap_max_ms"]:.0f} ms')
+             f'max {v["render_max_ms"]:.1f} ms, worst gap {v["gap_max_ms"]:.0f} ms' +
+             (f' ({kv["gap_max_kind"]}, {kv["gap_max_at_ms"]} ms after the reset)' if 'gap_max_kind' in kv else ''))
 
 
 @test('perf')

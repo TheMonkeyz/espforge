@@ -85,10 +85,10 @@ main/                           the starter app: hello | system pager, Wi-Fi set
 main/i18n_strings.h             every display text, English and Canadian French
 main/web/index.html             the settings page
 boards/ws_amoled175/board/      board support (component "board"): CO5300 display, CST9217 touch, QMI8658
-components/forge_core/          version, http_once, utf8, png_rows, nvs_check, diag, test console, i18n core
+components/forge_core/          version, http_once, utf8, png_rows, text fit, nvs_check, diag, test console, i18n core
 components/forge_net/           Wi-Fi station, setup AP + captive portal, Easy Connect, TLS cert, web server, service health
 components/forge_ota/           updates from the Pages site, rollback confirmation
-components/forge_lvgl/          LVGL heap in PSRAM, pager, moves as pictures (slide.c), text fit, snapshots, touch injection, screens
+components/forge_lvgl/          LVGL heap in PSRAM, pager, moves as pictures (slide.c), snapshots, touch injection, screens
 components/dns_server/          captive-portal DNS (from ESP-IDF's example)
 tools/devloop/                  flash helper (Windows), devloop.py, stage.py; state files in .devloop/
 tools/harness/                  harness.py, board.py, core_suites.py, app_suites.py, baseline.json, reports/

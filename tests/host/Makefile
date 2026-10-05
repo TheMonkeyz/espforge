@@ -23,8 +23,8 @@ $(OUT)/test_version: test_version.c $(FORGE)/version.c $(FORGE)/include/version.
 # i18n.c is pure C (its NVS half, i18n_nvs.c, is not compiled here); the texts are the app's
 $(OUT)/test_i18n: test_i18n.c $(FORGE)/i18n.c $(FORGE)/include/forge_i18n.h $(MAIN)/i18n_strings.h | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_i18n.c $(FORGE)/i18n.c
-$(OUT)/test_textfit: test_textfit.c $(LVGLC)/textfit.c $(LVGLC)/include/textfit.h $(MAIN)/montserrat.ttf | $(OUT)
-	$(CC) $(CFLAGS) -I$(LVGLC)/include -o $@ test_textfit.c $(LVGLC)/textfit.c
+$(OUT)/test_textfit: test_textfit.c $(FORGE)/textfit.c $(FORGE)/include/textfit.h $(MAIN)/montserrat.ttf | $(OUT)
+	$(CC) $(CFLAGS) -o $@ test_textfit.c $(FORGE)/textfit.c
 $(OUT)/test_testcon: test_testcon.c $(FORGE)/testcon_registry.c $(FORGE)/include/testcon.h | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_testcon.c $(FORGE)/testcon_registry.c
 

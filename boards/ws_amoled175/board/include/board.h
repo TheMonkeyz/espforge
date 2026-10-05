@@ -27,6 +27,8 @@ void display_brightness(uint8_t level);   // 0..255, with the lock held, from an
 typedef struct {
     uint32_t frames, render_us, render_max_us;     // rendered frames and their render time
     uint32_t anim_frames, anim_us, anim_gap_max_us; // back-to-back frames (animations): interval sum / worst gap
+    uint32_t anim_gap_max_at_ms;                   // ...when it ended (ms since the reset; test console only)
+    char anim_gap_max_kind[12];                    // ...between which frames: "lvgl>move", "move>move", ...
     uint64_t pixels;                               // pixels sent to the panel
     uint32_t lvgl_wait_max_us;                     // longest wait of the LVGL task for the lock
     uint32_t hold_max_us;                          // longest lock hold by another task...

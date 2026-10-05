@@ -8,6 +8,11 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.1.1-rc.1 - 2026-10-04
+- Two quick swipes in a row both move the screen: the second one, landing while the first was still settling, was ignored.
+- The settings page no longer tells someone on the setup network the name and address of your home network.
+- Behind the scenes: crash-report cleanup no longer repeats at every start; quick setup-page switches can no longer stop Easy Connect twice at once; a smoother-swipe measurement that is no longer fooled by an unrelated screen update.
+
 ## v0.1.0 - 2026-10-04
 - Two screens to swipe between, following your finger smoothly: a welcome screen with the time and date, and a system screen with the firmware version, network, memory and update status.
 - Press and hold anywhere for the Wi-Fi setup screen.

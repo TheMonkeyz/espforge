@@ -16,6 +16,7 @@
 #include "textfit.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "net.h"
 #include "web.h"
@@ -271,7 +272,7 @@ static lv_timer_t *su_timer;
 static char su_note_text[96];
 static char su_ap_qr[96];           // "WIFI:T:WPA;S:<setup SSID>;P:<this device's password>;;"
 
-/* Easy Connect's code exists ~0.15 s after the page settles (more when offline: a channel scan). Until then the page
+/* Easy Connect's code exists ~2 s after the page settles (a channel scan first, LESSONS L166). Until then the page
  * shows a placeholder code of the same size and density, faint and low-contrast ("loading"), so nothing pops in and a
  * drag's picture of the page already has it; the real code replaces it and fades up (the user found the pop-in janky).
  * LVGL 9.2 has no blur filter: low opacity and grey modules stand in for it. */
@@ -342,31 +343,47 @@ static void su_texts(void)                          // both pages' texts (snapsh
 }
 
 /* The radio work of a page (stopping the other mode, Easy Connect's channel scan: up to a few seconds) runs in its own
- * task: done in the swipe's handler it froze the screen, and the page change looked slow. Only the latest request
- * counts. */
+ * task: done in the swipe's handler it froze the screen, and the page change looked slow. Only the latest page request
+ * counts; stops are never skipped (a stop queued by ui_wifi_setup_close() was replaced by a later request, and
+ * main.c then stopped Easy Connect from its own task at the same time: two deinits). RADIO_DPP_OFF wakes
+ * ui_wifi_setup_end() when done (weather_amoled v1.13.0). */
 static QueueHandle_t su_q;
-enum { RADIO_OFF = -1, RADIO_AP = 0, RADIO_DPP = 1 };
+static SemaphoreHandle_t su_dpp_off;
+enum { RADIO_OFF = -1, RADIO_AP = 0, RADIO_DPP = 1, RADIO_DPP_OFF = 2 };
+
+static void su_radio_do(int mode);
 
 static void su_radio_task(void *arg)
 {
-    int mode;
+    int mode, next;
     while (xQueueReceive(su_q, &mode, portMAX_DELAY)) {
-        while (xQueueReceive(su_q, &mode, 0)) {}        // a newer request replaces it
-        if (mode == RADIO_AP) {
-            net_dpp_stop();
-            net_setup_ap_start();
-        } else if (mode == RADIO_DPP) {
-            // The setup network stays up: net_dpp_start keeps it on the Easy Connect channel (it holds the radio there)
-            if (!net_dpp_start(su_dpp_uri, su_dpp_done)) {
-                display_lock(-1);
-                lv_label_set_text(su[1].body, tr(T_WIFI_DPP_NONE));
-                lv_obj_add_flag(su[1].qr, LV_OBJ_FLAG_HIDDEN);   // no code is coming: no placeholder either
-                display_unlock();
-            }
-        } else {
-            net_dpp_stop();
-            net_setup_ap_stop();
+        while (xQueueReceive(su_q, &next, 0)) {
+            if (mode != RADIO_AP && mode != RADIO_DPP) su_radio_do(mode);   // a stop: done, not replaced
+            mode = next;
         }
+        su_radio_do(mode);
+    }
+}
+
+static void su_radio_do(int mode)
+{
+    if (mode == RADIO_AP) {
+        net_dpp_stop();
+        net_setup_ap_start();
+    } else if (mode == RADIO_DPP) {
+        // The setup network stays up: net_dpp_start keeps it on the Easy Connect channel (it holds the radio there)
+        if (!net_dpp_start(su_dpp_uri, su_dpp_done)) {
+            display_lock(-1);
+            lv_label_set_text(su[1].body, tr(T_WIFI_DPP_NONE));
+            lv_obj_add_flag(su[1].qr, LV_OBJ_FLAG_HIDDEN);   // no code is coming: no placeholder either
+            display_unlock();
+        }
+    } else if (mode == RADIO_DPP_OFF) {
+        net_dpp_stop();
+        xSemaphoreGive(su_dpp_off);
+    } else {
+        net_dpp_stop();
+        net_setup_ap_stop();
     }
 }
 
@@ -475,7 +492,9 @@ void ui_wifi_setup_end(void)
     display_lock(-1);
     if (su_timer) { lv_timer_delete(su_timer); su_timer = NULL; }
     display_unlock();
-    net_dpp_stop();
+    int mode = RADIO_DPP_OFF;                       // through the radio task: never at the same time as its own stop
+    xSemaphoreTake(su_dpp_off, 0);
+    if (su_q && xQueueSend(su_q, &mode, pdMS_TO_TICKS(1000)) == pdTRUE) xSemaphoreTake(su_dpp_off, pdMS_TO_TICKS(10000));
 }
 
 /* ---------- updates, language ---------- */
@@ -532,6 +551,7 @@ void ui_init(void)
 {
     textfit_init(ttf_start, ttf_end - ttf_start);
     su_q = xQueueCreate(4, sizeof(int));
+    su_dpp_off = xSemaphoreCreateBinary();
     xTaskCreatePinnedToCore(su_radio_task, "setup_radio", 4096, NULL, 3, NULL, 0);   // internal RAM: NVS writes
     display_lock(-1);
     f_big = mkfont(64);

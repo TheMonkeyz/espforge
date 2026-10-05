@@ -72,9 +72,16 @@ static void startup_info(void)
     esp_err_t chk = esp_core_dump_image_check();
     if (chk != ESP_OK && chk != ESP_ERR_NOT_FOUND) {
         // Not a crash: whatever was in the partition before (another firmware's data at that address after a new
-        // partition table). ESP-IDF logs an E line about it at every boot until it is erased.
-        ESP_LOGW(TAG, "coredump: partition held no valid dump (%s), erased", esp_err_to_name(chk));
-        esp_core_dump_image_erase();
+        // partition table). ESP-IDF logs an E line about it at every boot until it is erased. But a blank partition
+        // (size word 0xFFFFFFFF, which is also what an erase leaves) gives the same ESP_ERR_INVALID_SIZE: read the
+        // word, or every boot after the first erase erased again (found aligning with weather_amoled, October 4)
+        const esp_partition_t *cp = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, NULL);
+        uint32_t size = 0xFFFFFFFF;
+        if (cp && esp_partition_read(cp, 0, &size, sizeof(size)) == ESP_OK && size != 0xFFFFFFFF) {
+            ESP_LOGW(TAG, "coredump: partition held no valid dump (%s, size word 0x%08lx), erased", esp_err_to_name(chk),
+                     (unsigned long)size);
+            esp_core_dump_image_erase();
+        }
     }
     if (cd && chk == ESP_OK && esp_core_dump_get_summary(cd) == ESP_OK) {
         char bt[16 * 11 + 1] = "";

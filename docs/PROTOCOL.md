@@ -44,7 +44,7 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `key` | `test: key <16 hex>` | forge_net (web) |
 | `wifi status\|offline\|online\|offline-boot\|offline-boot-short` | `test: wifi connected=0/1 sta_ssid=… portal=0/1 ap=0/1 ap_clients=N dpp=0/1 retries=N channel=N ap_pass=<8 chars>` (same keys as weather_amoled) | forge_net |
 | `portal windows-quiet` | `test: ok portal windows-quiet` | forge_net |
-| `fps [reset]` | `test: fps frames=… render_avg_ms=… render_max_ms=… anim_frames=… anim_fps=… gap_max_ms=… mpx=…` | board display |
+| `fps [reset]` | `test: fps frames=… render_avg_ms=… render_max_ms=… anim_frames=… anim_fps=… gap_max_ms=… gap_max_at_ms=… gap_max_kind=lvgl>move… mpx=…` (the gap from an LVGL redraw to a move's first frame is not counted; `gap_max_kind` is text) | board display |
 | `tap X Y`, `press X Y [ms]`, `swipe left\|right\|up\|down`, `drag X1 Y1 X2 Y2 [ms]` | `test: ok tap` … | forge_lvgl (touch inject) |
 | `screen` | `test: screen <name>` (a name from `forge.json` `screens`) | forge_lvgl (screen registry) |
 | `screen <name>` | `test: ok screen <name>` | forge_lvgl |

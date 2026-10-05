@@ -195,7 +195,8 @@ board (any other ELF gives wrong names).
 Why: October 3: Open-Meteo timed out 10 of 16 requests from the display while the PC got answers in 0.07 s; five
 tests of an rc failed for it.
 Check: wait out the device's "service unreachable" state (minutes), note it in the report, fail only on firmware
-behaviour.
+behaviour. A 200 can carry the service's own error (Open-Meteo's `allEndpointsUnavailable`, weather_amoled October 4): log
+the status and size with an unexpected body, so nobody reads it as a rate limit.
 
 **L35. A command that gets no answer makes the harness send `where`.**
 Why: `where` takes no lock; the failure then says where the display stuck. That is how the raw-frame hangs were
@@ -838,9 +839,13 @@ Why: stopping right after starting deinitialised DPP while its listen was still 
 assert in `dpp_listen_start` (event group deleted), a restart. `net_dpp_stop()` waits for it (≤ 3 s).
 Check: the setup page test switches back within a second, 3 runs in a row.
 
-**L166. Connected already? Use the router's channel, don't scan.**
-Why: Easy Connect's QR code took ~2.1 s: a scan for the saved network's channel, which the station already knew.
-0.15 s now (`easy_connect_qr_s`). Offline it still scans by name (see "Wi-Fi setup and offline").
+**L166. Connected already? The router's channel is only the fallback: still scan.**
+Why: skipping the scan (the station knew the channel) showed Easy Connect's QR code in 0.15 s instead of ~2.1 s, but
+every attempt made straight from a connection then timed out (`ESP_ERR_DPP_AUTH_TIMEOUT`), while attempts after a
+scan worked; the scan was restored (517742e). (This lesson said the opposite until October 4: a lesson must follow its
+code.) The wait is hidden behind a placeholder code (L170).
+Check: `Easy Connect: channel N (saved network, ...)` even when online; the router's channel only when the scan by name
+finds nothing.
 
 **L167. A test keeps its own log position; `log.mark()` is the harness's.**
 Why: a new test used `ctx.log.mark()` (returns nothing) as its start; its first wait moved the shared position past
@@ -903,3 +908,43 @@ Why: espforge v0.1.0's Pages deployment succeeded, yet the site kept serving rc.
 saw nothing). Re-running only the `pages` job failed on a duplicate artifact; a fresh run from `main` fixed it.
 Check: after every release, `curl -sI <ota_site>channels.json` (`Last-Modified`, `stable`); recovery in
 docs/RELEASING.md, "The site still serves the old files".
+
+## Aligning with weather_amoled (October 4, evening)
+
+**L177. A framework and the app it came from drift within hours.**
+Why: espforge was extracted at 13:33; by 20:00 the Easy Connect fix existed only here while weather_amoled still
+failed with the user's phone, and weather_amoled's fps-gap and quick-swipe fixes existed only there. Nothing linked a
+fix in one to the other.
+Check: both CLAUDE.md files list the twin files; a fix in one gets ported in the same session or a task for the other
+(the plan: weather_amoled takes forge_core, forge_net and forge_ota as a git submodule).
+
+**L178. A wrapping label must not have a fixed-position neighbour below it.**
+Why: weather_amoled's alert title wrapped to two lines and ran into the line under it (v1.12.2). Its test's first run
+then read `lv_obj_get_y()` = 80 right after `lv_obj_set_y(111)`: that is the last layout's position until the next one.
+Check: lay out what follows from the label's real height; read `lv_obj_get_style_y()` or call
+`lv_obj_update_layout()` first. A console command that lays a screen out with worst-case texts and reports the
+geometry makes it testable (weather_amoled's `alert sample`).
+
+**L179. A blank core dump partition and junk in it look the same to ESP-IDF.**
+Why: `esp_core_dump_image_check()` returns `ESP_ERR_INVALID_SIZE` for a size word of 0xFFFFFFFF, which is both an
+empty partition and what `esp_core_dump_image_erase()` leaves: diag (L158) erased the partition and warned at every
+boot after the first erase.
+Check: read the size word; erase only when it isn't 0xFFFFFFFF (diag.c). Junk test: TESTING.md.
+
+**L180. A queue where "only the latest counts" must never drop a stop.**
+Why: the setup radio task (L164) replaced any older request with a newer one; a stop queued by one exit could be
+replaced, while main.c stopped Easy Connect from its own task at the same moment: two deinits racing. Only page
+requests may be replaced; a stop that someone waits for goes through the same task and signals when done.
+Check: `ui_wifi_setup_end()` returns after the radio task stopped Easy Connect.
+
+**L181. After a move, forget the press you were tracking.**
+Why: LVGL reads nothing while slide.c moves the pictures, so read_hook never saw the press end; a finger landing
+during the release animation was taken for the old press and never became a drag: quick successive swipes were lost.
+weather_amoled had the same bug and fixed it with a counter (v1.12.1).
+Check: `touch_resync()` clears `track.down`; two swipes 100 ms apart both move.
+
+**L182. A test that depends on the time of day fails in the evening.**
+Why: weather_amoled's hourly-list test opened today's list; at 20:30 only a few hours were left and the whole list
+scrolled 14 px, so every flick "barely moved" (4 runs, the code unchanged). The log line said `now at 14 of 0..14`.
+Check: test on data whose size doesn't depend on the clock (tomorrow's list); read the log line before suspecting
+the change under test.

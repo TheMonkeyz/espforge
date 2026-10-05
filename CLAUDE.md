@@ -39,6 +39,19 @@ Details: `docs/WORKFLOW.md`, `docs/RELEASING.md`. Skills in `.claude/skills/` ho
 Lessons by topic (memory, LVGL, touch, Wi-Fi, OTA, Windows tooling…): `docs/LESSONS.md`. Add a lesson there when a
 bug teaches something general; add the project-specific fact below.
 
+## Shared with weather_amoled
+
+[weather_amoled](https://github.com/TheMonkeyz/esp32-s3-weather) (`C:\Users\lmathieu\ESPDEV\weather_amoled`) is the
+app espforge was extracted from (October 4). The two drifted within hours (L177). Plan, chosen October 4: port fixes
+both ways; then weather_amoled takes forge_core, forge_net and forge_ota as a git submodule (it keeps its own display,
+touch, slide.c and app code, which are larger than forge_lvgl's).
+
+- **Twin files** until then: forge_core (`diag.c`, `testcon.c`, `i18n.c`, `version.c`, `png_rows.c`, `textfit.c`,
+  `http_once.h`, `utf8.h`), forge_net (`net.c`, `web.c`, `svc.c`, `tlscert.c`), forge_ota (`ota.c`), `lvgl_mem.c`,
+  `pager.c`, the board's `display.c` / `touch.c` / `imu.c`, `components/dns_server`, the harness's `board.py` /
+  `harness.py` and the flash helper. Its `slide.c` is the larger original: port ideas, not the file.
+- **A fix in a twin file** gets ported to weather_amoled in the same session, or a task for it.
+
 ## Working setup (this PC)
 
 - **Board:** Waveshare ESP32-S3-Touch-AMOLED-1.75 on **COM5** of a Windows 11 PC (`forge.json` `port` empty = auto).

@@ -81,9 +81,9 @@ own with `testcon_register`.
 the area outside a round panel tinted red, so anything the circle cuts off stands out.
 
 ```bash
-python tools/snapshot.py <ip> hello             # -> snapshot_hello.png
-python tools/snapshot.py <ip> system out.png
-python tools/snapshot.py <ip> setup --key <key> # else $FORGE_KEY, else .devloop/key, else asks the console
+python tools/snapshot.py hello                  # -> snapshot_hello.png (address: .devloop/ip)
+python tools/snapshot.py system out.png --ip <ip>
+python tools/snapshot.py setup --key <key>      # else $FORGE_KEY (forge.json key_env), else .devloop/key
 ```
 
 - Screens: the names in `forge.json` `screens` (registered by the app with the screen registry), plus `current`.
@@ -99,8 +99,9 @@ One command tests the board end to end. Needs the flash helper running and firmw
 
 ```bash
 python tools/harness/harness.py                                  # all suites on the firmware on the board
-python tools/harness/harness.py --flash build/v55/<app>.bin      # stage, flash, then test
-python tools/harness/harness.py --suite smoke --suite web        # some suites
+python tools/harness/harness.py --flash                          # stage the build in forge.json build_dir, flash, test
+python tools/harness/harness.py --flash build/debug              # another build folder
+python tools/harness/harness.py boot web                         # some suites (or --suite boot,web)
 python tools/harness/harness.py wifi_setup --phone               # + Easy Connect with a real phone (asks the user)
 python tools/harness/harness.py --expect v0.2.0-rc.1             # fail unless the board runs this version
 python tools/harness/harness.py --ota v0.2.0-rc.1                # install a published release with the updater, test it
@@ -109,7 +110,7 @@ python tools/harness/harness.py perf --update-baseline           # propose new r
 
 | Flag | Meaning |
 |---|---|
-| `--flash <bin>` | Stage and flash a build first (md5 checked). |
+| `--flash [BUILD_DIR]` | Stage and flash a build folder first (default `forge.json` `build_dir`; every part, md5 checked). |
 | `--suite <name>` (or positional names) | Run only these suites. |
 | `--expect vX` | Fail unless the board runs vX. Always use it when testing a release. |
 | `--ota vX` | Ask the device to check its channel every minute until it offers vX (CI + Pages take ~5 min after a tag; `--ota-wait` minutes, default 20), install with the device's own updater, wait for `ota: Running vX` and `marked valid`, then run the suites with `--expect vX`. An rc needs the device on the Beta channel; the harness doesn't change it. |
@@ -122,12 +123,17 @@ Suites. Generic ones live in `tools/harness/core_suites.py` and test the framewo
 
 | Suite | What it proves |
 |---|---|
-| `smoke` | console answers, firmware version, Wi-Fi up, `GET /api/info` |
-| `navigation` | each screen in `forge.json` `screens` is reachable by simulated swipes/taps; a snapshot of each |
-| `web` | the Playwright suite (`tools/webtest`) and the live API: the page arrives whole; 403 for a POST over plain HTTP, 302 to the device itself, 401 without or with a wrong key, 415 for non-JSON, 421 for another Host, 401 for a snapshot without the key |
-| `perf` | boot stage times, internal RAM and PSRAM low points, `fps`, against `baseline.json` |
-| `wifi_runtime` | network lost while running: retries go on; setup pauses them; reconnect; an update check follows |
-| `wifi_setup` | boot with the network unreachable: setup opens by itself, no retries while open, the PC joins the setup network like a phone (DNS answers every name, the captive-portal redirect, the page loads), Easy Connect listens on the router's channel, the setup network works again after Easy Connect; `setup_stops_opening_by_itself` crosses the auto-setup window with `wifi offline-boot-short` |
+| `boot` | the start-up: no `E (` line, `ota: Running` / `App version` / the console agree, boot stage times; a crash kept from before is noted |
+| `console` | `help` lists the commands; an unknown command is refused |
+| `memory` | internal RAM and PSRAM free and low points, failed allocations, against `baseline.json` |
+| `screens` | each screen in `forge.json` `screens` snapshotted (size, not blank); `screens_not_shown` are prepared off-display |
+| `web` | the Playwright suite (`tools/webtest`), `GET /api/info`, the page whole; 403 for a POST over plain HTTP, 302 to the device itself, 401 without or with a wrong key, 415 for non-JSON, 421 for another Host |
+| `update` | an update check ends in "up to date" or "available" (network errors tolerated) |
+| `idle_stable` | 60 s idle: internal RAM doesn't drop |
+| `wifi_runtime` | network lost while running: retries go on; setup pauses them; back online |
+| `wifi_setup` | the PC joins the setup network like a phone (DNS answers every name, the captive-portal redirect, the page loads, `/api/info` without the home network's name or address), Easy Connect on its channel with the setup network held there; `--phone` for a real scan |
+| `ota` | (on request) the installed release is confirmed and nothing was rolled back |
+| `navigation`, `perf` | the starter app's: swipes between pages (quick ones too), long-press to setup, setup pages, fps against the baseline |
 | *app suites* | whatever `app_suites.py` registers |
 
 Reports: `tools/harness/reports/<date>/report.md` (git-ignored) with `results.json`, screenshots and the log of each
@@ -233,7 +239,7 @@ The board's log says what the board saw; only the phone's log says why the phone
 
 1. On the phone: Developer options (tap Build number 7 times) → **Wireless debugging** on → **Pair device with pairing
    code**. Note the IP:port and the code; also turn on **Enable Wi-Fi verbose logging**.
-2. On the PC (Android SDK Platform-Tools, unzipped anywhere): `adb pair <ip>:<pairing port> <code>` (use the IP, not
+2. On the PC (Android SDK Platform-Tools, unzipped anywhere; on this PC `C:\Users\lmathieu\ESPDEV\platform-tools`): `adb pair <ip>:<pairing port> <code>` (use the IP, not
    the mDNS name; a failed try uses the code up: ask for a new one), then `adb mdns services` for the connect port and
    `adb connect <ip>:<port>`.
 3. `adb logcat -c`, then `adb logcat -v time > phone_dpp.txt` in the background; the user scans; then

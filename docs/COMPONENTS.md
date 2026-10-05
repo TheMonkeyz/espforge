@@ -41,6 +41,7 @@ Routes must be added before `web_start()`; console commands can be registered at
 | `http_once.h` | `http_once(cfg, &status)`: init/perform/cleanup; NULL client = `ESP_ERR_NO_MEM`, not a crash. |
 | `utf8.h` | `utf8_cut`, `utf8_copy`: never split a character. |
 | `png_rows.h` | PNG decode one row at a time with the ROM's inflate (~50 KB whatever the size). |
+| `textfit.h` | Text from outside (network names, places...) without the characters the fonts lack (emoji): `textfit_init(ttf, len)` reads a TTF's cmap, `textfit_add()` a fallback font (a character counts if any font has it); `textfit(in, out, n)`. Pure C, host-tested. |
 
 ## forge_net
 
@@ -71,7 +72,6 @@ Kconfig: `FORGE_OTA_SITE` (the Pages URL, ending with `/`).
 | `screens.h` | Named screens: `screens_register(defs, n)` with `get / show / prepare / shown`; console `screen [name]`; `screens_snapshot` for `/api/snapshot`. Names = `forge.json` `screens`. |
 | `pager.h` | Full-screen pager: pages side by side (or stacked), `pager_switch` / `pager_go`; its drags are `slide.h`'s. |
 | `slide.h` | Moves drawn as pictures copied to the panel (~66 fps, LVGL's own scrolling ~24): `slide_pager(pager)` takes over its drags (follow the finger, bounce at the ends, flick), `slide_change()` / `slide_to()` slide an in-place change or a screen load. A shadow of the panel (every flush copied) plus the current page's neighbours kept ready (rendered when idle, refreshed every 2 s): 4 pictures, 1.7 MB of PSRAM at 466x466. Log: `slide: drag: first frame after N ms, ... gap max, held reads, finger still max, renders`. Needs the board's panel hooks (`forge_lvgl_set_panel`). |
-| `textfit.h` | Text from outside (network names...) without the characters the embedded TTF lacks (emoji): `textfit_init(ttf, len)` reads its cmap; `textfit(in, out, n)`. |
 
 ## board (boards/ws_amoled175/board)
 

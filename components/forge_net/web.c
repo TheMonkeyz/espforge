@@ -84,8 +84,13 @@ static esp_err_t info_get(httpd_req_t *req)
 {
     cJSON *j = cJSON_CreateObject();
     char ip[20] = "", ssid[NET_SSID_MAX + 1] = "";
-    net_get_ip(ip, sizeof(ip));
-    net_get_ssid(ssid, sizeof(ssid));
+    // On the setup network (anyone with its password, during an outage too): not the home network's name or address
+    // (weather_amoled's rule since v1.12.0; espforge gave both, found aligning the two, October 4)
+    bool setup = web_from_setup_ap(req);
+    if (!setup) {
+        net_get_ip(ip, sizeof(ip));
+        net_get_ssid(ssid, sizeof(ssid));
+    }
     wifi_ap_record_t ap;
     cJSON_AddStringToObject(j, "app", esp_app_get_description()->project_name);
     cJSON_AddStringToObject(j, "version", esp_app_get_description()->version);
@@ -93,7 +98,7 @@ static esp_err_t info_get(httpd_req_t *req)
     cJSON_AddStringToObject(j, "ssid", ssid);
     cJSON_AddNumberToObject(j, "rssi", esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0);
     cJSON_AddNumberToObject(j, "uptime_s", (double)(esp_timer_get_time() / 1000000));
-    cJSON_AddBoolToObject(j, "setup", web_from_setup_ap(req));
+    cJSON_AddBoolToObject(j, "setup", setup);
     cJSON_AddStringToObject(j, "lang", i18n_code(i18n_lang()));
     cJSON *langs = cJSON_AddArrayToObject(j, "languages");
     for (int i = 0; i < LANG_COUNT; i++) {

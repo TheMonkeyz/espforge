@@ -6,8 +6,9 @@
 // frame (~25 fps for a simple full screen, 10-15 for a busy one: weather_amoled, docs/LESSONS.md "LVGL").
 //
 // - The picture of the screen shown follows the panel (every area LVGL flushes is copied into it), so a move never
-//   waits for it. The other picture (the page coming in, the screen after a change) is rendered off-display when the
-//   move starts (lv_snapshot, ~30-40 ms here).
+//   waits for it. The current page's neighbours are rendered off-display while nobody touches (refreshed every 2 s),
+//   so a drag's first frame comes ~15 ms after the 10 px that make it a drag; one not ready is rendered then
+//   (lv_snapshot, ~30-40 ms). In-place changes and screen loads render the new picture when they start.
 // - Pager drags: slide_pager() takes over a pager's finger drags. The drag is recognised in the touch read (before
 //   LVGL acts on it), then followed outside LVGL: the neighbour page comes in under the finger, the ends resist and
 //   bounce back, release past a third or a flick goes on, else back. Then pager_switch() and LVGL takes over again.
