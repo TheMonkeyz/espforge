@@ -51,7 +51,7 @@ static esp_err_t settings_post(httpd_req_t *req)
 {
     cJSON *j = web_read_json(req);
     const char *lang = cJSON_GetStringValue(cJSON_GetObjectItem(j, "lang"));
-    bool ok = lang && (!strcmp(lang, "en") || !strcmp(lang, "fr"));
+    bool ok = lang && !strcmp(i18n_code(i18n_from_code(lang)), lang);   // one of the app's languages
     if (ok && i18n_from_code(lang) != i18n_lang()) {
         i18n_set(i18n_from_code(lang));
         ok = i18n_save();

@@ -101,7 +101,7 @@ static esp_err_t info_get(httpd_req_t *req)
     cJSON_AddBoolToObject(j, "setup", setup);
     cJSON_AddStringToObject(j, "lang", i18n_code(i18n_lang()));
     cJSON *langs = cJSON_AddArrayToObject(j, "languages");
-    for (int i = 0; i < LANG_COUNT; i++) {
+    for (int i = 0; i < i18n_count(); i++) {
         cJSON *o = cJSON_CreateObject();
         cJSON_AddStringToObject(o, "code", i18n_code(i));
         cJSON_AddStringToObject(o, "name", i18n_name(i));
@@ -228,7 +228,7 @@ static esp_err_t redirect_to(httpd_req_t *req, const char *loc)
     httpd_resp_set_type(req, "text/html");
     // iOS needs a body to recognise the captive portal
     snprintf(body, sizeof(body), "<html><body><a href=\"/\">%s setup</a></body></html>",
-             esp_app_get_description()->project_name);
+             CONFIG_FORGE_PORTAL_NAME[0] ? CONFIG_FORGE_PORTAL_NAME : esp_app_get_description()->project_name);
     return httpd_resp_sendstr(req, body);
 }
 

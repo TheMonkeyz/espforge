@@ -148,7 +148,9 @@ static void diag_task(void *arg)
     size_t int_lg_min = SIZE_MAX, dma_lg_min = SIZE_MAX;
     // After the USB Serial/JTAG port is back: it re-enumerates at reset, and a monitor on the PC misses the first
     // ~2.5 s of the log (the boot info was always lost)
-    vTaskDelay(pdMS_TO_TICKS(4000));
+    // (at 4 s of uptime, whenever diag_start() was called: an app that starts it late doesn't wait 4 s more)
+    int64_t up_ms = esp_timer_get_time() / 1000;
+    if (up_ms < 4000) vTaskDelay(pdMS_TO_TICKS(4000 - up_ms));
     startup_info();
     report_tasks();                                               // baseline
     for (int tick = 1;; tick++) {

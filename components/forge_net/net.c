@@ -164,7 +164,7 @@ void net_init(void)
     esp_log_level_set("wpa", ESP_LOG_DEBUG);
 #endif
     testcon_register("wifi", "wifi status|offline|online|offline-boot|offline-boot-short", cmd_wifi);
-    svc_ntp = svc_add("pool.ntp.org", "SNTP", NULL);
+    svc_ntp = svc_add(SVC_NAME_NTP, "SNTP", NULL);
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ev = xEventGroupCreate();
@@ -196,7 +196,7 @@ void net_clear_creds(void)
  * "Saved network unreachable" without touching the saved credentials: the station is given a network name that
  * doesn't exist. offline-boot keeps a flag in RTC memory (survives esp_restart, not a power cut) so the next boot
  * takes the real start-up path (Connecting... -> 30 s -> offline setup), which is where the October 1 bugs were. */
-#define TEST_SSID "Forge-Test-Unreachable"
+#define TEST_SSID SETUP_AP_SSID "-Test-Unreachable"       // a name nobody has ("Forge-Setup-Test-Unreachable")
 #define TEST_MAGIC 0x0FF11E55u
 static RTC_NOINIT_ATTR uint32_t test_offline_boot;
 #define TEST_SHORT 0x5407u                      // with TEST_MAGIC in the high half: also a short automatic setup

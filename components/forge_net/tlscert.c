@@ -68,7 +68,7 @@ static int generate(void)
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char subject[96];
     snprintf(subject, sizeof(subject), "CN=%s %02X%02X%02X,O=%s", CONFIG_FORGE_TLS_NAME, mac[3], mac[4], mac[5],
-             esp_app_get_description()->project_name);
+             CONFIG_FORGE_PRODUCT[0] ? CONFIG_FORGE_PRODUCT : esp_app_get_description()->project_name);
     unsigned char serial[16];
 
     const char *pers = "forge-tls";

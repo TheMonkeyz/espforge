@@ -66,11 +66,15 @@ static const char *const ERR_TEXT[] = {
     [OTA_E_INVALID] = "downloaded image invalid",
 };
 
+static const char *(*err_text)(ota_err_t err);
+void ota_set_err_text(const char *(*fn)(ota_err_t err)) { err_text = fn; }
+
 static void set_state(ota_state_t s, ota_err_t err)
 {
+    const char *t = err != OTA_E_KEEP && err != OTA_E_NONE && err_text ? err_text(err) : NULL;
     xSemaphoreTake(mux, portMAX_DELAY);
     st.state = s;
-    if (err != OTA_E_KEEP) { st.err = err; strlcpy(st.error, ERR_TEXT[err], sizeof(st.error)); }
+    if (err != OTA_E_KEEP) { st.err = err; strlcpy(st.error, t ? t : ERR_TEXT[err], sizeof(st.error)); }
     xSemaphoreGive(mux);
     publish();
 }
@@ -105,7 +109,7 @@ static cJSON *get_json(const char *url, int cap)
     int status;
     esp_err_t err = http_once(&cfg, &status);
     cJSON *j = err == ESP_OK && status == 200 ? cJSON_Parse(rx.buf) : NULL;
-    if (err == ESP_OK && status == 200 && !j) svc_fail(svc_updates, "bad reply", t0);
+    if (err == ESP_OK && status == 200 && !j) svc_fail_why(svc_updates, SVC_WHY_BAD_REPLY, t0);
     else svc_http(svc_updates, err, status, t0);
     if (!j) ESP_LOGW(TAG, "GET %s: %s, status %d", url, esp_err_to_name(err), status);
     free(rx.buf);
@@ -383,7 +387,7 @@ static void probe_url(char *url, size_t n) { snprintf(url, n, OTA_SITE "channels
 void ota_start(ota_listener_t l)
 {
     listener = l;
-    svc_updates = svc_add("GitHub Pages", "updates", probe_url);
+    svc_updates = svc_add(SVC_NAME_UPDATES, "updates", probe_url);
     net_set_restart(ota_restart_when_safe);
     ota_web_routes();
     mux = xSemaphoreCreateMutex();
@@ -424,6 +428,7 @@ void ota_set_channel(const char *channel)
         if (nvs_set_str(h, "channel", channel) != ESP_OK || nvs_commit(h) != ESP_OK) ESP_LOGE(TAG, "channel NOT saved");
         nvs_close(h);
     }
+    publish();                                     // the app's screens show the channel (no check runs offline)
     ota_check_now();
 }
 

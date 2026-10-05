@@ -35,7 +35,7 @@ Routes must be added before `web_start()`; console commands can be registered at
 |---|---|
 | `testcon.h` | Test console on USB Serial/JTAG. `testcon_register(name, usage, fn)`, `testcon_add_where(fn)`, `testcon_start()`. Built in: `ping help heap where memspeed reboot`. Replies `test: …` ([PROTOCOL.md](PROTOCOL.md) §2). The table is in `testcon_registry.c` (host-tested). |
 | `diag.h` | `diag_start(period_s)`, `diag_mark(stage)`, `diag_failed_allocs()`, `diag_add_hook(fn)` for an extra line per period. Boot info, last crash from the core dump (then erased), heap with worst largest block, per-task CPU and stack. |
-| `forge_i18n.h` | Language core: `i18n_init(texts, count)`, `i18n_text(id)` (English when missing or empty), `i18n_set/lang/code/name/from_code`, `i18n_load/save` (NVS `i18n/lang`), `tr_weekday`, `tr_date_long` ("Mercredi 1er octobre"), `tr_date_ymd`. Languages: English, French. |
+| `forge_i18n.h` | Language core: `i18n_init(texts, count, langs, nlangs)` with the app's language list (`i18n_en`, `i18n_fr`, or its own `i18n_lang_t`: code, name, weekdays, months, date style EN or FR) and its `LANG_` enum in that order; `i18n_text(id)` (the first language's when missing or empty), `i18n_count`, `i18n_set/lang/code/name/from_code`, optional `i18n_load/save` (NVS `i18n/lang`), `tr_weekday`, `tr_date_long` ("Mercredi 1er octobre"), `tr_date_ymd`. |
 | `nvs_util.h` | `nvs_check(err, what)` (logs, returns success), `nvs_init()`. Don't grow a struct saved as a blob: add keys. |
 | `version.h` | `parse_ver`, `cmp_ver`: `vX.Y.Z-anything < -rc.N < vX.Y.Z < vX.Y.Z-N-gHASH`. Host-tested; CI mirrors it. |
 | `http_once.h` | `http_once(cfg, &status)`: init/perform/cleanup; NULL client = `ESP_ERR_NO_MEM`, not a crash. |
@@ -50,14 +50,16 @@ Routes must be added before `web_start()`; console commands can be registered at
 | `net.h` | Station with retries forever (1 s → 3 s → 30 s, paused while setup is open), saved credentials (NVS `wifi`), setup access point `CONFIG_FORGE_SETUP_SSID` with a per-device password (NVS `setup/pass`) and captive portal (DNS answers everything), first-time portal, Wi-Fi Easy Connect (DPP: listens on the router's channel, the setup AP held on it so the phone's confirmation is received, LESSONS L174), `net_set_restart()` / `net_restart()`, test hooks (`net_test_offline…`). |
 | `web.h` | HTTPS (per-device cert) + HTTP portal. `web_add_routes()`, `web_set_page()`, `web_set_snapshot()`, `web_set_info()`, `web_start()`, `web_key()`, `web_url()` (for the settings QR code), `web_send_json/read_json`, `web_from_setup_ap`. Built in: `/`, `/api/info`, `/api/scan`, `POST /api/wifi`, `/api/snapshot`. Guard: Host 421, JSON 415, constant-time `X-Key` 401, HTTPS only on the home network. Console: `key`, `portal windows-quiet`. |
 | `tlscert.h` | `tlscert_get()`: EC P-256 self-signed certificate made at first use, kept in NVS `tls`. CN = `CONFIG_FORGE_TLS_NAME` + MAC. |
-| `svc.h` | Health of external services: `svc_add(name, api, probe_url_fn)`, `svc_http/ok/fail/get`, `svc_user_agent()`, `svc_probe_stale()`. Logs changes only. |
+| `svc.h` | Health of external services: `svc_add(name, api, probe_url_fn)` (in the order to list them), `svc_find(name)` (`SVC_NAME_NTP`, `SVC_NAME_UPDATES`), `svc_http/ok/get`, `svc_fail_why(id, code)` / `svc_fail(id, text)`, reasons as `svc_why_t` codes with an optional `svc_set_why_text(fn)` for the display language, `svc_user_agent()`, `svc_probe_stale()`. Logs changes only. |
 
-Kconfig ("espforge"): `FORGE_SETUP_SSID`, `FORGE_TLS_NAME`, `FORGE_REPO`.
+Kconfig ("espforge"): `FORGE_SETUP_SSID`, `FORGE_TLS_NAME`, `FORGE_REPO`, `FORGE_PRODUCT` (User-Agent and certificate
+O=; empty: the project name), `FORGE_UA_COMMENT`, `FORGE_PORTAL_NAME` (the sign-in page's "<name> setup" link).
 
 ## forge_ota
 
 `ota.h`: `ota_start(listener)`, `ota_check_now()`, `ota_install()`, `ota_set_channel("stable"|"beta")`,
-`ota_get_status()` (state, versions, progress, `err` code + English `error`, `rolled_back`), `ota_get_notes()`,
+`ota_get_status()` (state, versions, progress, `err` code + `error` text: English, or the app's with
+`ota_set_err_text(fn)`; `rolled_back`), `ota_get_notes()`,
 `ota_pending_verify()`, `ota_restart_when_safe()`, `ota_state_name()`.
 Checks a minute after boot, when Wi-Fi comes back, and every 6 h; installs only what the user asks for, only a
 higher version with the same project name. A new image is confirmed after 60 s **with Wi-Fi** (10 min without): a

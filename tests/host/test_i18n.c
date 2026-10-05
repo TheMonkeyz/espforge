@@ -5,6 +5,9 @@
 #include "check.h"
 #include "forge_i18n.h"
 
+enum { LANG_EN, LANG_FR, LANG_COUNT };             // as the app's app_text.h
+static const i18n_lang_t *const langs[LANG_COUNT] = { &i18n_en, &i18n_fr };
+
 enum {
 #define X(id, ...) id,
 #include "i18n_strings.h"
@@ -55,7 +58,9 @@ int main(void)
 
     // i18n.c: the language's text, English when it is empty, "" out of range
     static const char *const two[2][LANG_COUNT] = { { "Yes", "Oui" }, { "Only English", "" } };
-    i18n_init(&two[0][0], 2);
+    CHECK(i18n_count() == 1 && !strcmp(i18n_code(0), "en"), "before init: English only");
+    i18n_init(&two[0][0], 2, langs, LANG_COUNT);
+    CHECK(i18n_count() == 2, "%d languages", i18n_count());
     i18n_set(LANG_FR);
     CHECK(!strcmp(i18n_text(0), "Oui"), "%s", i18n_text(0));
     CHECK(!strcmp(i18n_text(1), "Only English"), "empty French falls back: %s", i18n_text(1));
@@ -73,8 +78,25 @@ int main(void)
     tr_date_long(&tm, d, sizeof(d));
     CHECK(!strcmp(d, "Thursday, October 1"), "%s", d);
 
+    // A third language the app defines itself (weather_amoled: Inuktitut, English word order, no short weekdays)
+    static const i18n_lang_t xx = { "xx", "Xx", { "S0", "S1", "S2", "S3", "S4", "S5", "S6" },
+                                    { "S0", "S1", "S2", "S3", "S4", "S5", "S6" },
+                                    { "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10", "M11", "M12" },
+                                    I18N_DATE_EN };
+    static const i18n_lang_t *const three[] = { &i18n_en, &i18n_fr, &xx };
+    static const char *const t3[2][3] = { { "Yes", "Oui", "Xyes" }, { "Only English", "", "" } };
+    i18n_init(&t3[0][0], 2, three, 3);
+    CHECK(i18n_count() == 3 && i18n_from_code("xx") == 2 && !strcmp(i18n_name(2), "Xx"), "third language");
+    i18n_set(2);
+    CHECK(!strcmp(i18n_text(0), "Xyes") && !strcmp(i18n_text(1), "Only English"), "third language's texts");
+    tr_date_long(&tm, d, sizeof(d));
+    CHECK(!strcmp(d, "S4, M10 1"), "its own names in English order: %s", d);
+    CHECK(!strcmp(tr_weekday(4, false), "S4"), "its short weekday: %s", tr_weekday(4, false));
+    i18n_set(7);
+    CHECK(i18n_lang() == 0, "out of range: the first language");
+
     // The app's real table, as app_text.c hands it over
-    i18n_init(&texts[0][0], T_COUNT);
+    i18n_init(&texts[0][0], T_COUNT, langs, LANG_COUNT);
     for (int l = 0; l < LANG_COUNT; l++) {
         i18n_set(l);
         for (int id = 0; id < T_COUNT; id++) CHECK(i18n_text(id)[0], "%s shows nothing in language %d", names[id], l);

@@ -48,7 +48,10 @@ void ota_start(ota_listener_t listener);
 const char *ota_state_name(ota_state_t s);   // "idle", "checking", "up_to_date", "available", "downloading", "done", "failed"
 void ota_check_now(void);
 bool ota_install(void);                    // false if nothing to install or already busy
-void ota_set_channel(const char *channel); // saved; triggers a check
+void ota_set_channel(const char *channel); // saved; the listener hears it at once; triggers a check
+// The text of st.error in the display language (weather_amoled: tr(T_OTA_*)); NULL or a NULL result: English. The
+// screen and GET /api/update ("error") then carry it; "err" stays the code.
+void ota_set_err_text(const char *(*fn)(ota_err_t err));
 void ota_get_status(ota_status_t *out);
 bool ota_pending_verify(void);             // running a new image not confirmed yet (a restart now rolls it back)
 // Restart, but not while a new image is pending verify: then wait (up to 10 min) until it is confirmed. A restart

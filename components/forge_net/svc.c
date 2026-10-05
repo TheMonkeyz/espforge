@@ -20,6 +20,15 @@ static svc_info_t svc[SVC_MAX];
 static svc_probe_url_t probe_fn[SVC_MAX];
 static int nsvc;
 static volatile bool probe_running;
+static const char *(*why_text)(svc_why_t code, int http);
+
+void svc_set_why_text(const char *(*fn)(svc_why_t code, int http)) { why_text = fn; }
+
+int svc_find(const char *name)
+{
+    for (int i = 0; i < nsvc; i++) if (name && !strcmp(svc[i].name, name)) return i;
+    return -1;
+}
 
 int svc_add(const char *name, const char *api, svc_probe_url_t probe)
 {
@@ -37,7 +46,7 @@ int svc_add(const char *name, const char *api, svc_probe_url_t probe)
 
 int svc_count(void) { return nsvc; }
 
-static void record(int id, bool ok, const char *why, int64_t t0)
+static void record(int id, bool ok, svc_why_t code, int http, const char *why, int64_t t0)
 {
     if (id < 0 || id >= nsvc) return;
     int64_t now = esp_timer_get_time();
@@ -50,8 +59,8 @@ static void record(int id, bool ok, const char *why, int64_t t0)
     s->ms = t0 ? (int)((now - t0) / 1000) : 0;
     s->ok = ok;
     s->probing = false;
-    if (ok) { s->last_ok = now; s->fails = 0; }
-    else { s->fails++; strlcpy(s->why, why, sizeof(s->why)); }
+    if (ok) { s->last_ok = now; s->fails = 0; s->code = SVC_WHY_NONE; s->http = 0; }
+    else { s->fails++; s->code = code; s->http = http; strlcpy(s->why, why, sizeof(s->why)); }
     fails = s->fails;
     taskEXIT_CRITICAL(&mux);
     if (changed || fails == 1) {               // log transitions only, not every retry
@@ -60,20 +69,32 @@ static void record(int id, bool ok, const char *why, int64_t t0)
     }
 }
 
-void svc_http(int id, esp_err_t err, int status, int64_t t0)
+static const char *const WHY_EN[] = { "", "HTTP", "can't connect", "timeout", "no reply", "bad reply", "empty", "error" };
+
+// A code's text: the app's (its language) if it has one, else English; "HTTP 404" for a status whatever the language
+static void fail_code(int id, svc_why_t code, int http, const char *other, int64_t t0)
 {
-    if (err == ESP_OK && status == 200) { record(id, true, "", t0); return; }
     char why[40];
-    if (err == ESP_OK) snprintf(why, sizeof(why), "HTTP %d", status);
-    else if (err == ESP_ERR_HTTP_CONNECT) snprintf(why, sizeof(why), "can't connect");
-    else if (err == ESP_ERR_HTTP_EAGAIN || err == ESP_ERR_TIMEOUT) snprintf(why, sizeof(why), "timeout");
-    else if (err == ESP_ERR_HTTP_FETCH_HEADER) snprintf(why, sizeof(why), "no reply");
-    else snprintf(why, sizeof(why), "%s", esp_err_to_name(err));
-    record(id, false, why, t0);
+    const char *t = why_text && code != SVC_WHY_HTTP && code != SVC_WHY_OTHER ? why_text(code, http) : NULL;
+    if (code == SVC_WHY_HTTP) snprintf(why, sizeof(why), "HTTP %d", http);
+    else if (code == SVC_WHY_OTHER) snprintf(why, sizeof(why), "%s", other ? other : WHY_EN[code]);
+    else snprintf(why, sizeof(why), "%s", t ? t : WHY_EN[code]);
+    record(id, false, code, http, why, t0);
 }
 
-void svc_ok(int id, int64_t t0) { record(id, true, "", t0); }
-void svc_fail(int id, const char *why, int64_t t0) { record(id, false, why, t0); }
+void svc_http(int id, esp_err_t err, int status, int64_t t0)
+{
+    if (err == ESP_OK && status == 200) { record(id, true, SVC_WHY_NONE, 0, "", t0); return; }
+    if (err == ESP_OK) fail_code(id, SVC_WHY_HTTP, status, NULL, t0);
+    else if (err == ESP_ERR_HTTP_CONNECT) fail_code(id, SVC_WHY_CONNECT, 0, NULL, t0);
+    else if (err == ESP_ERR_HTTP_EAGAIN || err == ESP_ERR_TIMEOUT) fail_code(id, SVC_WHY_TIMEOUT, 0, NULL, t0);
+    else if (err == ESP_ERR_HTTP_FETCH_HEADER) fail_code(id, SVC_WHY_NO_REPLY, 0, NULL, t0);
+    else fail_code(id, SVC_WHY_OTHER, 0, esp_err_to_name(err), t0);
+}
+
+void svc_ok(int id, int64_t t0) { record(id, true, SVC_WHY_NONE, 0, "", t0); }
+void svc_fail(int id, const char *why, int64_t t0) { fail_code(id, SVC_WHY_OTHER, 0, why, t0); }
+void svc_fail_why(int id, svc_why_t code, int64_t t0) { fail_code(id, code, 0, NULL, t0); }
 
 void svc_get(int id, svc_info_t *out)
 {
@@ -89,8 +110,10 @@ const char *svc_user_agent(void)
     static char ua[128];                       // filled once; two tasks racing write the same bytes
     if (!ua[0]) {
         const char *v = esp_app_get_description()->version;
-        snprintf(ua, sizeof(ua), "%s/%s (+https://github.com/%s)", esp_app_get_description()->project_name,
-                 v[0] == 'v' ? v + 1 : v, CONFIG_FORGE_REPO);
+        snprintf(ua, sizeof(ua), "%s/%s (%s%s+https://github.com/%s)",
+                 CONFIG_FORGE_PRODUCT[0] ? CONFIG_FORGE_PRODUCT : esp_app_get_description()->project_name,
+                 v[0] == 'v' ? v + 1 : v, CONFIG_FORGE_UA_COMMENT, CONFIG_FORGE_UA_COMMENT[0] ? "; " : "",
+                 CONFIG_FORGE_REPO);
         ESP_LOGI(TAG, "User-Agent: %s", ua);
     }
     return ua;
