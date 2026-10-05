@@ -127,6 +127,21 @@ class Args(unittest.TestCase):
         self.assertEqual((o.run, o.flash), (['boot'], CFG['build_dir']))
 
 
+class LogWaits(unittest.TestCase):
+    def test_ready_line_found_after_start_logs_wait(self):
+        # "console ready" lost in the first 2.5 s: start_log's wait stops on the ready line itself and moves the read
+        # position past it; harness.py's own wait for that line must still find it (start=0), not fail 90 s later
+        import board
+        log = board.Log()
+        lines = ['I (4895) diag: mark app ready      internal 126 KB free', 'I (4952) ota: Running v0.1.1 from ota_0']
+        log.lines = lambda: lines
+        log.wait(r'test: console ready|ota: Running|' + board.CFG['ready_line'], 1)
+        self.assertEqual(log.pos, 1)
+        self.assertTrue(log.wait(board.CFG['ready_line'], 1, start=0))
+        with self.assertRaises(board.Fail):
+            log.wait(board.CFG['ready_line'], 0.3)
+
+
 class Helpers(unittest.TestCase):
     def test_kv(self):
         self.assertEqual(kv('connected=1 sta_ssid=Home ap=0 ap_pass=abcd1234'),

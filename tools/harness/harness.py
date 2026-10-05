@@ -238,7 +238,10 @@ def main(argv=None):
     try:
         if not reuse:
             board.start_log(opts.minutes * 60, opts.flash and os.path.join(ROOT, opts.flash))
-            log.wait(CFG['ready_line'], 90, 'start-up (forge.json ready_line)')
+            # From the window's first line: start_log's own wait may have stopped on this very line (it accepts it
+            # too, when "console ready" was lost in the first 2.5 s) and moved the read position past it; waiting
+            # from there failed 90 s later with the line in the log (v0.1.1-align.1, October 4)
+            log.wait(CFG['ready_line'], 90, 'start-up (forge.json ready_line)', start=0)
             time.sleep(3)
         elif not any(re.search(CFG['ready_line'], l) for l in log.lines()):
             # A window that is still at start-up (the helper restarted, or another flash): commands sent now go

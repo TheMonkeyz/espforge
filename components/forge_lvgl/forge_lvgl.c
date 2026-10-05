@@ -81,8 +81,9 @@ static void cmd_press(int argc, char **argv)                // long-press: press
     ESP_LOGI(TAG, "ok press");
 }
 
-// swipe DIR [DIR...]: several swipes with only 70 ms of "up" between them (slide.c confirms a release after 60 ms): the
-// next press lands while the previous move's release animation still runs, as a quick finger does (LESSONS L181)
+// swipe DIR [DIR...]: several swipes with 150 ms of "up" between them: a real lift (slide.c bridges "ups" under 60 ms,
+// the chip's false ones, and 70 ms read at 10 ms intervals was sometimes bridged: one drag left then right), yet the
+// next press lands while the previous move's release animation still runs (~280 ms), as a quick finger does (L181)
 static void cmd_swipe(int argc, char **argv)
 {
     int cx = lv_display_get_horizontal_resolution(NULL) / 2, cy = lv_display_get_vertical_resolution(NULL) / 2;
@@ -105,7 +106,7 @@ static void cmd_swipe(int argc, char **argv)
         else if (!strcmp(dir, "up"))    { y0 = cy + d; y1 = cy - d; }
         else                            { y0 = cy - d; y1 = cy + d; }
         finger_path(x0, y0, x1, y1, 200);
-        if (i < argc - 1) { finger_inject(false, x1, y1); vTaskDelay(pdMS_TO_TICKS(70)); }
+        if (i < argc - 1) { finger_inject(false, x1, y1); vTaskDelay(pdMS_TO_TICKS(150)); }
     }
     finger_up(x1, y1);
     ESP_LOGI(TAG, "ok swipe %s%s", argv[1], argc > 2 ? " ..." : "");

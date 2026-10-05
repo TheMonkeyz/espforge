@@ -941,10 +941,17 @@ Check: `ui_wifi_setup_end()` returns after the radio task stopped Easy Connect.
 Why: LVGL reads nothing while slide.c moves the pictures, so read_hook never saw the press end; a finger landing
 during the release animation was taken for the old press and never became a drag: quick successive swipes were lost.
 weather_amoled had the same bug and fixed it with a counter (v1.12.1).
-Check: `touch_resync()` clears `track.down`; two swipes 100 ms apart both move.
+Check: `touch_resync()` clears `track.down`; `swipe left right` (150 ms apart) makes two drags (navigation.quick_swipes).
 
 **L182. A test that depends on the time of day fails in the evening.**
 Why: weather_amoled's hourly-list test opened today's list; at 20:30 only a few hours were left and the whole list
 scrolled 14 px, so every flick "barely moved" (4 runs, the code unchanged). The log line said `now at 14 of 0..14`.
 Check: test on data whose size doesn't depend on the clock (tomorrow's list); read the log line before suspecting
 the change under test.
+
+**L183. A wait that accepts several lines can use up the line the next wait needs.**
+Why: start_log waited for "console ready", "ota: Running" or the ready line; when "console ready" was lost (L154) the
+first match was the ready line itself, the read position moved past it, and harness.py's wait for it failed 90 s
+later with the line in the log (v0.1.1-align.1).
+Check: a wait for a line that may already have been passed searches from a known start (`start=0`, or the test's
+own position, L167); `test_harness.py` LogWaits.

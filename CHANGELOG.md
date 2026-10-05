@@ -8,6 +8,9 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.1.1-rc.2 - 2026-10-04
+- Behind the scenes: the test tools no longer miss the display starting up, and the quick-swipe test checks what it should. Nothing changes on the display itself.
+
 ## v0.1.1-rc.1 - 2026-10-04
 - Two quick swipes in a row both move the screen: the second one, landing while the first was still settling, was ignored.
 - The settings page no longer tells someone on the setup network the name and address of your home network.

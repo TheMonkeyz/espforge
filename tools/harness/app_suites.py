@@ -47,16 +47,20 @@ def swipe_between_pages(ctx):
 def quick_swipes(ctx):
     """A swipe that lands while the previous move's release animation still runs is a swipe too. LVGL reads nothing
     during a move, so slide.c's read hook never saw the first press end, and took the second for it: nothing moved
-    (LESSONS L181). 'swipe left right' leaves 70 ms of "up" between the two."""
+    (LESSONS L181). 'swipe left right' leaves 150 ms of "up" between the two
+    (70 ms was sometimes read as one of the chip's brief false "ups": one drag, left then right)."""
     b = ctx.board
     go_home(ctx)
     at = len(ctx.log.lines())
     b.cmd('swipe left right')
     time.sleep(1.0)
-    drags = ctx.log.count(r'slide: drag: first frame', start=at)
-    check(drags == 2, f'two quick swipes made {drags} drag(s); the second was taken for the first')
-    b.wait_screen(HOME, 4)
-    ctx.note(f'two swipes 70 ms apart: {drags} drags, back on {HOME}')
+    drags = [l for l in ctx.log.lines()[at:] if 'slide: drag: first frame' in l]
+    check(len(drags) == 2, f'two quick swipes made {len(drags)} drag(s); the second was taken for the first')
+    # Where the second one ends is timing: it starts when the first's release animation ends, by then the simulated
+    # finger has mostly moved on ("samples 1", "back" once on v0.1.1-rc.1, on to hello in the run before)
+    second = 'back' if ' back |' in drags[1] else 'on'
+    ctx.note(f'two swipes 150 ms apart: 2 drags, the second went {second}; now on {b.screen()}')
+    go_home(ctx)
 
 
 @test('navigation')
