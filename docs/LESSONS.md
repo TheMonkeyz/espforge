@@ -963,3 +963,23 @@ the leftover state. And a console command line is occasionally lost on the USB c
 Check: clean up in a way that never replaces the test's own failure (weather_amoled `recovering()`, a restart as the
 last resort); a lost read-only command is sent again once when `where` answers (board.py `READ_ONLY`). Prove a new
 test against the old firmware: it must fail there for the reason it names.
+
+## An app on the framework's components (weather_amoled v1.14.0, October 5)
+
+**L185. A component's static buffers cost every app internal RAM.**
+Why: weather_amoled moved onto forge_core / forge_net / forge_ota and its harness failed `internal_min_kb.reconnect`
+(25 KB, limit 28): 2.2 KB more static internal RAM (`idf.py size-components`: the console's help buffer and command
+table, the 12 service records, the update URL, answer buffers), all in plain `static` arrays. They now carry
+`EXT_RAM_BSS_ATTR` (the app needs `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`); none is touched with the flash cache
+off. The app ended 900 B below its own copies.
+Check: `idf.py size` (DIRAM) before and after a component change; the harness's `internal_min_kb` floors. Buffers
+used from an ISR or while the flash cache is off stay internal.
+
+**L186. Test an unreleased component with its app through the manifest, and let the script clean up.**
+Why: an app takes these components at a release tag (component manager). `-DEXTRA_COMPONENT_DIRS=<checkout>` was
+documented to win over a managed component, but the managed copy was built (no "overrides" notice). `override_path:`
+in the manifest is what the manager honours; weather_amoled's `tools/forge_local.py` swaps it in for one build and
+puts the manifest back. Once a PowerShell pipeline (`| Select-Object -First 10`) killed the script mid-build: the
+`finally` never ran and the manifest kept the local paths.
+Check: the build log says "Using component placed at <checkout>"; the script restores a manifest left by a killed run
+(its backup) before anything else; capture long builds to a file, not through a pipeline that stops early.

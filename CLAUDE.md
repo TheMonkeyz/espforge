@@ -42,15 +42,17 @@ bug teaches something general; add the project-specific fact below.
 ## Shared with weather_amoled
 
 [weather_amoled](https://github.com/TheMonkeyz/esp32-s3-weather) (`C:\Users\lmathieu\ESPDEV\weather_amoled`) is the
-app espforge was extracted from (October 4). The two drifted within hours (L177). Plan, chosen October 4: port fixes
-both ways; then weather_amoled takes forge_core, forge_net and forge_ota as a git submodule (it keeps its own display,
-touch, slide.c and app code, which are larger than forge_lvgl's).
+app espforge was extracted from (October 4). Since its v1.14.0 it **uses forge_core, forge_net, forge_ota and
+dns_server at an espforge release tag** (its `main/idf_component.yml`); it keeps its own display, touch, slide.c and
+app code (forge_lvgl and the board are not used there).
 
-- **Twin files** until then: forge_core (`diag.c`, `testcon.c`, `i18n.c`, `version.c`, `png_rows.c`, `textfit.c`,
-  `http_once.h`, `utf8.h`), forge_net (`net.c`, `web.c`, `svc.c`, `tlscert.c`), forge_ota (`ota.c`), `lvgl_mem.c`,
-  `pager.c`, the board's `display.c` / `touch.c` / `imu.c`, `components/dns_server`, the harness's `board.py` /
-  `harness.py` and the flash helper. Its `slide.c` is the larger original: port ideas, not the file.
-- **A fix in a twin file** gets ported to weather_amoled in the same session, or a task for it.
+- **Before tagging an espforge release that changes those components**, build weather_amoled against this checkout
+  (`python tools/forge_local.py` there: a temporary `override_path`, nothing committed) and run its harness; then tag
+  here, and bump the four tags in its manifest. Keep components generic: app texts, names and languages come in
+  through the hooks (i18n descriptors, `svc_set_why_text`, `ota_set_err_text`, Kconfig `FORGE_*`).
+- **Still twins** (same code in both, not shared): forge_lvgl's `lvgl_mem.c` and `pager.c`, the board's `display.c`,
+  `touch.c`, `imu.c`, the harness's `board.py` / `harness.py` and the flash helper. A fix in one gets ported, or a
+  task for the other. Its `slide.c` is the larger original: port ideas, not the file.
 
 ## Working setup (this PC)
 

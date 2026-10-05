@@ -8,6 +8,9 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.2.0-rc.2 - 2026-10-05
+- Behind the scenes: about 2 KB more of the scarcest memory left free (buffers moved to the large external memory). Nothing changes on the screens.
+
 ## v0.2.0-rc.1 - 2026-10-05
 - For app developers: the languages are the app's (add one without changing the framework); service failure reasons and update errors can be shown in the display's language; names in the User-Agent, the certificate and the setup sign-in page are settings. Nothing changes on the starter app's screens.
 - The settings screen shows a new update channel at once, even offline.

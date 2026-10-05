@@ -7,7 +7,14 @@
 static const char *TAG = "test";
 
 typedef struct { const char *name, *usage; testcon_fn_t fn; } cmd_t;
-static cmd_t cmds[TESTCON_MAX];
+// (EXT_RAM_BSS_ATTR: static buffers are internal RAM otherwise, the scarce kind; weather_amoled lost 2.2 KB of it
+// when it took these components, October 5, LESSONS L185)
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#else
+#define EXT_RAM_BSS_ATTR                                  // tests/host
+#endif
+EXT_RAM_BSS_ATTR static cmd_t cmds[TESTCON_MAX];
 static int ncmds;
 
 void testcon_register(const char *name, const char *usage, testcon_fn_t fn)

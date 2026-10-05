@@ -1,5 +1,6 @@
 // Test console: the USB reader task and the built-in commands (see testcon.h, docs/PROTOCOL.md §2)
 #include "testcon.h"
+#include "esp_attr.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +32,7 @@ static void cmd_ping(int argc, char **argv) { ESP_LOGI(TAG, "pong %s", esp_app_g
 
 static void cmd_help(int argc, char **argv)
 {
-    static char out[600];                                  // static: the console task's stack is small
+    EXT_RAM_BSS_ATTR static char out[600];                 // static: the console task's stack is small (PSRAM: L185)
     testcon_help(out, sizeof(out));
     ESP_LOGI(TAG, "commands: %s", out);
 }
@@ -50,7 +51,7 @@ static void cmd_heap(int argc, char **argv)
 // No lock of any kind: answers even when the display or another task is stuck (the breadcrumbs say where)
 static void cmd_where(int argc, char **argv)
 {
-    static char out[200];
+    EXT_RAM_BSS_ATTR static char out[200];
     size_t len = 0;
     out[0] = 0;
     for (int i = 0; i < nwhere && len < sizeof(out); i++) {

@@ -1,5 +1,6 @@
 // External service health (see svc.h)
 #include "svc.h"
+#include "esp_attr.h"
 #include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -16,7 +17,9 @@ static const char *TAG = "svc";
 #define PROBE_AFTER_US (5 * 60 * 1000000LL)
 
 static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
-static svc_info_t svc[SVC_MAX];
+// (EXT_RAM_BSS_ATTR: static buffers are internal RAM otherwise, the scarce kind; weather_amoled lost 2.2 KB of it
+// when it took these components, October 5, LESSONS L185)
+EXT_RAM_BSS_ATTR static svc_info_t svc[SVC_MAX];
 static svc_probe_url_t probe_fn[SVC_MAX];
 static int nsvc;
 static volatile bool probe_running;
@@ -107,7 +110,7 @@ void svc_get(int id, svc_info_t *out)
 
 const char *svc_user_agent(void)
 {
-    static char ua[128];                       // filled once; two tasks racing write the same bytes
+    EXT_RAM_BSS_ATTR static char ua[128];      // filled once; two tasks racing write the same bytes
     if (!ua[0]) {
         const char *v = esp_app_get_description()->version;
         snprintf(ua, sizeof(ua), "%s/%s (%s%s+https://github.com/%s)",

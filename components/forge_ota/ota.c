@@ -7,6 +7,7 @@
 // not authenticity: the site is trusted through HTTPS); we also require the same project name and the version that
 // was offered before switching.
 #include "ota.h"
+#include "esp_attr.h"
 #include "version.h"
 #include <string.h>
 #include <stdio.h>
@@ -44,7 +45,7 @@ void ota_web_routes(void);   // ota_web.c
 static ota_listener_t listener;
 static SemaphoreHandle_t mux;
 static TaskHandle_t task;
-static char app_url[256];
+EXT_RAM_BSS_ATTR static char app_url[256];             // (PSRAM: L185)
 #define NOTES_MAX 3072
 static char *notes;                 // PSRAM, NOTES_MAX, under mux
 static volatile bool want_check, want_install, retry_check;

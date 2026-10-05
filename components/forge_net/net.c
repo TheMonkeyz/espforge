@@ -576,7 +576,7 @@ bool net_setup_ap_active(void) { return ap_active; }
 // Test console: "wifi status|offline|online|offline-boot[-short]" (docs/PROTOCOL.md §2, harness wifi suites)
 static void cmd_wifi(int argc, char **argv)
 {
-    static char info[200];
+    EXT_RAM_BSS_ATTR static char info[200];              // (PSRAM: L185)
     const char *a = argc == 2 ? argv[1] : "";
     if (!strcmp(a, "offline")) net_test_offline();
     else if (!strcmp(a, "online")) net_test_online();

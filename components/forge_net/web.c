@@ -1,6 +1,7 @@
 // Settings page and API (see web.h). HTTPS on 443 on the home network (a phone's GPS, and the key, need a secure
 // page); plain HTTP on 80 is the captive portal on the setup network and only redirects to HTTPS on the home network.
 #include "web.h"
+#include "esp_attr.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -359,7 +360,7 @@ static const web_route_t builtin[] = {
 };
 
 #define MAX_ROUTES 32
-static const web_route_t *routes[MAX_ROUTES];
+EXT_RAM_BSS_ATTR static const web_route_t *routes[MAX_ROUTES];   // (PSRAM: L185)
 static int nroutes;
 
 void web_add_routes(const web_route_t *r, int n)
