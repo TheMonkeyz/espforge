@@ -10,7 +10,7 @@ static const char *TAG = "png";
 
 typedef struct {
     unsigned w, h, y;
-    int ct, bpp;                         // colour type, bytes per pixel
+    int ct, bpp, depth;                  // colour type, bytes per pixel (1 below 8 bits: the filters' distance), bits
     size_t row_bytes, fill;              // per row, filter byte excluded; bytes in cur so far (filter byte included)
     uint8_t *mem;                        // the allocation holding the rows below (cur and prev swap after each row)
     uint8_t *cur, *prev, *rgba;          // cur[0] = filter type
@@ -44,7 +44,15 @@ static void row_done(st_t *s)
     default: break;
     }
     uint8_t *o = s->rgba;
-    for (unsigned x = 0; x < s->w; x++, o += 4) {
+    if (s->depth < 8) {                  // 1, 2 or 4 bits (grey or palette), the leftmost pixel in the high bits
+        unsigned max = (1u << s->depth) - 1;
+        for (unsigned x = 0; x < s->w; x++, o += 4) {
+            unsigned bit = x * s->depth, v = r[bit >> 3] >> (8 - s->depth - (bit & 7)) & max;
+            if (s->ct == 3) memcpy(o, s->pal[v], 4);
+            else { o[0] = o[1] = o[2] = v * 255 / max; o[3] = 255; }
+        }
+    }
+    for (unsigned x = 0; s->depth == 8 && x < s->w; x++, o += 4) {
         const uint8_t *p = r + x * bpp;
         switch (s->ct) {
         case 6: memcpy(o, p, 4); break;
@@ -80,14 +88,17 @@ bool png_rows(const uint8_t *png, size_t len, png_row_cb_t cb, void *user, unsig
     bool ok = false;
     if (!s || !d || !dict) goto out;
     s->w = be32(png + 16); s->h = be32(png + 20);
-    int depth = png[24]; s->ct = png[25];
-    if (depth != 8 || png[28] != 0 || s->w == 0 || s->w > 4096 || s->h == 0 || s->h > 4096) {
-        ESP_LOGW(TAG, "unsupported: depth %d, interlace %d, %ux%u", depth, png[28], s->w, s->h);
+    int depth = s->depth = png[24]; s->ct = png[25];
+    // 1, 2 and 4 bits only exist for grey and palette: OpenStreetMap saves tiles with few colours as 4-bit palettes
+    // (one of the weather display's zoom-4 tiles, refused until v0.2.1: that map level was never complete)
+    bool small = (depth == 1 || depth == 2 || depth == 4) && (s->ct == 0 || s->ct == 3);
+    if ((depth != 8 && !small) || png[28] != 0 || s->w == 0 || s->w > 4096 || s->h == 0 || s->h > 4096) {
+        ESP_LOGW(TAG, "unsupported: depth %d, colour type %d, interlace %d, %ux%u", depth, s->ct, png[28], s->w, s->h);
         goto out;
     }
     s->bpp = s->ct == 6 ? 4 : s->ct == 2 ? 3 : s->ct == 4 ? 2 : (s->ct == 0 || s->ct == 3) ? 1 : 0;
     if (!s->bpp) { ESP_LOGW(TAG, "unsupported colour type %d", s->ct); goto out; }
-    s->row_bytes = (size_t)s->w * s->bpp;
+    s->row_bytes = small ? ((size_t)s->w * depth + 7) / 8 : (size_t)s->w * s->bpp;
     s->mem = s->cur = heap_caps_calloc(2 * (1 + s->row_bytes) + s->w * 4, 1, MALLOC_CAP_SPIRAM);
     if (!s->mem) goto out;
     s->prev = s->cur + 1 + s->row_bytes;              // the row "above" the first one is zeros
