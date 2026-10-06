@@ -8,6 +8,9 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.2.1 - 2026-10-06
+- Map tiles and pictures saved with few colours are shown: such a map tile appeared as a dark square, and its map was downloaded again at every start.
+
 ## v0.2.1-rc.1 - 2026-10-06
 - Map tiles and pictures saved with few colours are shown: such a map tile appeared as a dark square, and its map was downloaded again at every start.
 
