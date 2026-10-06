@@ -1017,3 +1017,32 @@ the driver but missing from wpa_supplicant is the phone's. Then make the failure
 says what to do when Easy Connect fails (swipe right and join the setup network, which works on any band).
 Delete the bugreport after use: it holds the phone's personal data (and `adb bugreport` leaves a copy on the phone).
 Also: a harness failure in the same session was the forecast service (HTTP 503), not the firmware: read the log.
+
+## Rows rendered alone, and a decoder's bit depths (weather_amoled v1.14.2-rc.2, October 6)
+
+**L189. Size a partial renderer's margin from the fonts, and re-render what a moved picture got wrong.**
+Why: L187's 8-row margin was not the whole fix. (1) A list scroll moves the picture and renders only the rows coming
+in; the rows just before them were drawn while the next label was still past the list's edge (LVGL clips children to
+the list, and `lv_draw_label` returns unless the clip meets the label's own box), so its glyphs' tops never reached
+them, and moving kept them missing: in Inuktitut a slow drag (1 px a frame) left 6-7 rows off every time, a quick
+flick 1-2 rows one time in four (rows at the same two places in the list each time). (2) A margin row is right only
+if every label reaching it was drawn: the outermost ones can lose a neighbour's top or descender, and writing them
+into a whole picture erased what it had right. Fix: compute how far glyphs reach past a label's box from the TTFs
+(TinyTTF's stb_truetype placement: rise = `ceil(yMax x fallback scale) + 1 - main ascent`; Noto's syllabics at 5/4:
+9 rows at 28 px, 7 at 20; Montserrat alone 4 up, 1 down), draw `up + down` margin rows, take from the strip the new
+rows plus `up` rows before and `down` after, and put the outermost margin rows back as they were. Lists hold
+syllabics only in Inuktitut, so the reach is per language there: English scrolls got faster (render 3.7 -> 3.2 ms a
+frame), Inuktitut's cost ~1.2 ms more.
+Check: a slow drag (2.5 s) and a flick, each followed by a picture-vs-render test, in every language; an
+intermittent one-row miss is worth making deterministic before fixing (here: slow, so every label enters a row at a
+time). espforge's slide.c renders whole screens: nothing to change today (as L187).
+
+**L190. A row decoder must take every bit depth its sources send.**
+Why: `png_rows` took 8-bit samples only. OpenStreetMap saves tiles with few colours as 4-bit palettes (`4/5/6.png`,
+ocean with an island, 321 bytes): weather_amoled's zoom-4 map of its first place had 8 of 9 tiles (a dark square),
+was never cached (only complete maps are), and downloaded again at every boot and every return to that place,
+on top of other downloads at internal RAM's low point. The log said so for days (`png: unsupported: depth 4`).
+Fix: 1, 2 and 4-bit grey and palette, the depths PNG allows for them (scanline `ceil(w x depth / 8)` bytes, filters
+bytewise with a 1-byte distance, samples from the high bits, grey scaled `x 255 / (2^depth - 1)`).
+Check: grep the log for what a decoder refuses; test with the sources' real files (the host test decodes that tile
+against a Python zlib reference), not only generated ones.

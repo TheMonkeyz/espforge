@@ -40,7 +40,7 @@ Routes must be added before `web_start()`; console commands can be registered at
 | `version.h` | `parse_ver`, `cmp_ver`: `vX.Y.Z-anything < -rc.N < vX.Y.Z < vX.Y.Z-N-gHASH`. Host-tested; CI mirrors it. |
 | `http_once.h` | `http_once(cfg, &status)`: init/perform/cleanup; NULL client = `ESP_ERR_NO_MEM`, not a crash. |
 | `utf8.h` | `utf8_cut`, `utf8_copy`: never split a character. |
-| `png_rows.h` | PNG decode one row at a time with the ROM's inflate (~50 KB whatever the size). |
+| `png_rows.h` | PNG decode one row at a time with the ROM's inflate (~50 KB whatever the size): 8-bit grey, RGB, palette (+tRNS), grey+alpha, RGBA, and 1/2/4-bit grey and palette (OpenStreetMap's few-colour tiles); not 16-bit, not interlaced. |
 | `textfit.h` | Text from outside (network names, places...) without the characters the fonts lack (emoji): `textfit_init(ttf, len)` reads a TTF's cmap, `textfit_add()` a fallback font (a character counts if any font has it); `textfit(in, out, n)`. Pure C, host-tested. |
 
 ## forge_net
