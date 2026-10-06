@@ -48,8 +48,8 @@ X(T_WIFI_DPP_NONE,  "Easy Connect isn't available.\nSwipe right for other phones
                     "Easy Connect n'est pas offert.\nGlissez à droite : autres téléphones.")
 X(T_WIFI_RECEIVED,  "Wi-Fi received",              "Wi-Fi reçu")
 X(T_WIFI_GOT,       "Got \"%s\" from your phone.\nRestarting...", "« %s » reçu du téléphone.\nRedémarrage...")
-X(T_WIFI_DPP_FAIL,  "That didn't work. Scan again,\nor swipe right for other phones.",
-                    "Échec. Balayez le code de nouveau,\nou glissez à droite (autres téléphones).")
+X(T_WIFI_DPP_FAIL,  "That didn't work. Swipe right\nand join the setup network.",
+                    "Échec. Glissez à droite et\njoignez le réseau de configuration.")
 X(T_TAP_RETRY,      "Tap to try again",            "Touchez pour réessayer")
 X(T_TAP_CANCEL,     "Tap to cancel",               "Touchez pour annuler")
 

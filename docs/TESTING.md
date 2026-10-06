@@ -247,6 +247,11 @@ The board's log says what the board saw; only the phone's log says why the phone
 4. Read: `DPP-TX ... type=0` (the phone's request), `DPP: Authentication Response from ...` (the board's answer
    arrived), `type=2 ... result=no-ACK` (its confirmation not received: the board's radio was elsewhere),
    `DPP-CONF-SENT` (the network was sent). The link drops when the phone changes network; the phone keeps its log.
+5. When the board says its answer was ACKed and Android never saw it (no `RX frame ... sa=<board>`): `adb bugreport
+   br.zip` within a minute of the failure (the kernel's ring buffer covers ~10 minutes), then read "KERNEL LOG
+   (dmesg)" in the main .txt: the Wi-Fi driver's `TX DPP_AUTH_REQ` / `RX DPP_AUTH_RESP` lines (UTC times) show
+   whether the phone's driver received the answer (L188). The bugreport holds the phone's personal data: keep it out
+   of every repository, delete it after use, and ask the owner before taking one.
 
 Together with the board's side (`CONFIG_ESP_WIFI_DEBUG_PRINT=y` in the test build's sdkconfig only, LESSONS L112) this
 located the Easy Connect failure in one try (L174, L175).
