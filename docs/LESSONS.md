@@ -884,7 +884,9 @@ Check: same build options, same steps, both firmwares, one log each; compare ste
 **L173. Easy Connect's answer time: enable fixed-point ECC.**
 Why: the board must create a key pair before answering the phone's request; a phone on a 5 GHz network only visits
 the 2.4 GHz channel briefly. `CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM` (off by default) cut the answer to 236 ms
-(INFO logging) from ~900 ms (debug logging). It was not the fix (L174); it can only help.
+(INFO logging) from ~900 ms (debug logging). It was not the fix (L174); it can only help. (October 5: 235 ms on
+both bands; the crypto library's memory in internal RAM instead of PSRAM made no difference. Faster is not what a
+phone on 5 GHz needed: L188.)
 Check: `wpa: DPP: Authentication Request` -> `Sending authentication response` times (debug build).
 
 **L174. Easy Connect: keep the radio on the channel; the setup AP holds it there.**
@@ -896,6 +898,8 @@ saw it "only work online" (associated, the radio stayed on the router's channel)
 Connect channel (`dpp_hold_channel` in forge_net), the confirmation is ACKed: 5 out of 5 (online, offline, switching
 networks both ways).
 Check: the phone's log shows `DPP-TX-STATUS ... type=2 ... result=SUCCESS`; the board logs `Easy Connect: received`.
+(The day after, the same phone on 5 GHz failed every time again, with every firmware, the Oct 4 one included: L188.
+Holding the channel is still needed, but a phone on another band can fail for reasons the board can't see.)
 
 **L175. When the other side decides, read the other side's log.**
 Why: the board's log could only say "no confirmation came"; three theories (channel scan, power save, 5 GHz) cost
@@ -992,3 +996,24 @@ fallback font drawn 5/4 larger): after a Settings scroll in Inuktitut, the pictu
 as far as the buffer has room, and keep only the strip.
 Check: a partial renderer's output against a full render, in every language and font the app uses, not only
 English. espforge's slide.c renders whole screens (no partial strips): nothing to change there today.
+
+## Easy Connect from a phone on 5 GHz, again (weather_amoled, October 5)
+
+**L188. When both logs say "sent, never received", read the phone's kernel log; then design for the failure.**
+Why: a Pixel 8 Pro connected on 5 GHz failed Easy Connect 9 times in a row ("Couldn't add device"); on 2.4 GHz it
+worked at once. The same firmware had passed 3/3 with that phone on 5 GHz the day before. Five theories cost an
+evening: a stage-2 regression (A/B with the old firmware failed the same way, L172), the band itself (the docs said
+5 GHz had worked), a slower answer (235 ms on both days, measured with `CONFIG_ESP_WIFI_DEBUG_PRINT` alone: the
+debug log level's hexdumps made it 835 ms), the crypto library's memory, and a lost answer (an ESP-IDF patch that
+sent the answer again every 300 ms after its ACK changed nothing). The board's log said its answer was ACKed by
+the phone; Android's log said no answer came. `adb bugreport` right after a failure settled it: the phone's
+Broadcom driver logs `TX DPP_AUTH_REQ ... dwell time : 400 wait_afrx:1`, then `RX DPP_AUTH_RESP` 260 ms later
+(inside the dwell), then `ACTION_FRAME_OFFCHAN_COMPLETE` at 414 ms, and never hands the answer to wpa_supplicant
+(no `NL80211_CMD_FRAME`). The day before, it did. Same Android build, same access point, no restart in between,
+and Wi-Fi off/on did not clear it: the cause is inside the phone's Wi-Fi driver or firmware.
+Check: the kernel log (bugreport, "KERNEL LOG (dmesg)", lines tagged `[cfgp2p]`/`[dhd]`, stamped in UTC) and
+Android's (`nl80211: ... NL80211_CMD_FRAME) received`, `RX frame ... sa=<board>`) side by side; a frame logged by
+the driver but missing from wpa_supplicant is the phone's. Then make the failure easy to get out of: the setup page
+says what to do when Easy Connect fails (swipe right and join the setup network, which works on any band).
+Delete the bugreport after use: it holds the phone's personal data (and `adb bugreport` leaves a copy on the phone).
+Also: a harness failure in the same session was the forecast service (HTTP 503), not the firmware: read the log.
