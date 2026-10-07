@@ -127,5 +127,10 @@ the site; if the emulator build or its smoke test fails, the site is published w
   every request into a CORS preflight. The service must answer cross-origin requests (`Access-Control-Allow-Origin`).
   A request polls for its answer: an await inside a fiber isn't safe with ASYNCIFY. The screen pauses while the main
   loop waits for one.
+- Emscripten's `strftime("%z")` ignores `TZ` too (it wrote local time as +00:00, esp32-s3-rtcquebec): compute an
+  offset from the date (`mktime` of the local fields against the UTC time), as its `rtc_iso_local` does (LESSONS L196).
+- `png_rows.c` (map tiles, pictures) inflates with the ROM's tinfl on the board: an app that adds it
+  (`FORGE_CORE += png_rows.c`) gets miniz 3.0.2's tinfl here, downloaded once into `build/miniz`.
+- The board's `touch_set_press_filter()` works here too (`emu_touch.c`): a press the app refuses is no press.
 - A hidden tab pauses `requestAnimationFrame` (the canvas updates only when shown) and slows timers.
 - `?lang=fr` in the address starts the starter app in French (`emu_main.c`), as if chosen on the settings page.

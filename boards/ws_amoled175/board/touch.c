@@ -96,6 +96,8 @@ void touch_forget(void) { forget = true; }
 
 static touch_read_hook_t read_hook;
 void touch_set_read_hook(touch_read_hook_t hook) { read_hook = hook; }
+static touch_press_filter_t press_filter;
+void touch_set_press_filter(touch_press_filter_t filter) { press_filter = filter; }
 
 // LVGL reads every ~15-30 ms. Don't poll this chip much faster from elsewhere: read every millisecond (each read is
 // acknowledged) it answered "not in contact" for long stretches with the finger on it (weather_amoled v1.12.1).
@@ -111,6 +113,7 @@ static void read_cb(lv_indev_t *indev, lv_indev_data_t *data)
                  n_status);
         last_log = now;
     }
+    bool before = was;
     int x, y;
     int r = read_chip(&x, &y);
     if (r > 0) last_down_us = esp_timer_get_time();
@@ -133,6 +136,14 @@ static void read_cb(lv_indev_t *indev, lv_indev_data_t *data)
         }
         data->point.x = lx;
         data->point.y = ly;
+    }
+    // A press the app's filter refused (a touch that wakes a dark screen) is no press for LVGL or the read hook, to the
+    // finger's lift: no tap, no drag, no long-press. touch_get() still reports it (touch_idle_ms counts it).
+    static bool swallow;
+    if (data->state == LV_INDEV_STATE_PRESSED && !before && press_filter && press_filter()) swallow = true;
+    if (swallow) {
+        if (data->state == LV_INDEV_STATE_RELEASED) swallow = false;
+        else data->state = LV_INDEV_STATE_RELEASED;
     }
     if (read_hook) read_hook(indev, data);               // before LVGL handles this read
 }

@@ -186,6 +186,9 @@ static struct { bool queued; int dir; bool vertical; void (*change)(void *); voi
 
 bool slide_busy(void) { return drag.queued || chg.queued; }
 
+static uint32_t moved_ms;                                   // lv_tick when the last move ended (slide_tap_ok)
+bool slide_tap_ok(void) { return !slide_busy() && (!moved_ms || lv_tick_elaps(moved_ms) >= SLIDE_TAP_GUARD_MS); }
+
 static bool ready(void) { return P && shadow && other && shadow_ok; }
 
 // The picture of page `target` of `pg` as neighbour i (0 prev, 1 next): the cached one, else rendered now
@@ -301,6 +304,7 @@ static void drag_run(void *unused)
              (ts - t0) / 1000, frames, (t1 - ts) / 1000, frames * 1e6f / (t1 - ts + 1),
              go ? (side < 0 ? "to prev" : "to next") : "back", gap_max / 1000, held_err, held_up, hold_max / 1000,
              still_max / 1000, samples, renders, vel);
+    moved_ms = lv_tick_get();
     drag.queued = false;
     phase = 0;
 }
@@ -365,6 +369,7 @@ static void change_run(void *unused)
     if (ok) ESP_LOGI(TAG, "change: picture %lld ms, %d frames in %lld ms (%.0f fps)", (t1 - t0) / 1000, frames,
                      (t2 - t1) / 1000, frames * 1e6f / (t2 - t1 + 1));
     else ESP_LOGW(TAG, "change: no picture, no animation");
+    moved_ms = lv_tick_get();
     chg.queued = false;
     phase = 0;
 }
