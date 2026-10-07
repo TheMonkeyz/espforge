@@ -12,10 +12,12 @@ reason it stays in the app.
 ## Framework code
 
 - [ ] 2026-10-06, esp32-s3-rtcquebec v0.1.0: forge_lvgl `pager_set_count()`: build every page once, show as many as
-  the app has data for (pages past n hidden, out of the scroll range and of slide.c's drags). PR #8.
+  the app has data for (pages past n hidden, out of the scroll range and of slide.c's drags). PR #8; review found slide.c's idle loop
+  still rendered the hidden page after the last one (`pager_shown()` now), host test `tests/host/test_pager.c`.
 - [ ] 2026-10-07, esp32-s3-rtcquebec v0.2.0 (f71f9fd): forge_lvgl `pager_set_order()`, on top of
   `pager_set_count()`: the app gives the order of the pages it shows (a summary page that stays last after a
-  varying list), the others follow hidden. `components/forge_lvgl/pager.c`. Not in PR #8.
+  varying list), the others follow hidden. `components/forge_lvgl/pager.c`. Added to PR #8, with a fix: a page
+  listed twice overran the order array (ASan in `test_pager.c`); esp32-s3-rtcquebec's call never repeats one.
 - [ ] 2026-10-07, esp32-s3-rtcquebec v0.2.0: a tap on a page of a slide.c pager right after a drag can be the next
   quick swipe's press (it reached LVGL as a short click: the app opened its map). The app ignores a tap within
   600 ms of a page settling (`stop_tapped` in its ui.c); slide.c / pager could offer that ("last settle" tick, or

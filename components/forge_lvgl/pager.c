@@ -105,6 +105,38 @@ void pager_set_count(lv_obj_t *o, int n)
     if (p->cur >= n) pager_go(o, n - 1, false);
 }
 
+lv_obj_t *pager_shown(lv_obj_t *o, int i)
+{
+    pager_t *p = lv_obj_get_user_data(o);
+    return i >= 0 && i < p->pages ? p->page[i] : NULL;
+}
+
+// The pages asked for move to the front, in that order (a page listed twice or not of this pager is skipped); the
+// others follow in their current order, hidden. Positions follow the new order, so the scroll range and slide.c's
+// neighbours (pager_shown) see it at once.
+void pager_set_order(lv_obj_t *o, lv_obj_t *const *pages, int n)
+{
+    pager_t *p = lv_obj_get_user_data(o);
+    lv_obj_t *all[p->max];
+    int k = 0;
+    for (int i = 0; i < n && k < p->max; i++) {
+        bool dup = pager_index(o, pages[i]) < 0;
+        for (int j = 0; j < k && !dup; j++) dup = all[j] == pages[i];
+        if (!dup) all[k++] = pages[i];
+    }
+    int shown = k;
+    for (int i = 0; i < p->max; i++) {
+        bool listed = false;
+        for (int j = 0; j < shown && !listed; j++) listed = all[j] == p->page[i];
+        if (!listed) all[k++] = p->page[i];
+    }
+    for (int i = 0; i < p->max; i++) {
+        p->page[i] = all[i];
+        lv_obj_set_pos(all[i], p->vertical ? 0 : i * DISP_W, p->vertical ? i * DISP_H : 0);
+    }
+    pager_set_count(o, shown);
+}
+
 int pager_index(lv_obj_t *o, const lv_obj_t *page)
 {
     pager_t *p = lv_obj_get_user_data(o);

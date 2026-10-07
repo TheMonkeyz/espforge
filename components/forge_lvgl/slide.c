@@ -191,8 +191,8 @@ static bool ready(void) { return P && shadow && other && shadow_ok; }
 // The picture of page `target` of `pg` as neighbour i (0 prev, 1 next): the cached one, else rendered now
 static const uint8_t *neighbour(lv_obj_t *pg, int target, int i, int *renders)
 {
-    lv_obj_t *page = pager_page(pg, target);
-    if (!page || target < 0 || target >= pager_count(pg)) return NULL;
+    lv_obj_t *page = pager_shown(pg, target);
+    if (!page) return NULL;
     if (nb[i].buf && nb[i].page == page && nb[i].at) return nb[i].buf->data;
     lv_draw_buf_t *dst = nb[i].buf ? nb[i].buf : other;
     lv_obj_update_layout(lv_obj_get_screen(page));
@@ -399,7 +399,7 @@ static void idle_tick(lv_timer_t *t)
     if (!pg) return;
     int cur = pager_current(pg);
     for (int i = 0; i < 2; i++) {
-        lv_obj_t *page = pager_page(pg, cur + (i ? 1 : -1));
+        lv_obj_t *page = pager_shown(pg, cur + (i ? 1 : -1));   // not one hidden by pager_set_count
         if (!page || !nb[i].buf) continue;
         if (nb[i].page == page && lv_tick_elaps(nb[i].at) < STALE_MS) continue;
         lv_obj_update_layout(lv_obj_get_screen(page));

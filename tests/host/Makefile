@@ -11,7 +11,7 @@ OUT := build
 CFLAGS := -std=gnu11 -D_DEFAULT_SOURCE -g -O1 -Wall -Wno-unused-function -fsanitize=address,undefined \
           -fno-sanitize-recover=undefined -Ishim -I$(FORGE)/include -I$(MAIN) -include shim/host.h
 # test_testcon only once the firmware has the pure command table (testcon_registry.c)
-TESTS := utf8 version png i18n textfit $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
+TESTS := utf8 version png i18n textfit pager $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
 
 all: $(TESTS:%=$(OUT)/test_%)
 	@set -e; for t in $(TESTS); do ./$(OUT)/test_$$t; done
@@ -25,6 +25,9 @@ $(OUT)/test_i18n: test_i18n.c $(FORGE)/i18n.c $(FORGE)/include/forge_i18n.h $(MA
 	$(CC) $(CFLAGS) -o $@ test_i18n.c $(FORGE)/i18n.c
 $(OUT)/test_textfit: test_textfit.c $(FORGE)/textfit.c $(FORGE)/include/textfit.h $(MAIN)/montserrat.ttf | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_textfit.c $(FORGE)/textfit.c
+# pager.c against a fake of the LVGL calls it makes (lvfake/lvgl.h, implemented in test_pager.c)
+$(OUT)/test_pager: test_pager.c $(LVGLC)/pager.c $(LVGLC)/include/pager.h lvfake/lvgl.h | $(OUT)
+	$(CC) -Ilvfake $(CFLAGS) -I$(LVGLC)/include -o $@ test_pager.c $(LVGLC)/pager.c
 $(OUT)/test_testcon: test_testcon.c $(FORGE)/testcon_registry.c $(FORGE)/include/testcon.h | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_testcon.c $(FORGE)/testcon_registry.c
 
