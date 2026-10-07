@@ -14,7 +14,8 @@ Rules behind each step: docs/LESSONS.md L1-L10. Protocol: docs/PROTOCOL.md.
    `. C:\Espressif\esp-idf\export.ps1; idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build`.
    Changed `sdkconfig.defaults`? Delete `build\v55\sdkconfig` first and reconfigure.
 3. **Board free?** `python tools/devloop/devloop.py status` shows `idle` and `.devloop/serial_live.txt` isn't growing.
-   If the helper isn't running, ask the user to start `tools\devloop\start_flash_helper.bat`.
+   If the helper isn't running, ask the user to start `tools\devloop\start_flash_helper.bat` (on a Mac:
+   `python tools/devloop/flash_helper.py` in its own terminal, docs/MACOS.md).
 4. **Stage:** `python tools/devloop/stage.py`. It copies every part under a unique name and prints the md5 of source
    and copy. Stop if any pair differs.
 5. **Flash:** note to the user ("Flashing, then a 120 s log"), then `python tools/devloop/devloop.py flash 120`.

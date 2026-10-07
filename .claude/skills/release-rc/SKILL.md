@@ -18,7 +18,7 @@ explicit OK first (step 11). Details: docs/RELEASING.md. In Git Bash use `"/c/Pr
 4. **Build exactly what is committed:** `idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build` must succeed.
 5. **Board-free tests:** C files compiled by `tests/host` changed since the last tag (`git diff --stat <last-tag>`)?
    `wsl make -C tests/host` (L15). `main/web/index.html` or the mock changed? `cd tools/webtest && npm test`.
-   Harness code changed? `python tools/harness/test_harness.py`.
+   Harness code changed? `python -m unittest discover -s tools/harness -p "test_*.py"` (from an ESP-IDF shell).
 6. **Push:** `git fetch`; `git status` must not say "behind"; `git push origin main`; `git tag vX.Y.Z-rc.N`
    (lightweight); `git push origin vX.Y.Z-rc.N`. Then `git stash pop` if you stashed.
 7. **Watch CI:** `gh run list --repo <repo> --limit 5` (the tag's run shows the tag as its branch), then

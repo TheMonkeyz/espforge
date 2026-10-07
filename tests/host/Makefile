@@ -1,5 +1,5 @@
 # Host unit tests: firmware C files built with gcc against small shims of the ESP-IDF headers (shim/) and a scripted
-# HTTP client (fake.c), with AddressSanitizer. Linux or WSL:   make -C tests/host
+# HTTP client (fake.c), with AddressSanitizer. Linux, WSL or macOS (Apple clang, docs/MACOS.md):   make -C tests/host
 # IDF_PATH: an ESP-IDF checkout (cJSON, for tests of JSON parsers); on the Windows PC through WSL it is
 # /mnt/c/Espressif/esp-idf. The tests below don't need it.
 IDF_PATH ?= /mnt/c/Espressif/esp-idf

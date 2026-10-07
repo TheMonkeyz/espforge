@@ -8,12 +8,13 @@ silently or, worse, waits out a timeout. Project values (app name, screen size, 
 ## 1. Files between the agent and the flash helper (`.devloop/`)
 
 The agent's shell may have no USB access (Claude desktop / cloud). The flash helper (`tools/devloop/`) runs in a
-window on the PC that owns the port and talks through plain files in `.devloop/`:
+window on the PC that owns the port and talks through plain files in `.devloop/`. Two helpers speak it: Windows'
+`flash_helper.ps1` + `monitor.ps1` and the Python `flash_helper.py` (macOS / Linux, docs/MACOS.md):
 
 | File | Direction | Meaning |
 |---|---|---|
 | `flash.request` | agent → helper | Body: log seconds (default 60). Flash the parts listed in `<build_dir>/flasher_args.json` from the staged copies in `.devloop/stage/`, then log. |
-| `reboot.request` | agent → helper | Body: log seconds. Hard reset (no flash), then log. |
+| `reboot.request` | agent → helper | Body: log seconds. Restart (no flash), then log: the test console's `reboot` on the open port, so the boot log is whole (LESSONS L191); esptool's hard reset when no boot follows within 4 s. |
 | `stop.request` | agent → helper | End the log window now (`stopped_early=1`). Q / Esc in the helper window does the same. |
 | `serial.send` | agent → monitor | Each line is written to the port with `\n` and echoed in the log as `> line`. Write `serial.send.tmp`, then rename. |
 | `flash.status` | helper → agent | `idle` / `flashing` / `logging` / `flash_failed` |

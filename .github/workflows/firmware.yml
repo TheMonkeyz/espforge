@@ -138,8 +138,13 @@ jobs:
           curl -fsSL -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/v1.7.19/cJSON.h
       - name: Host tests
         run: make -C tests/host CJSON="$PWD/cjson"
-      - name: Harness unit tests
-        run: python3 tools/harness/test_harness.py
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.12"
+      - name: Harness unit tests (and the Python flash helper against a loopback port)
+        run: |
+          pip install --quiet "pyserial==3.5"
+          python -m unittest discover -s tools/harness -p "test_*.py" -v
 
   release:
     needs: [config, build, webtest, host-tests]

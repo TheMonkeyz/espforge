@@ -9,9 +9,10 @@
     python tools/harness/harness.py --update-baseline    # propose the measured numbers as the new reference
     python tools/harness/harness.py --ota v1.2.0-rc.1    # install a published release with the display's updater, test it
 
-Generic suites: core_suites.py; the app's own: app_suites.py. Needs the flash helper (tools/devloop/
-start_flash_helper.bat) and firmware with the test console. wifi_setup joins the PC's Wi-Fi card to the display's
-setup network (Ethernet keeps the PC online). Exit code 0 = all passed, no performance problem.
+Generic suites: core_suites.py; the app's own: app_suites.py. Needs the flash helper (Windows: tools/devloop/
+start_flash_helper.bat; macOS / Linux: python tools/devloop/flash_helper.py, docs/MACOS.md) and firmware with the
+test console. wifi_setup joins the PC's Wi-Fi card to the display's setup network (Ethernet keeps the PC online):
+Windows only, left out of the default run elsewhere. Exit code 0 = all passed, no performance problem.
 Report: tools/harness/reports/<date-time>/report.md (+ screenshots, results.json, the log of each failed test).
 """
 import argparse
@@ -38,6 +39,9 @@ import app_suites  # noqa: E402  (registers the app's suites)
 
 ORDER = (['boot', 'console', 'memory', 'screens'] + app_suites.APP_ORDER
          + ['web', 'update', 'idle_stable', 'wifi_runtime', 'wifi_setup', 'ota'])
+# wifi_setup joins the computer's Wi-Fi to the display's setup network (netsh, Ethernet keeping the PC online):
+# Windows only, left out of the default run elsewhere (a MacBook would lose the display and the internet)
+WINDOWS = os.name == 'nt'
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE = os.path.join(HERE, 'baseline.json')
 
@@ -210,7 +214,10 @@ def parse_args(argv=None):
             ap.error(f'unknown suite {s} (known: {", ".join(x for x in ORDER if x in SUITES)})')
     if 'ota' in asked and not opts.ota:
         ap.error('the ota suite needs --ota VERSION')
-    opts.run = asked or [s for s in ORDER if s not in core_suites.ON_REQUEST or (s == 'ota' and opts.ota)]
+    opts.run = asked or [s for s in ORDER if (s not in core_suites.ON_REQUEST or (s == 'ota' and opts.ota))
+                         and (WINDOWS or s != 'wifi_setup')]
+    if not asked and not WINDOWS:
+        print('(wifi_setup left out: it needs the Windows PC, docs/MACOS.md)', flush=True)
     return opts
 
 
