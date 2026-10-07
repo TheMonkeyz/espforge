@@ -27,20 +27,27 @@ def go_home(ctx):
     time.sleep(0.5)
 
 
+def pages(ctx):
+    """The pager's screens, left to right. The starter's are fixed; an app whose page count varies (pager_set_count)
+    reads it from the device here, e.g. esp32-s3-rtcquebec: one page per favourite stop from /api/favs."""
+    return [HOME, NEXT]
+
+
 # ---------------------------------------------------------------- navigation
 
 @test('navigation')
 def swipe_between_pages(ctx):
-    """Swipe like a person: left to the next page, right back; no wrap-around at either end."""
+    """Swipe like a person: left through every page, right back; no wrap-around at either end."""
     b = ctx.board
     go_home(ctx)
-    route = [('swipe left', NEXT), ('swipe left', NEXT),      # the right end: bounces back
-             ('swipe right', HOME), ('swipe right', HOME)]    # the left end: bounces back
+    p = pages(ctx)
+    route = ([('swipe left', x) for x in p[1:]] + [('swipe left', p[-1])] +      # the right end: bounces back
+             [('swipe right', x) for x in p[-2::-1]] + [('swipe right', p[0])])  # the left end: bounces back
     for cmd, want in route:
         b.cmd(cmd)
         time.sleep(0.8)
         b.wait_screen(want, 6)
-    ctx.note(f'{HOME} <-> {NEXT} by swipes, both ends bounce')
+    ctx.note(f'{" <-> ".join(p)} by swipes, both ends bounce')
 
 
 @test('navigation')

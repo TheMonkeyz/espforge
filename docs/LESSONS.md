@@ -1061,3 +1061,35 @@ Fix: 1, 2 and 4-bit grey and palette, the depths PNG allows for them (scanline `
 bytewise with a 1-byte distance, samples from the high bits, grey scaled `x 255 / (2^depth - 1)`).
 Check: grep the log for what a decoder refuses; test with the sources' real files (the host test decodes that tile
 against a Python zlib reference), not only generated ones.
+
+## An app with a varying list of pages (esp32-s3-rtcquebec v0.2.0-v0.3.0, October 7)
+
+**L192. During `lv_screen_load_anim()` the active screen is still the old one.**
+Why: LVGL 9.2 switches `lv_screen_active()` only when the load animation ends (200 ms here), and has no public getter
+for the screen that is loading. esp32-s3-rtcquebec's map had a timer asking "is the map shown?"; it ran during the
+fade-in, read the stop page, and took the map for closed as it opened.
+Fix: note when the screen was opened (`lv_tick_get()`) and let such checks ignore the first 500 ms (or keep your own
+"screen I asked for" variable).
+Check: open the screen and read the log for anything that acts on "not shown" in the first frames.
+
+**L193. `esp_http_client` sends at most 512 bytes of request line and headers by default.**
+Why: the RTC's notices query is ~1.3 KB of query string; the request failed before reaching the server.
+Fix: `.buffer_size_tx = 2048` (or what the longest URL needs) in `esp_http_client_config_t`.
+Check: log the URL length next to the request; a request that fails without any HTTP status with a long URL is this.
+
+**L194. A label sized to its content in `LV_LABEL_LONG_DOT` mode shows only "...".**
+Why: LVGL 9 measures a `LV_SIZE_CONTENT` label with nothing to cut against, so the dots replace the text.
+Fix: give the label a width: the text's own from `lv_text_get_size()`, capped at the room there is.
+Check: a snapshot with the longest text in every language (French is longer).
+
+**L195. Never pass a piece that holds `%` (an encoded query) as `snprintf`'s format.**
+Why: `%5B` (an encoded `[`) and the like were read as conversions: the URL came out wrong, and an argument list that
+doesn't match is undefined behaviour.
+Fix: such pieces go in as `%s` arguments; the format is a literal.
+Check: `-Wformat-nonliteral` flags a non-literal format; a host test of the URL builder with an encoded piece.
+
+**L196. Emscripten's `localtime_r` and `strftime("%z")` ignore `TZ`.**
+Why: they use the browser's zone and offset; the emulator's clock showed the visitor's time and `%z` wrote +00:00.
+Fix: web/emu/forge/emu_time.c applies the firmware's TZ to `localtime_r`; for an offset, compute it from the date
+(`mktime` of the local fields against the UTC time) rather than `%z`.
+Check: run the emulator with the browser in another time zone (Playwright's `timezoneId`).

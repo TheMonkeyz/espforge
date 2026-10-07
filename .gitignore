@@ -27,6 +27,9 @@ test-results/
 playwright-report/
 snapshot_*.png
 
+# Claude Code's agent worktrees: `git add -A` committed one as an embedded repository (esp32-s3-rtcquebec)
+.claude/worktrees/
+
 # Web flasher / CI outputs
 _site/
 dist/
