@@ -35,6 +35,11 @@ Details: `docs/WORKFLOW.md`, `docs/RELEASING.md`. Skills in `.claude/skills/` ho
 - **Reset cached board facts (`.devloop/ip`, `.devloop/key`) after a flash or an install** (L7).
 - **Never restart a board in the first 60 s after an update** (it rolls back) (L23).
 - **Report what the log shows**, not what a message suggests (L46).
+- **Backlog** (the user's rule, 2026-10-07, for esp32-s3-rtcquebec, weather_amoled and espforge): when a
+  change could go into espforge (framework code, board support, tools, tests, docs, a lesson), add an entry to
+  `docs/BACKLOG.md` (`C:\Users\lmathieu\ESPDEV\espforge\docs\BACKLOG.md`, its format at the top) in the
+  same session, before calling the work done. Alignment sessions work through it for future projects.
+  Here: also what the apps should take (new tags to bump, fixes to port).
 
 Lessons by topic (memory, LVGL, touch, Wi-Fi, OTA, Windows tooling…): `docs/LESSONS.md`. Add a lesson there when a
 bug teaches something general; add the project-specific fact below.

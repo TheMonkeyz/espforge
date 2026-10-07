@@ -127,6 +127,7 @@ updates (channel, check, install, release notes). Everything visible goes throug
 | [docs/RELEASING.md](docs/RELEASING.md) | Version labels, CHANGELOG, rc and stable releases, CI, Pages, restoring a board |
 | [docs/LESSONS.md](docs/LESSONS.md) | 150+ lessons by topic, each with its origin and how to check it |
 | [docs/MACOS.md](docs/MACOS.md) | Working on a Mac: setup, the Python flash helper, what differs from the Windows PC |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | Changes from the apps that could come into espforge, for alignment sessions |
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | What the PC tools rely on from the firmware: files, console, log lines, HTTP API, OTA site |
 | [docs/COMPONENTS.md](docs/COMPONENTS.md) | The framework components and the board API |
 | [docs/NEW-PROJECT.md](docs/NEW-PROJECT.md) | Start a project from this template; add a board |
