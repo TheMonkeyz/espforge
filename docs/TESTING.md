@@ -37,13 +37,16 @@ The flash helper (`tools/devloop/`) runs on the PC, owns the COM port, and talks
 `powershell -NoProfile -ExecutionPolicy Bypass -File tools\devloop\flash_helper.ps1` with `run_in_background` (its output arrives in
 that task; stop the task to stop it). `tools\devloop\start_flash_helper.bat` runs the same helper in a window, for
 a person who wants to watch (Q / Esc stop a log there). Restart it after editing `flash_helper.ps1`; `monitor.ps1`
-is reloaded on every run.
+is reloaded on every run. On macOS / Linux the same files are served by
+`python tools/devloop/flash_helper.py`, from an ESP-IDF shell (docs/MACOS.md). A restart request goes through the
+test console's `reboot`, so its log is whole from `ESP-ROM:` on (L191); after a flash the first ~2.5 s are still
+lost (L154).
 
 ```bash
 python tools/devloop/stage.py                 # copy the parts in build/v55/flasher_args.json to .devloop/stage/
                                               # under unique names, print md5 of source and copy
 python tools/devloop/devloop.py flash 120     # flash the staged parts, then log 120 s
-python tools/devloop/devloop.py reboot 300    # hard reset without flashing, log 300 s
+python tools/devloop/devloop.py reboot 300    # restart without flashing (test console, else esptool), log 300 s
 python tools/devloop/devloop.py send "screen" # a test-console line (echoed in the log as "> screen")
 python tools/devloop/devloop.py stop          # end the log window now
 python tools/devloop/devloop.py status        # flash.status + flash.done
@@ -158,7 +161,9 @@ How the gate works (L21-L35):
 - **No answer or `display busy`** → the harness sends `where` and puts the breadcrumbs in the failure.
 - **After an update** the harness waits for `marked valid` before any restart (L23).
 - **Outside outages** (a cloud API down) are waited out and noted, not failed (L34).
-- The harness's own logic has unit tests: `python tools/harness/test_harness.py`.
+- The harness's own logic has unit tests: `python tools/harness/test_harness.py`. With the flash helper's
+  (`test_flash_helper.py`: loopback port, fake board; they need pyserial, so run them from an ESP-IDF shell):
+  `python -m unittest discover -s tools/harness -p "test_*.py"`.
 
 Pitfalls (Windows): Microsoft Store Python hides `%LOCALAPPDATA%` from child processes, so Playwright's browsers go in
 `tools/webtest/.browsers` (L146); `netsh` must answer in English for the PC-as-phone tests (L147); before joining the

@@ -107,7 +107,8 @@ helper isn't running; the helper is still the way to keep a log window open whil
 Builds happen in a cloud container; Claude's shell on the PC is a Linux VM with no USB access, and it can't type into
 Windows terminals or reach the board's IP.
 
-1. The user starts `tools\devloop\start_flash_helper.bat` once (restart it after editing `flash_helper.ps1`).
+1. The user starts `tools\devloop\start_flash_helper.bat` once (restart it after editing `flash_helper.ps1`; on a
+   Mac `python tools/devloop/flash_helper.py`, docs/MACOS.md).
 2. Claude builds in the cloud, copies the parts to the PC folder, runs `python tools/devloop/stage.py` (unique names,
    md5), then `python tools/devloop/devloop.py flash 120` (or writes `.devloop/flash.request` with the log seconds).
 3. Claude polls `.devloop/flash.status` and `.devloop/flash.done`, then reads `.devloop/serial_log.txt`. Stop early

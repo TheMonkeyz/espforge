@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Drive the flash helper (tools/devloop/start_flash_helper.bat) without hand-writing its files in .devloop/
-(docs/PROTOCOL.md §1). Standard library only.
+"""Drive the flash helper (start_flash_helper.bat on Windows, flash_helper.py on macOS / Linux) without hand-writing
+its files in .devloop/ (docs/PROTOCOL.md §1). Standard library only.
 
     python tools/devloop/devloop.py flash [seconds]      # stage the build (stage.py), then flash it and log
     python tools/devloop/devloop.py flash 300 --no-stage # flash what is already staged
-    python tools/devloop/devloop.py reboot [seconds]     # hard reset (no flash), then log
+    python tools/devloop/devloop.py reboot [seconds]     # restart (no flash; test console, else esptool), then log
     python tools/devloop/devloop.py send "heap"          # a line to the test console (while logging)
     python tools/devloop/devloop.py stop                 # end the log window now
     python tools/devloop/devloop.py status               # helper state, flash.done, the last log lines
@@ -47,7 +47,9 @@ def write_atomic(name, text):
 def helper_check():
     st = read('flash.status')
     if not st:
-        print('note: no .devloop/flash.status: is the flash helper running (in the background: powershell -File tools/devloop/flash_helper.ps1, or start_flash_helper.bat)?')
+        print('note: no .devloop/flash.status: is the flash helper running (Windows, in the background: powershell '
+              '-File tools/devloop/flash_helper.ps1, or start_flash_helper.bat; macOS / Linux: python '
+              'tools/devloop/flash_helper.py)?')
     elif st not in ('idle', 'flash_failed'):
         sys.exit(f'the flash helper is busy ({st}): wait, or "devloop.py stop" to end its log window')
 
@@ -122,7 +124,7 @@ def main():
     p.add_argument('--no-stage', action='store_true', help='flash the parts already in .devloop/stage')
     p.add_argument('--build', help="build folder (default: forge.json's build_dir)")
     p.set_defaults(fn=cmd_flash)
-    p = sub.add_parser('reboot', help='hard reset, log')
+    p = sub.add_parser('reboot', help='restart, log')
     p.add_argument('seconds', nargs='?', type=int, default=60)
     p.set_defaults(fn=cmd_reboot)
     sub.add_parser('stop', help='end the log window').set_defaults(fn=cmd_stop)

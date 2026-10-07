@@ -3,7 +3,8 @@
 # it), or windowless in the background, started by Claude Code with run_in_background so nothing opens on the user's
 # screen (stop it by stopping that task; Q / Esc need a window, use stop.request).
 #   flash.request   (body: log seconds, default 60) flash the parts staged in .devloop\stage, then log the serial port
-#   reboot.request  same without flashing: hard reset, then log (re-runs the boot diagnostics)
+#   reboot.request  same without flashing: restart through the test console's `reboot` with the port kept open (the
+#                   boot log is whole), else esptool's hard reset; then log (re-runs the boot diagnostics)
 #   stop.request    end the log window early (or press Q / Esc in the window, when it has one)
 # What to flash comes from <build_dir>\flasher_args.json (ESP-IDF writes it), the chip / baud / port from forge.json.
 # Only staged copies are flashed (tools/devloop/stage.py): each is checked against stage\manifest.json by md5 first,
@@ -52,6 +53,25 @@ $exe = Join-Path $Root "tools\esptool.exe"
 if (Test-Path $exe) { $Esptool = @($exe) }
 elseif (Get-Command python -ErrorAction SilentlyContinue) { $Esptool = @("python", "-m", "esptool") }
 elseif (Get-Command py -ErrorAction SilentlyContinue) { $Esptool = @("py", "-3", "-m", "esptool") }
+
+# The board's COM port: forge.json's, else the ESP32-S3's own USB (VID 303A); $null lets esptool look
+function Find-BoardPort {
+  if ($CfgPort) { return $CfgPort }
+  $d = Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
+       Where-Object { $_.PNPDeviceID -match 'VID_303A' -and $_.Name -match '\((COM\d+)\)' } | Select-Object -First 1
+  if ($d -and $d.Name -match '\((COM\d+)\)') { return $Matches[1] }
+  return $null
+}
+
+# Logs the port for $secs s (monitor.ps1); -Reboot restarts through the test console first. Returns its exit code:
+# 2 = stopped early, 3 = no restart through the console
+function Run-Monitor($port, $secs, [switch]$Reboot) {
+  $a = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "monitor.ps1"), "-Port", $port,
+         "-Seconds", $secs)
+  if ($Reboot) { $a += "-Reboot" }
+  & powershell @a | Out-Null
+  return $LASTEXITCODE
+}
 
 # The esptool arguments for a flash, or a string saying why not (a stale or incomplete stage)
 function Flash-Args {
@@ -117,6 +137,23 @@ while ($true) {
   Title "ESP flash helper - FLASHING"
   Status "flashing"
 
+  # ---- restart through the test console (reboot.request) ----
+  # esptool's hard reset re-enumerates the USB and the first ~2.5 s of boot log are lost (L154); a software restart
+  # with the port open keeps them (L191). esptool only when no boot follows (no console, a hung board).
+  $consoleReboot = $false
+  $monExit = 0
+  if ($reboot) {
+    $port = Find-BoardPort
+    if ($port) {
+      Say "Restarting through the test console on $port (the port stays open: the boot log is kept from its first line)"
+      Title "ESP flash helper - logging serial ($secs s)"
+      $monExit = Run-Monitor $port $secs -Reboot
+      if ($monExit -ne 3) { $consoleReboot = $true }
+      else { Say "No restart through the test console: esptool's hard reset instead" "Yellow"; $monExit = 0 }
+    }
+  }
+  if (-not $consoleReboot) {   # esptool: a flash, or a restart the console did not do (unindented)
+
   # ---- esptool arguments ----
   $portArgs = if ($CfgPort) { @("-p", $CfgPort) } else { @() }
   $why = $null
@@ -175,15 +212,19 @@ while ($true) {
   Status "logging"
   Title "ESP flash helper - logging serial ($secs s)"
   Say "Logging serial output for $secs s (saved to .devloop\serial_log.txt). Press Q or Esc to stop early ..."
-  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "monitor.ps1") -Port $port -Seconds $secs | Out-Null
-  $early = if ($LASTEXITCODE -eq 2) { 1 } else { 0 }
+  $monExit = Run-Monitor $port $secs
+  }   # (not a console restart)
+  $flashSecs = if ($consoleReboot) { 0 } else { $flashSecs }
+  $early = if ($monExit -eq 2) { 1 } else { 0 }
   if ($early) { Say "Serial log stopped early" "Yellow" }
 
   # ---- summary ----
   $log = @(Get-Content "serial_log.txt" -ErrorAction SilentlyContinue)
   $errs = @($log | Where-Object { $_ -match '^E \(' }).Count
   $warns = @($log | Where-Object { $_ -match '^W \(' }).Count
+  # the unexpected ones: not the restart asked for (an esptool reset's own boot is lost, L154)
   $resets = @($log | Where-Object { $_ -match 'rst:0x' }).Count
+  if ($consoleReboot -and $resets -gt 0) { $resets-- }
   $color = if ($errs -gt 0 -or $resets -gt 0) { "Yellow" } else { "Green" }
   Say ("Serial log saved: {0} lines, {1} errors, {2} warnings, {3} resets" -f $log.Count, $errs, $warns, $resets) $color
   $total = [int]((Get-Date) - $start).TotalSeconds

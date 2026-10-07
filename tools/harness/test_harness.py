@@ -13,6 +13,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, '..'))
 import forgecfg  # noqa: E402
 from board import CFG, SUITES, english_netsh, kv, Fail  # noqa: E402
+import harness  # noqa: E402
 from harness import BAD, BASELINE, ORDER, compare, parse_args, propose, suite_of  # noqa: E402
 
 BASE = {
@@ -125,6 +126,19 @@ class Args(unittest.TestCase):
         self.assertEqual(o.flash, CFG['build_dir'])
         o = parse_args(['--flash', 'boot'])                  # a suite name after --flash is a suite
         self.assertEqual((o.run, o.flash), (['boot'], CFG['build_dir']))
+
+    def test_wifi_setup_only_by_default_on_windows(self):
+        # netsh, and a PC that stays online over Ethernet while its Wi-Fi is on the setup network (docs/MACOS.md)
+        old = harness.WINDOWS
+        try:
+            harness.WINDOWS = True
+            self.assertIn('wifi_setup', parse_args([]).run)
+            harness.WINDOWS = False
+            self.assertNotIn('wifi_setup', parse_args([]).run)
+            self.assertIn('wifi_runtime', parse_args([]).run)
+            self.assertEqual(parse_args(['wifi_setup']).run, ['wifi_setup'])   # still there when asked for
+        finally:
+            harness.WINDOWS = old
 
 
 class LogWaits(unittest.TestCase):
