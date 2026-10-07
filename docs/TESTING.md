@@ -32,9 +32,12 @@ idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build
 
 ## 2. Flash and log (devloop)
 
-The flash helper (`tools/devloop/`) runs in a window on the PC, owns the COM port, and talks through files in
-`.devloop/` (PROTOCOL.md §1). The user starts `tools\devloop\start_flash_helper.bat` once (restart it after editing
-`flash_helper.ps1`; `monitor.ps1` is reloaded on every run).
+The flash helper (`tools/devloop/`) runs on the PC, owns the COM port, and talks through files in `.devloop/`
+(PROTOCOL.md §1). Claude Code starts it in the background, windowless, so nothing opens on the user's screen:
+`powershell -NoProfile -ExecutionPolicy Bypass -File tools\devloop\flash_helper.ps1` with `run_in_background` (its output arrives in
+that task; stop the task to stop it). `tools\devloop\start_flash_helper.bat` runs the same helper in a window, for
+a person who wants to watch (Q / Esc stop a log there). Restart it after editing `flash_helper.ps1`; `monitor.ps1`
+is reloaded on every run.
 
 ```bash
 python tools/devloop/stage.py                 # copy the parts in build/v55/flasher_args.json to .devloop/stage/
