@@ -23,3 +23,8 @@ void slide_pager(lv_obj_t *pager);           // up to 4 pagers; freezes LVGL's o
 void slide_change(int dir, bool vertical, void (*change)(void *user), void *user);
 void slide_to(lv_obj_t *scr, int dir, bool vertical);   // lv_screen_load with a slide; dir 1: from the right / below
 bool slide_busy(void);                       // a move is queued or running
+// A tap on a page right after a move can be the next quick swipe's press: it reached LVGL as a short click and
+// opened esp32-s3-rtcquebec's map (harness quick_swipes, October 7). An app's click handler on a pager page asks
+// slide_tap_ok() first: false while a move runs and for SLIDE_TAP_GUARD_MS after one ended.
+#define SLIDE_TAP_GUARD_MS 600
+bool slide_tap_ok(void);
