@@ -30,5 +30,6 @@ Details: docs/TESTING.md §5. Rules: docs/LESSONS.md L21-L38.
 8. **Baseline update** (only for a known-good build, and say why): `--update-baseline` writes
    `tools/harness/baseline.proposed.json`; diff it with `baseline.json`, keep margins, copy it over, mention it in the
    commit.
-9. **Harness code changed?** `python tools/harness/test_harness.py`.
+9. **Harness code changed?** `python -m unittest discover -s tools/harness -p "test_*.py"` (ESP-IDF's Python: the
+   flash helper's tests need pyserial).
 10. **Report** the summary line and anything noted, quoting the report.

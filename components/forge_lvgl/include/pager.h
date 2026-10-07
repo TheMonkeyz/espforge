@@ -20,6 +20,15 @@ lv_obj_t *pager_page(lv_obj_t *pager, int i);
 void pager_go(lv_obj_t *pager, int i, bool anim);   // show page i
 int pager_current(lv_obj_t *pager);                // the page in the middle now
 int pager_count(lv_obj_t *pager);
+// Show only the first n pages (1..created); the others are hidden and can't be reached. pager_page() still gives
+// every created page.
+void pager_set_count(lv_obj_t *pager, int n);
+// Page i only if it is shown (i < pager_count), else NULL: the neighbours a drag may reach.
+lv_obj_t *pager_shown(lv_obj_t *pager, int i);
+// Show these pages, in this order (each a page of this pager, from pager_page()); the other pages follow, hidden.
+// For a page that must stay last whatever comes before it (an app's summary after a varying list of pages).
+// The index of a page changes with the order: keep the page object, not its number (pager_index finds it).
+void pager_set_order(lv_obj_t *pager, lv_obj_t *const *pages, int n);
 bool pager_vertical(lv_obj_t *pager);
 int pager_index(lv_obj_t *pager, const lv_obj_t *page);   // -1: not one of its pages
 

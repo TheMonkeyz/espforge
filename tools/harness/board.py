@@ -167,12 +167,14 @@ class Board:
             if self.helper_status() == 'flash_failed' and os.path.exists(p('flash.done')):
                 raise Fail(f'the flash helper failed: {open(p("flash.done")).read().strip()} (see .devloop/flash_helper.log)')
             if time.time() > end:
-                raise Fail('the flash helper did not start logging (is tools/devloop/start_flash_helper.bat running?)')
+                raise Fail('the flash helper did not start logging (is it running? Windows: tools/devloop/'
+                           'start_flash_helper.bat; macOS / Linux: python tools/devloop/flash_helper.py, docs/MACOS.md)')
             time.sleep(1)
         self.log.pos = 0
         self.forget()                                  # other firmware now, or the same one restarted: ask again
-        # "console ready" prints at ~2.6 s, often inside the ~2.5 s a PC monitor misses after a reset (USB re-enumerates,
-        # docs/LESSONS.md L154): the later ota line or the ready line say the same
+        # "console ready" prints at ~2.6 s, often inside the ~2.5 s a PC monitor misses after esptool's reset (USB
+        # re-enumerates, docs/LESSONS.md L154): the later ota line or the ready line say the same. A restart through
+        # the test console keeps the whole boot (L191); a flash, or firmware without the console, still loses it
         self.log.wait(r'test: console ready|ota: Running|' + CFG['ready_line'], 30, 'firmware with the test console')
 
     def stop_log(self):
@@ -372,7 +374,10 @@ class PCWifi:
     def available(self):
         """True when the PC has a Wi-Fi card. netsh answers in the Windows display language and this class reads its
         English words (Name, State, SSID, Channel, connected): in another language it stops with a clear message
-        rather than misread it."""
+        rather than misread it. False off Windows: netsh only exists there, and a MacBook has no Ethernet to stay
+        online while its Wi-Fi joins the setup network (docs/MACOS.md)."""
+        if os.name != 'nt':
+            return False
         return english_netsh(self.netsh('show', 'interfaces'))
 
     def scan(self):
@@ -432,6 +437,8 @@ class PCWifi:
         return (self.subnet + '.') in out
 
     def leave(self):
+        if os.name != 'nt':
+            return
         self.netsh('disconnect', f'interface={self.iface}')
         if self.ssid:
             self.netsh('delete', 'profile', f'name={self.ssid}', f'interface={self.iface}')

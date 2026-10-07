@@ -180,7 +180,7 @@ def settings_page_tests(ctx):
         env['PLAYWRIGHT_BROWSERS_PATH'] = browsers
     npm = shutil.which('npm') or r'C:\Program Files\nodejs\npm.cmd'
     if not os.path.exists(npm):
-        raise Fail('Node.js (npm) not found')
+        raise Fail('Node.js (npm) not found (macOS: brew install node, then cd tools/webtest && npm ci)')
     r = subprocess.run([npm, 'test'], cwd=wt, env=env, capture_output=True, text=True, errors='replace', timeout=600)
     out = r.stdout + r.stderr
     m = re.search(r'(\d+) passed', out)

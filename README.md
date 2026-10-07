@@ -43,7 +43,8 @@ Details: [docs/WORKFLOW.md](docs/WORKFLOW.md).
 
 ## Quick start
 
-Prerequisites (Windows; Linux works for everything except the PC-as-phone Wi-Fi tests):
+Prerequisites (Windows; Linux works for everything except the PC-as-phone Wi-Fi tests; on a Mac,
+[docs/MACOS.md](docs/MACOS.md) and `bash tools/mac/setup.sh`):
 
 - [ESP-IDF v5.5.4](https://docs.espressif.com/projects/esp-idf/en/v5.5.4/esp32s3/get-started/) (the Windows
   installer puts it in `C:\Espressif\esp-idf`).
@@ -61,7 +62,7 @@ idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build
 Flash through the helper (it owns the COM port and keeps a log window open while the agent acts):
 
 ```powershell
-tools\devloop\start_flash_helper.bat            # once, in its own window
+tools\devloop\start_flash_helper.bat            # once, in its own window (Claude Code runs flash_helper.ps1 in the background instead)
 python tools\devloop\stage.py                   # copy the parts under unique names, check md5
 python tools\devloop\devloop.py flash 120       # flash, then log 120 s to .devloop\serial_log.txt
 ```
@@ -93,7 +94,8 @@ components/forge_net/           Wi-Fi station, setup AP + captive portal, Easy C
 components/forge_ota/           updates from the Pages site, rollback confirmation
 components/forge_lvgl/          LVGL heap in PSRAM, pager, moves as pictures (slide.c), snapshots, touch injection, screens
 components/dns_server/          captive-portal DNS (from ESP-IDF's example)
-tools/devloop/                  flash helper (Windows), devloop.py, stage.py; state files in .devloop/
+tools/devloop/                  flash helper (Windows .ps1, macOS / Linux .py), devloop.py, stage.py; files in .devloop/
+tools/mac/                      setup.sh and doctor.sh for a Mac (docs/MACOS.md)
 tools/harness/                  harness.py, board.py, core_suites.py, app_suites.py, baseline.json, reports/
 tools/snapshot.py               a screen rendered off-display, saved as PNG
 tools/diag_summary.py           summary of the diag: lines in a log
@@ -130,6 +132,8 @@ updates (channel, check, install, release notes). Everything visible goes throug
 | [docs/TESTING.md](docs/TESTING.md) | Builds, devloop, test console, snapshots, harness, host and page tests, profiling |
 | [docs/RELEASING.md](docs/RELEASING.md) | Version labels, CHANGELOG, rc and stable releases, CI, Pages, restoring a board |
 | [docs/LESSONS.md](docs/LESSONS.md) | 150+ lessons by topic, each with its origin and how to check it |
+| [docs/MACOS.md](docs/MACOS.md) | Working on a Mac: setup, the Python flash helper, what differs from the Windows PC |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | Changes from the apps that could come into espforge, for alignment sessions |
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | What the PC tools rely on from the firmware: files, console, log lines, HTTP API, OTA site |
 | [docs/COMPONENTS.md](docs/COMPONENTS.md) | The framework components and the board API |
 | [docs/NEW-PROJECT.md](docs/NEW-PROJECT.md) | Start a project from this template; add a board |

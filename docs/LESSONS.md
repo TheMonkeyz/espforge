@@ -52,7 +52,8 @@ the old one before waiting on it.
 
 **L6. The flash helper picks up changes to its own script only after a restart.**
 Why: an edited `flash_helper.ps1` kept running the old code; `monitor.ps1` is reloaded on every run.
-Check: after editing the helper, ask the user to close and restart `start_flash_helper.bat`.
+Check: after editing the helper, restart it: stop Claude's background helper task and start it again (or ask the
+user to close and restart `start_flash_helper.bat` if they run it in a window).
 
 **L7. Anything cached about the board is reset after a flash or an install.**
 Why: v1.12.0-rc.3: a cached "no key" from the firmware before a flash made the harness skip its key-protected
@@ -61,7 +62,20 @@ Check: the tools clear `.devloop/ip` and `.devloop/key` after every flash and OT
 
 **L8. Check whether someone else is using the board before flashing.**
 Why: the board, the helper and the COM port are shared between the user and every session.
-Check: `flash.status` is `idle` and `serial_live.txt` isn't growing.
+Check: `flash.status` is `idle` and `serial_live.txt` isn't growing, in every project that uses the board
+(weather_amoled keeps those files in its repository root, espforge in `.devloop/`), and no `flash_helper` or
+`monitor.ps1` process is running.
+
+**L191. To keep a restart's boot log, restart through the test console with the port open.**
+Why: on the ESP32-S3's own USB (Serial/JTAG), esptool's hard reset re-enumerates the device, and the ~2.5 s before the
+port is back are lost (L154): the ROM banner, the reset reason, the bootloader's `SPI Mode` line, so the harness
+printed `flash ?` instead of `flash QIO`. The test console's `reboot` is a software restart that leaves the USB
+connected: with the port kept open the log is whole from `ESP-ROM:` on (weather_amoled October 6 on COM5, then
+espforge's two helpers the same evening: `rst:0xc`, `SPI Mode : QIO`, `console ready` at 2.97 s). An RTS pulse with
+the port open did not restart the board.
+Check: `reboot.request` sends `reboot` on the open port and waits up to 4 s for `ESP-ROM:` or `rst:0x`, else falls
+back to esptool (no console, a hung board); `flash_helper.log` says which. That restart is not counted in
+`flash.done`'s `resets`. A flash still loses the first seconds: tests must not need lines printed before ~3 s (L154).
 
 ## Builds, versions and releases
 
@@ -239,7 +253,8 @@ Check: "Now, for the next 60 s: swipe left twice, then long-press the centre."
 
 **L43. Never take over the user's screen; prefer the flash helper.**
 Why: the user's rule from the first day.
-Check: no computer-use or terminal typing without asking first.
+Check: no computer-use or terminal typing without asking first. Start the flash helper windowless in the
+background (`run_in_background`), not with `start_flash_helper.bat`, which opens a window (user, 2026-10-06).
 
 **L44. Relay `>>> ASK THE USER` from the harness at once.**
 Why: steps like the Easy Connect phone scan have a time limit.

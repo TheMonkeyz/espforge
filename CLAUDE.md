@@ -35,6 +35,11 @@ Details: `docs/WORKFLOW.md`, `docs/RELEASING.md`. Skills in `.claude/skills/` ho
 - **Reset cached board facts (`.devloop/ip`, `.devloop/key`) after a flash or an install** (L7).
 - **Never restart a board in the first 60 s after an update** (it rolls back) (L23).
 - **Report what the log shows**, not what a message suggests (L46).
+- **Backlog** (the user's rule, 2026-10-07, for esp32-s3-rtcquebec, weather_amoled and espforge): when a
+  change could go into espforge (framework code, board support, tools, tests, docs, a lesson), add an entry to
+  `docs/BACKLOG.md` (`C:\Users\lmathieu\ESPDEV\espforge\docs\BACKLOG.md`, its format at the top) in the
+  same session, before calling the work done. Alignment sessions work through it for future projects.
+  Here: also what the apps should take (new tags to bump, fixes to port).
 
 Lessons by topic (memory, LVGL, touch, Wi-Fi, OTA, Windows tooling…): `docs/LESSONS.md`. Add a lesson there when a
 bug teaches something general; add the project-specific fact below.
@@ -51,7 +56,9 @@ app code (forge_lvgl and the board are not used there).
   here, and bump the four tags in its manifest. Keep components generic: app texts, names and languages come in
   through the hooks (i18n descriptors, `svc_set_why_text`, `ota_set_err_text`, Kconfig `FORGE_*`).
 - **Still twins** (same code in both, not shared): forge_lvgl's `lvgl_mem.c` and `pager.c`, the board's `display.c`,
-  `touch.c`, `imu.c`, the harness's `board.py` / `harness.py` and the flash helper. The browser emulator: its
+  `touch.c`, `imu.c`, the harness's `board.py` / `harness.py` and the flash helper (espforge's
+  `tools/devloop/flash_helper.py` is weather_amoled's `tools/flash_helper.py` with `.devloop/` and forge.json; the
+  PowerShell helpers restart through the console too since October 6). The browser emulator: its
   `web/emu/emu_*.c` are the originals of espforge's `web/emu/forge/` (generic since October 7; weather_amoled
   still has its own copy, with its audio, motion and partition stand-ins). A fix in one gets ported, or a
   task for the other. Its `slide.c` is the larger original: port ideas, not the file.
@@ -68,11 +75,16 @@ app code (forge_lvgl and the board are not used there).
   `wsl bash -lc 'source ~/emsdk/emsdk_env.sh && make -C /mnt/c/<checkout>/web/emu -j8'` (LVGL from
   `managed_components` after an idf.py build; ~1 min from scratch, 5 s with nothing to do), then
   `node web/emu/forge/smoke.js`.
-- **Host tests** run in WSL (Ubuntu): `wsl make -C tests/host`. **Settings page tests**: `cd tools/webtest && npm test`
+- **Host tests** run in WSL (Ubuntu): `wsl make -C tests/host`. **Harness + flash helper unit tests** need pyserial:
+  `~/.espressif/python_env/idf5.5_py3.12_env/Scripts/python.exe -m unittest discover -s tools/harness -p "test_*.py"`
+  (plain Python skips the helper's). **Settings page tests**: `cd tools/webtest && npm test`
   (Node in `C:\Program Files\nodejs`).
 - **Two ways to work:**
   1. **Claude Code on the PC** (preferred): builds, `idf.py`, the harness and `gh` run directly. The flash helper
-     still owns the COM port while it is logging; the harness talks to it.
+     still owns the COM port while it is logging; the harness talks to it. **Claude starts the helper itself, in the
+     background** (`run_in_background`: `powershell -NoProfile -ExecutionPolicy Bypass -File tools\devloop\flash_helper.ps1`), so no window
+     opens on the user's screen (user's rule, 2026-10-06, as weather_amoled does); restart it the same way after
+     editing `flash_helper.ps1` (L6). `start_flash_helper.bat` (a window) only when the user asks for one.
   2. **Claude desktop app / cloud**: builds run in a cloud container, the shell has **no USB** and can't type into
      Windows terminals. The user starts `tools\devloop\start_flash_helper.bat` once; Claude stages the parts, runs
      `python tools/devloop/devloop.py flash 120` (or writes `.devloop/flash.request`), waits for

@@ -7,6 +7,7 @@
 typedef struct {
     bool vertical, quiet;              // quiet: moved by pager_peek / pager_switch, no callbacks from the scroll events
     int pages, cur;
+    int max;                           // pages created (pager_set_count shows the first `pages` of them)
     pager_cb_t on_change, on_settle;
     void *user;
     lv_obj_t *page[];
@@ -43,7 +44,7 @@ lv_obj_t *pager_create(lv_obj_t *parent, bool vertical, int pages, pager_cb_t on
                        void *user)
 {
     pager_t *p = lv_malloc_zeroed(sizeof(pager_t) + pages * sizeof(lv_obj_t *));
-    *p = (pager_t){ .vertical = vertical, .pages = pages, .on_change = on_change, .on_settle = on_settle,
+    *p = (pager_t){ .vertical = vertical, .pages = pages, .max = pages, .on_change = on_change, .on_settle = on_settle,
                     .user = user };
     lv_obj_t *o = lv_obj_create(parent);
     lv_obj_remove_style_all(o);
@@ -71,7 +72,7 @@ lv_obj_t *pager_create(lv_obj_t *parent, bool vertical, int pages, pager_cb_t on
 lv_obj_t *pager_page(lv_obj_t *o, int i)
 {
     pager_t *p = lv_obj_get_user_data(o);
-    return i >= 0 && i < p->pages ? p->page[i] : NULL;
+    return i >= 0 && i < p->max ? p->page[i] : NULL;
 }
 
 void pager_go(lv_obj_t *o, int i, bool anim)
@@ -90,10 +91,56 @@ int pager_current(lv_obj_t *o)
 
 int pager_count(lv_obj_t *o) { return ((pager_t *)lv_obj_get_user_data(o))->pages; }
 
+// The pages past n are hidden: out of the scroll range (LVGL skips hidden children) and past slide.c's drags (it stops
+// at pager_count); they keep their objects, so an app builds all of them once and shows as many as it has data for
+void pager_set_count(lv_obj_t *o, int n)
+{
+    pager_t *p = lv_obj_get_user_data(o);
+    n = n < 1 ? 1 : n > p->max ? p->max : n;
+    for (int i = 0; i < p->max; i++) {
+        if (i < n) lv_obj_remove_flag(p->page[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(p->page[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    p->pages = n;
+    if (p->cur >= n) pager_go(o, n - 1, false);
+}
+
+lv_obj_t *pager_shown(lv_obj_t *o, int i)
+{
+    pager_t *p = lv_obj_get_user_data(o);
+    return i >= 0 && i < p->pages ? p->page[i] : NULL;
+}
+
+// The pages asked for move to the front, in that order (a page listed twice or not of this pager is skipped); the
+// others follow in their current order, hidden. Positions follow the new order, so the scroll range and slide.c's
+// neighbours (pager_shown) see it at once.
+void pager_set_order(lv_obj_t *o, lv_obj_t *const *pages, int n)
+{
+    pager_t *p = lv_obj_get_user_data(o);
+    lv_obj_t *all[p->max];
+    int k = 0;
+    for (int i = 0; i < n && k < p->max; i++) {
+        bool dup = pager_index(o, pages[i]) < 0;
+        for (int j = 0; j < k && !dup; j++) dup = all[j] == pages[i];
+        if (!dup) all[k++] = pages[i];
+    }
+    int shown = k;
+    for (int i = 0; i < p->max; i++) {
+        bool listed = false;
+        for (int j = 0; j < shown && !listed; j++) listed = all[j] == p->page[i];
+        if (!listed) all[k++] = p->page[i];
+    }
+    for (int i = 0; i < p->max; i++) {
+        p->page[i] = all[i];
+        lv_obj_set_pos(all[i], p->vertical ? 0 : i * DISP_W, p->vertical ? i * DISP_H : 0);
+    }
+    pager_set_count(o, shown);
+}
+
 int pager_index(lv_obj_t *o, const lv_obj_t *page)
 {
     pager_t *p = lv_obj_get_user_data(o);
-    for (int i = 0; i < p->pages; i++) if (p->page[i] == page) return i;
+    for (int i = 0; i < p->max; i++) if (p->page[i] == page) return i;
     return -1;
 }
 
