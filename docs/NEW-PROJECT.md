@@ -37,8 +37,10 @@ Pick the names once; they are hard to change later:
   your `ota_site`, and your board; keep the developer sections.
 - [ ] **`CHANGELOG.md`**: keep the `# Changelog` header, replace the sections with `## v0.1.0-rc.1 - <date>`.
 - [ ] **`tools/harness/baseline.json`**: reset to `{}`, then run the harness on the first good build with
-      `--update-baseline`, review `baseline.proposed.json` and copy it over (docs/TESTING.md §5).
-- [ ] **`tools/harness/app_suites.py`**: replace the starter's suites with the app's.
+      `--update-baseline`, review `baseline.proposed.json` and copy it over (docs/TESTING.md §5). Until then the
+      harness unit test of the snapshot metrics is skipped (an empty baseline), not failed.
+- [ ] **`tools/harness/app_suites.py`**: replace the starter's suites with the app's. `pages()` lists the pager's
+      screens for the navigation test: if the app's page count varies, read it from the device there.
 - [ ] **`main/i18n_strings.h`** and **`I18N` in `main/web/index.html`**: the app's texts, every language.
 - [ ] **`web/emu/`** (the display in the browser, the site's *Try it*; [web/emu/README.md](../web/emu/README.md)):
       `Makefile` lists the app's `main/` sources (`APP_SRC`), its emulator files (`APP_EMU`) and embedded files
@@ -70,7 +72,11 @@ Pick the names once; they are hard to change later:
    `idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build`; flash with the helper (Claude starts it in the
    background); check `ota: Running` and that
    the setup network has the new name.
-2. `python tools/harness/harness.py` (after resetting the baseline, with `--update-baseline`).
+2. `python tools/harness/harness.py` (after resetting the baseline, with `--update-baseline`). Its settings page
+   step needs Playwright's Chromium where the harness's Python can see it: `cd tools/webtest && npm ci && npx
+   playwright install chromium`, then copy `%LOCALAPPDATA%\ms-playwright` to `tools/webtest/.browsers`
+   (git-ignored). The Microsoft Store Python hides AppData\Local from its child processes (L146): without the copy
+   every webtest fails in ~1 ms ("Executable doesn't exist") while `npm test` by hand passes.
 3. Commit, push `main`: CI builds (no release).
 4. Tag `v0.1.0-rc.1`: a pre-release and a Beta-only site (docs/RELEASING.md "First release"). With the board on a
    test build labelled `v0.1.0-rc.0` and the Beta channel: `harness.py --ota v0.1.0-rc.1`.

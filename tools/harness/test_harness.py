@@ -39,6 +39,13 @@ def verdicts(rows):
     return {k: v for k, _, _, v in rows}
 
 
+def snapshot_screens(base):
+    """The screens the baseline has snapshot times for; None for a new project's empty baseline."""
+    if not base:
+        return None
+    return {k.split('.', 1)[1] for k in base if k.startswith('snapshot_ms.')}
+
+
 class Compare(unittest.TestCase):
     def test_within_and_outside_limits(self):
         v = verdicts(compare({'swipe_fps.hello_to_system': 30, 'swipe_gap_max_ms.hello_to_system': 250,
@@ -104,9 +111,15 @@ class Baseline(unittest.TestCase):
             self.assertIn(s, ORDER)
 
     def test_snapshot_metrics_follow_forge_screens(self):
-        base = load_json(BASELINE)
-        snaps = {k.split('.', 1)[1] for k in base if k.startswith('snapshot_ms.')}
+        snaps = snapshot_screens(load_json(BASELINE))
+        if snaps is None:
+            self.skipTest('baseline.json is {} (a new project): the first harness run writes it (docs/NEW-PROJECT.md)')
         self.assertEqual(snaps, set(CFG['screens']))
+
+    def test_a_new_projects_empty_baseline_is_skipped(self):
+        # NEW-PROJECT resets the baseline to {}: CI failed on it until the first harness run (esp32-s3-rtcquebec)
+        self.assertIsNone(snapshot_screens({}))
+        self.assertEqual(snapshot_screens({'snapshot_ms.home': 90, 'fps.x': 1}), {'home'})
 
 
 class Args(unittest.TestCase):
