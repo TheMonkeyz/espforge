@@ -168,7 +168,9 @@ setup network the harness sends `portal windows-quiet` (L117).
 
 Framework and app C files built with gcc against small shims of the ESP-IDF headers (`tests/host/shim/`) and a scripted
 HTTP client (`fake.c`: each request gets one reply, an HTTP status, a transport error, or "no client"), with
-AddressSanitizer and UBSan:
+AddressSanitizer and UBSan. forge_lvgl's `pager.c` builds against a fake of the LVGL calls it makes
+(`tests/host/lvfake/lvgl.h`, implemented in `test_pager.c`: objects, flags, a scroll range that skips hidden
+children); a new LVGL call in pager.c needs a line there.
 
 ```bash
 wsl make -C tests/host      # IDF_PATH defaults to /mnt/c/Espressif/esp-idf (for cJSON)
