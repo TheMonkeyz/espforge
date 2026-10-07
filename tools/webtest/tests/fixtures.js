@@ -1,7 +1,8 @@
 // Shared test setup: fresh mock state, no internet (the page must not need it: on the setup network there is none),
 // page errors collected, a screenshot of each test in shots/.
 // The page's contract (main/web/index.html): element ids #wifi-list #wifi-ssid #wifi-pass #wifi-save #lang
-// #update-state #update-check #update-install #update-channel #update-notes #msg #version; texts through t(key) and
+// #update-state #update-check #update-install #update-channel #update-notes #msg #version, screen dimming's #scr-state
+// #scr-level #scr-en #scr-dim #scr-off #scr-bright #scr-dimpct #scr-motion #scr-save #scr-cal; texts through t(key) and
 // I18N = {en: {...}, fr: {...}}, elements with data-i18n="key"; the key from location.hash "#k=<key>", kept in
 // sessionStorage.
 const base = require('@playwright/test');

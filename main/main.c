@@ -12,11 +12,14 @@
 #include "esp_heap_caps.h"
 #include "cJSON.h"
 #include "board.h"
+#include "board_audio.h"
+#include "imu.h"
 #include "diag.h"
 #include "testcon.h"
 #include "net.h"
 #include "web.h"
 #include "ota.h"
+#include "presence.h"
 #include "app_text.h"
 #include "ui.h"
 
@@ -62,6 +65,20 @@ static esp_err_t settings_post(httpd_req_t *req)
     if (!ok) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad settings");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
+
+// Screen dimming (forge_presence) on this board's microphones, motion sensor and touch
+static bool mic_open(void) { return board_mic_open(30); }        // 30 dB: a room's background noise
+static bool accel_open(void) { return imu_init(board_i2c_bus()); }
+static void set_brightness(int pct)
+{
+    display_lock(-1);
+    display_brightness((uint8_t)(pct * 255 / 100));
+    display_unlock();
+}
+static const presence_hooks_t presence_hooks = {
+    .mic_open = mic_open, .mic_read = board_mic_read, .accel_open = accel_open, .accel_read = imu_read,
+    .touch_idle_ms = touch_idle_ms, .set_brightness = set_brightness,
+};
 
 static const web_route_t app_routes[] = {
     { "/api/settings", HTTP_POST, settings_post, .keyed = true },
@@ -128,6 +145,9 @@ void app_main(void)
     diag_mark("board");
     web_set_page(page_start, page_end);
     web_add_routes(app_routes, sizeof(app_routes) / sizeof(app_routes[0]));
+    presence_start(&presence_hooks);    // dims, then turns off, the screen in a quiet room (console: presence, wake)
+    presence_web_routes();
+    touch_set_press_filter(presence_touch);   // a touch on a dark screen only wakes it
     ota_start(ui_ota);          // logs "ota: Running ..."; checks once Wi-Fi is up; confirms a new image after 60 s
     ui_init();
     testcon_start();            // ready before Wi-Fi, so start-up itself can be tested
