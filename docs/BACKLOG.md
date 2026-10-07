@@ -38,6 +38,11 @@ reason it stays in the app.
 - [ ] 2026-10-07, esp32-s3-rtcquebec v0.2.0: the harness's navigation test hard-coded the starter's two pages; the
   app's version reads the pages from the device (`/api/favs`) and swipes through all of them (`pages()` in
   `tools/harness/app_suites.py`): a pattern for apps whose page count varies.
+- [ ] 2026-10-07, espforge PR #6 (the other way: espforge → weather_amoled): the PowerShell helpers restart through
+  the test console with the port open (`monitor.ps1 -Reboot`, exit 3 = esptool instead; the COM port found by VID
+  303A in `flash_helper.ps1`), so a restart's boot log is whole from `ESP-ROM:` (L191). weather_amoled's
+  `monitor.ps1` / `flash_helper.ps1` (repository root) still use esptool's reset and lose the first ~2.5 s (L154);
+  its Python `tools/flash_helper.py` already does it (22f76f1). Twins: port, then prove on COM5 (`flash QIO`).
 
 ## Emulator (web/emu)
 
