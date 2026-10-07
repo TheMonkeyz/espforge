@@ -52,7 +52,8 @@ the old one before waiting on it.
 
 **L6. The flash helper picks up changes to its own script only after a restart.**
 Why: an edited `flash_helper.ps1` kept running the old code; `monitor.ps1` is reloaded on every run.
-Check: after editing the helper, ask the user to close and restart `start_flash_helper.bat`.
+Check: after editing the helper, restart it: stop Claude's background helper task and start it again (or ask the
+user to close and restart `start_flash_helper.bat` if they run it in a window).
 
 **L7. Anything cached about the board is reset after a flash or an install.**
 Why: v1.12.0-rc.3: a cached "no key" from the firmware before a flash made the harness skip its key-protected
@@ -239,7 +240,8 @@ Check: "Now, for the next 60 s: swipe left twice, then long-press the centre."
 
 **L43. Never take over the user's screen; prefer the flash helper.**
 Why: the user's rule from the first day.
-Check: no computer-use or terminal typing without asking first.
+Check: no computer-use or terminal typing without asking first. Start the flash helper windowless in the
+background (`run_in_background`), not with `start_flash_helper.bat`, which opens a window (user, 2026-10-06).
 
 **L44. Relay `>>> ASK THE USER` from the harness at once.**
 Why: steps like the Easy Connect phone scan have a time limit.

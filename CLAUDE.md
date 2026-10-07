@@ -66,7 +66,10 @@ app code (forge_lvgl and the board are not used there).
   (Node in `C:\Program Files\nodejs`).
 - **Two ways to work:**
   1. **Claude Code on the PC** (preferred): builds, `idf.py`, the harness and `gh` run directly. The flash helper
-     still owns the COM port while it is logging; the harness talks to it.
+     still owns the COM port while it is logging; the harness talks to it. **Claude starts the helper itself, in the
+     background** (`run_in_background`: `powershell -NoProfile -ExecutionPolicy Bypass -File tools\devloop\flash_helper.ps1`), so no window
+     opens on the user's screen (user's rule, 2026-10-06, as weather_amoled does); restart it the same way after
+     editing `flash_helper.ps1` (L6). `start_flash_helper.bat` (a window) only when the user asks for one.
   2. **Claude desktop app / cloud**: builds run in a cloud container, the shell has **no USB** and can't type into
      Windows terminals. The user starts `tools\devloop\start_flash_helper.bat` once; Claude stages the parts, runs
      `python tools/devloop/devloop.py flash 120` (or writes `.devloop/flash.request`), waits for

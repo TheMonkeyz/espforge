@@ -57,7 +57,10 @@ Pick the names once; they are hard to change later:
 
 ## 4. First build, first release
 
-1. `idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build`; flash with the helper; check `ota: Running` and that
+1. Copy `tools\esptool.exe` from espforge's checkout (git-ignored, so a fresh clone lacks it; without it the helper
+   runs `python -m esptool` with whatever `python` is first on the PATH, and the Microsoft Store one has no esptool).
+   `idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build`; flash with the helper (Claude starts it in the
+   background); check `ota: Running` and that
    the setup network has the new name.
 2. `python tools/harness/harness.py` (after resetting the baseline, with `--update-baseline`).
 3. Commit, push `main`: CI builds (no release).
