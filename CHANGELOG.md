@@ -8,10 +8,6 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
-## Unreleased (next: v0.3.0)
-- No board at hand? The installer page offers "Try it in your browser": the display's own screens and its settings page, running in your browser. Swipe, press and hold, change the language on the settings page and watch the screen follow.
-- For app developers: every app made from espforge gets the same "Try it" page, built from its own screens by the site's publishing (web/emu).
-
 ## v0.2.1 - 2026-10-06
 - Map tiles and pictures saved with few colours are shown: such a map tile appeared as a dark square, and its map was downloaded again at every start.
 
