@@ -12,6 +12,9 @@
 # released. Beta is offered only while the highest pre-release version is above the highest stable one (compared as
 # the firmware does, not by publish date).
 #
+# Every push also builds the display in the browser (job "emulator", web/emu, from the latest stable release); the
+# site publishes it as try/ ("Try it in your browser"), or goes out without it if that build failed.
+#
 # Every push also runs the board-free tests (the settings page in Playwright against the mock device, the host unit
 # tests of the C code, the harness's own unit tests); a release needs them to pass. Actions are pinned to commit SHAs
 # (the comment says which tag) and Dependabot proposes updates (.github/dependabot.yml); esptool is pinned too.
@@ -141,6 +144,64 @@ jobs:
       - name: Harness unit tests
         run: python3 tools/harness/test_harness.py
 
+  emulator:
+    # The display in the browser (web/emu): LVGL and the app's screens built to WebAssembly, for the site's try/.
+    # From the latest stable release (the tag itself when one is pushed), so "Try it" runs the stable firmware; a stable
+    # release older than the emulator has no web/emu, and then this commit is built (said in the log). Not needed by a
+    # release: if it fails, the site is published without "Try it".
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0            # tags
+      - name: Which firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* && "$GITHUB_REF_NAME" != *-* ]]; then ref="$GITHUB_REF_NAME"
+          else ref=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName'); fi
+          if [ -n "$ref" ] && git cat-file -e "$ref:web/emu/Makefile" 2>/dev/null; then
+            git checkout -q "$ref"; echo "Emulator of $ref"
+          else
+            echo "::notice::${ref:-no stable release} has no emulator (web/emu): built from $(git describe --tags --always)"
+          fi
+      - name: LVGL and cJSON (the versions the firmware uses)
+        run: |
+          lv=$(sed -nE 's#^ *lvgl/lvgl: *"?([0-9.]+)"?.*#\1#p' main/idf_component.yml)
+          echo "LVGL $lv"
+          git clone -q --depth 1 --branch "v$lv" https://github.com/lvgl/lvgl.git lvgl
+          mkdir -p cjson
+          curl -fsSL -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/v1.7.19/cJSON.c
+          curl -fsSL -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/v1.7.19/cJSON.h
+      - name: Emscripten 6.0.11 (the version the emulator was tested with)
+        run: |
+          git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          "$HOME/emsdk/emsdk" install 6.0.11 && "$HOME/emsdk/emsdk" activate 6.0.11
+      - name: Build
+        run: |
+          source "$HOME/emsdk/emsdk_env.sh"
+          make -C web/emu -j4 LVGL="$PWD/lvgl" CJSON="$PWD/cjson"
+          mkdir -p emu && find web/emu/build -maxdepth 1 -type f -exec cp {} emu/ \;   # the page's files, not the objects
+          ls -l emu
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: "22"
+      - name: Smoke test (headless Chromium - it draws, follows a drag and a press, its settings page answers)
+        run: |
+          if [ ! -f web/emu/forge/smoke.js ]; then echo "no smoke test in this release"; exit 0; fi
+          cd tools/webtest && npm ci && npx playwright install --with-deps chromium
+          node ../../web/emu/forge/smoke.js ../../web/emu/build ../../emu-smoke
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        if: always()
+        with:
+          name: emulator-smoke
+          path: emu-smoke/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: emulator
+          path: emu/
+
   release:
     needs: [config, build, webtest, host-tests]
     if: startsWith(github.ref, 'refs/tags/v')
@@ -166,7 +227,7 @@ jobs:
             To keep saved settings, update from the device itself, or flash the separate parts (bootloader, partition table, `${{ needs.config.outputs.app }}-${{ needs.build.outputs.version }}.bin`, `ota_data_initial.bin`) at the offsets listed in `flash-parts.json`.
 
   pages:
-    needs: [config, release]
+    needs: [config, release, emulator]
     # after every release, or by hand from main
     if: always() && needs.config.result == 'success' && (needs.release.result == 'success' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-24.04
@@ -182,6 +243,12 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        if: needs.emulator.result == 'success'      # (no emulator: the site without "Try it")
+        with:
+          name: emulator
+          path: emu
 
       - name: Download the latest stable release and any newer pre-release
         env:
@@ -216,6 +283,7 @@ jobs:
             gh release download "$beta" --dir "rel/beta" --pattern "*.bin" --pattern "flash-parts.json"
             args="$args --beta rel/beta"
           fi
+          if [ -f emu/emu.wasm ]; then args="$args --emu emu"; fi
           python3 tools/make_flasher_site.py site $args --out _site
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5

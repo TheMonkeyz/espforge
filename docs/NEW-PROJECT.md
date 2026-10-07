@@ -40,6 +40,14 @@ Pick the names once; they are hard to change later:
       `--update-baseline`, review `baseline.proposed.json` and copy it over (docs/TESTING.md §5).
 - [ ] **`tools/harness/app_suites.py`**: replace the starter's suites with the app's.
 - [ ] **`main/i18n_strings.h`** and **`I18N` in `main/web/index.html`**: the app's texts, every language.
+- [ ] **`web/emu/`** (the display in the browser, the site's *Try it*; [web/emu/README.md](../web/emu/README.md)):
+      `Makefile` lists the app's `main/` sources (`APP_SRC`), its emulator files (`APP_EMU`) and embedded files
+      (`EMBED`); `emu_main.c` adds what a first visitor should see (demo data, `?parameters`) before
+      `emu_start_app_main()`; `index.html` gets the app's name and words. After the first firmware build,
+      `make -C web/emu config` regenerates `lv_kconfig.h` and `sdkconfig.h` (the new names); commit them. Each new
+      embedded file read by the code gets the `#ifdef EMU_BUILD` `ui.c` has for the font. Hardware the board doesn't
+      have in the template (speaker, microphones, motion sensor, a flash partition) gets a stand-in in `web/emu`
+      (weather_amoled's `emu_audio.c`, `emu_imu.c`, `emu_partition.c` are examples). `web/emu/forge/` stays as is.
 - [ ] **`CLAUDE.md`**: fill "Working setup" for this PC and board; leave "Bugs hit", "User preferences learned" and
       "Useful facts" to grow.
 - [ ] **`docs/`**: copy `docs/templates/HISTORY.md` and `ARCHITECTURE.md` to `docs/` and start them;

@@ -15,8 +15,9 @@ Two steps, used by CI (.github/workflows/firmware.yml) and for local previews:
         (docs/PROTOCOL.md §5), notes.json, the release notes from CHANGELOG.md, which the display shows before
         installing an update (and the page shows for the selected version), and site.json ({app, repo} from
         forge.json) for the page's title and links. fonts/ gets main/montserrat.ttf and its license when the
-        project has them (optional). With --emu <dir>, try/ gets a browser build of the firmware (index.html,
-        emu.js, emu.wasm) and channels.json says so ("try"): the page links to it.
+        project has them (optional). With --emu <dir>, try/ gets a browser build of the firmware (web/emu/build's
+        files: index.html, emu.js, emu.wasm, emu-page.js, and the settings page with emu-settings.js; not its
+        folders) and channels.json says so ("try"): the page links to it.
 
 The images stay separate parts on purpose: a single merged image would also overwrite the NVS
 partition (Wi-Fi credentials, settings, the TLS certificate) with 0xFF on every update.
@@ -181,8 +182,12 @@ def cmd_site(a):
         channels["beta"] = add_channel(a.out, "beta", a.beta)
     if a.emu:                                                      # the firmware in the browser (optional)
         os.makedirs(os.path.join(a.out, "try"), exist_ok=True)
-        for name in ("index.html", "emu.js", "emu.wasm"):
-            shutil.copy2(os.path.join(a.emu, name), os.path.join(a.out, "try", name))
+        for name in ("index.html", "emu.js", "emu.wasm"):                # (required)
+            if not os.path.isfile(os.path.join(a.emu, name)):
+                sys.exit(f"site: --emu {a.emu} has no {name}")
+        for name in sorted(os.listdir(a.emu)):                           # its files, not the object folders
+            if os.path.isfile(os.path.join(a.emu, name)):
+                shutil.copy2(os.path.join(a.emu, name), os.path.join(a.out, "try", name))
         channels["try"] = "try/"
         print(f"  try/: the firmware in the browser ({os.path.getsize(os.path.join(a.emu, 'emu.wasm')) // 1024} KB)")
     with open(os.path.join(a.out, "channels.json"), "w") as f:
@@ -205,7 +210,7 @@ s = sub.add_parser("site", help="web flasher from release folders")
 s.add_argument("--stable", default=None, help="folder with flash-parts.json (a dist folder or a downloaded release); none before the first stable release")
 s.add_argument("--beta", default=None, help="same, for the beta channel (optional)")
 s.add_argument("--out", default=os.path.join(ROOT, "_site"))
-s.add_argument("--emu", default=None, help="a browser build of the firmware, published as try/ (optional)")
+s.add_argument("--emu", default=None, help="web/emu/build: a browser build of the firmware, published as try/ (optional)")
 s.add_argument("--changelog", default=os.path.join(ROOT, "CHANGELOG.md"), help="release notes source")
 a = ap.parse_args()
 {"dist": cmd_dist, "site": cmd_site}[a.cmd](a)
