@@ -59,7 +59,7 @@ idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build
 Flash through the helper (it owns the COM port and keeps a log window open while the agent acts):
 
 ```powershell
-tools\devloop\start_flash_helper.bat            # once, in its own window
+tools\devloop\start_flash_helper.bat            # once, in its own window (Claude Code runs flash_helper.ps1 in the background instead)
 python tools\devloop\stage.py                   # copy the parts under unique names, check md5
 python tools\devloop\devloop.py flash 120       # flash, then log 120 s to .devloop\serial_log.txt
 ```

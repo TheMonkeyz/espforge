@@ -32,12 +32,15 @@ idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build
 
 ## 2. Flash and log (devloop)
 
-The flash helper (`tools/devloop/`) runs in a window on the PC, owns the COM port, and talks through files in
-`.devloop/` (PROTOCOL.md §1). The user starts `tools\devloop\start_flash_helper.bat` once (restart it after editing
-`flash_helper.ps1`; `monitor.ps1` is reloaded on every run). On macOS / Linux the same files are served by
-`python tools/devloop/flash_helper.py` in its own terminal, from an ESP-IDF shell (docs/MACOS.md). A restart request
-goes through the test console's `reboot`, so its log is whole from `ESP-ROM:` on (L191); after a flash the first
-~2.5 s are still lost (L154).
+The flash helper (`tools/devloop/`) runs on the PC, owns the COM port, and talks through files in `.devloop/`
+(PROTOCOL.md §1). Claude Code starts it in the background, windowless, so nothing opens on the user's screen:
+`powershell -NoProfile -ExecutionPolicy Bypass -File tools\devloop\flash_helper.ps1` with `run_in_background` (its output arrives in
+that task; stop the task to stop it). `tools\devloop\start_flash_helper.bat` runs the same helper in a window, for
+a person who wants to watch (Q / Esc stop a log there). Restart it after editing `flash_helper.ps1`; `monitor.ps1`
+is reloaded on every run. On macOS / Linux the same files are served by
+`python tools/devloop/flash_helper.py`, from an ESP-IDF shell (docs/MACOS.md). A restart request goes through the
+test console's `reboot`, so its log is whole from `ESP-ROM:` on (L191); after a flash the first ~2.5 s are still
+lost (L154).
 
 ```bash
 python tools/devloop/stage.py                 # copy the parts in build/v55/flasher_args.json to .devloop/stage/

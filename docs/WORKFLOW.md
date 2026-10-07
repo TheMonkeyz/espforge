@@ -97,7 +97,9 @@ session, then shipped as v1.12.0.
 
 Claude runs in the project folder on the Windows PC: `idf.py`, Python, `gh`, WSL and the board's IP are all reachable.
 The devloop flash helper owns the COM port while logging; the harness and `devloop.py` talk to it through
-`.devloop/` (docs/PROTOCOL.md §1). If the user prefers, Claude may also flash with `idf.py -p COM5 flash` while the
+`.devloop/` (docs/PROTOCOL.md §1). Claude starts the helper itself in the background, windowless
+(`run_in_background`: `powershell -NoProfile -ExecutionPolicy Bypass -File tools\devloop\flash_helper.ps1`): nothing opens on the
+user's screen. If the user prefers, Claude may also flash with `idf.py -p COM5 flash` while the
 helper isn't running; the helper is still the way to keep a log window open while acting on the board.
 
 ### Claude desktop app / cloud (no USB)

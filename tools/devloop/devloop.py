@@ -47,8 +47,9 @@ def write_atomic(name, text):
 def helper_check():
     st = read('flash.status')
     if not st:
-        print('note: no .devloop/flash.status: is the flash helper running (Windows: tools/devloop/'
-              'start_flash_helper.bat; macOS / Linux: python tools/devloop/flash_helper.py)?')
+        print('note: no .devloop/flash.status: is the flash helper running (Windows, in the background: powershell '
+              '-File tools/devloop/flash_helper.ps1, or start_flash_helper.bat; macOS / Linux: python '
+              'tools/devloop/flash_helper.py)?')
     elif st not in ('idle', 'flash_failed'):
         sys.exit(f'the flash helper is busy ({st}): wait, or "devloop.py stop" to end its log window')
 

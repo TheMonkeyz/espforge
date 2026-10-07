@@ -1,9 +1,11 @@
 # Flash helper: owns the board's USB port and talks to the agent through plain files in <repo>\.devloop
-# (docs/PROTOCOL.md section 1). Shows each step live in this window. Close the window to stop it.
+# (docs/PROTOCOL.md section 1). Two ways to run it: in its own window (start_flash_helper.bat; close the window to stop
+# it), or windowless in the background, started by Claude Code with run_in_background so nothing opens on the user's
+# screen (stop it by stopping that task; Q / Esc need a window, use stop.request).
 #   flash.request   (body: log seconds, default 60) flash the parts staged in .devloop\stage, then log the serial port
 #   reboot.request  same without flashing: restart through the test console's `reboot` with the port kept open (the
 #                   boot log is whole), else esptool's hard reset; then log (re-runs the boot diagnostics)
-#   stop.request    end the log window early (or press Q / Esc in this window)
+#   stop.request    end the log window early (or press Q / Esc in the window, when it has one)
 # What to flash comes from <build_dir>\flasher_args.json (ESP-IDF writes it), the chip / baud / port from forge.json.
 # Only staged copies are flashed (tools/devloop/stage.py): each is checked against stage\manifest.json by md5 first,
 # because a rebuilt file pushed to the same path once delivered the previous version.
@@ -26,7 +28,9 @@ $Cfg = Get-Content (Join-Path $Root "forge.json") -Raw | ConvertFrom-Json
 $Dev = Join-Path $Root ".devloop"
 New-Item -ItemType Directory -Force $Dev | Out-Null
 Set-Location $Dev
-$Host.UI.RawUI.WindowTitle = "ESP flash helper - waiting"
+# The window title shows the state; windowless (background) there is no window to title
+function Title($t) { try { $Host.UI.RawUI.WindowTitle = $t } catch {} }
+Title "ESP flash helper - waiting"
 
 function Get-Cfg($name, $default) { if ($null -ne $Cfg.$name -and "$($Cfg.$name)" -ne "") { $Cfg.$name } else { $default } }
 $Chip = Get-Cfg "chip" "esp32s3"
@@ -130,7 +134,7 @@ while ($true) {
   Write-Host ""
   if ($reboot) { Say "=== Reboot request received, no flashing (serial log: $secs s) ===" "Cyan" }
   else { Say "=== Flash request received (serial log: $secs s) ===" "Cyan" }
-  $Host.UI.RawUI.WindowTitle = "ESP flash helper - FLASHING"
+  Title "ESP flash helper - FLASHING"
   Status "flashing"
 
   # ---- restart through the test console (reboot.request) ----
@@ -142,7 +146,7 @@ while ($true) {
     $port = Find-BoardPort
     if ($port) {
       Say "Restarting through the test console on $port (the port stays open: the boot log is kept from its first line)"
-      $Host.UI.RawUI.WindowTitle = "ESP flash helper - logging serial ($secs s)"
+      Title "ESP flash helper - logging serial ($secs s)"
       $monExit = Run-Monitor $port $secs -Reboot
       if ($monExit -ne 3) { $consoleReboot = $true }
       else { Say "No restart through the test console: esptool's hard reset instead" "Yellow"; $monExit = 0 }
@@ -166,7 +170,7 @@ while ($true) {
     Done "exit=3 stage=verify started=$(Get-Date $start -Format s) finished=$(Get-Date -Format s)"
     Remove-Item "flash.running" -Force -ErrorAction SilentlyContinue
     [console]::beep(400, 600)
-    $Host.UI.RawUI.WindowTitle = "ESP flash helper - NOT FLASHED (waiting)"
+    Title "ESP flash helper - NOT FLASHED (waiting)"
     continue
   }
 
@@ -196,7 +200,7 @@ while ($true) {
     Done "exit=$rc port=$port stage=flash started=$(Get-Date $start -Format s) finished=$(Get-Date -Format s)"
     Remove-Item "flash.running" -Force -ErrorAction SilentlyContinue
     [console]::beep(400, 600)
-    $Host.UI.RawUI.WindowTitle = "ESP flash helper - FLASH FAILED (waiting)"
+    Title "ESP flash helper - FLASH FAILED (waiting)"
     continue
   }
   Say "$(if ($reboot) {"REBOOT"} else {"FLASH"}) OK on $port in $flashSecs s - board is restarting" "Green"
@@ -206,7 +210,7 @@ while ($true) {
 
   # ---- serial log ----
   Status "logging"
-  $Host.UI.RawUI.WindowTitle = "ESP flash helper - logging serial ($secs s)"
+  Title "ESP flash helper - logging serial ($secs s)"
   Say "Logging serial output for $secs s (saved to .devloop\serial_log.txt). Press Q or Esc to stop early ..."
   $monExit = Run-Monitor $port $secs
   }   # (not a console restart)
@@ -229,5 +233,5 @@ while ($true) {
   Status "idle"
   Say "=== Done in $total s. Waiting for the next request ===" "Cyan"
   [console]::beep(1200, 120); [console]::beep(1500, 120)
-  $Host.UI.RawUI.WindowTitle = "ESP flash helper - waiting"
+  Title "ESP flash helper - waiting"
 }
