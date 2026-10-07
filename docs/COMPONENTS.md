@@ -98,3 +98,18 @@ A new board: copy the directory, keep the `board.h` API, change pins, panel init
 | `ui.c` | Screens `hello`, `system` (pager), `setup` (setup network / Easy Connect), `message`; registry for the console and snapshots. |
 | `app_text.h/.c`, `i18n_strings.h` | The texts, English and Québec French. |
 | `web/index.html` | Settings page: Wi-Fi, language, updates; `I18N` + `t()`. Tested by `tools/webtest`. |
+
+## The display in the browser (web/emu)
+
+Not a firmware component: the app's `main/` sources and the components above (forge_lvgl, forge_core's i18n and
+textfit, forge_net's svc.c, forge_ota's ota_web.c) built to WebAssembly with Emscripten, the board and ESP-IDF
+replaced by the framework's stand-ins in `web/emu/forge/` (display, touch, HTTP client, NVS in localStorage, tasks
+as fibers, local time, the web server for the settings page, stubs for Wi-Fi, updates, diagnostics and the test
+console). `main.c`'s `app_main()` runs unchanged, its Wi-Fi already joined. The app supplies `web/emu/Makefile`
+(its sources, its embedded font), `emu_main.c` (`main()`: demo data, then `emu_start_app_main(); emu_loop();`) and
+`index.html` (the page's words); `ui.c` has one `#ifdef EMU_BUILD` for its font. Audio, motion sensor or flash
+partitions an app uses are its own stand-ins in `web/emu`. Design, build and what an app adds:
+[web/emu/README.md](../web/emu/README.md). Published by CI on the flasher site as `try/`.
+
+Keep components buildable there: a call to the radio, the flash or a driver belongs behind the component's own
+functions (stubbed in `forge/emu_stubs.c`), not in code the screens run.

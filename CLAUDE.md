@@ -58,7 +58,9 @@ app code (forge_lvgl and the board are not used there).
 - **Still twins** (same code in both, not shared): forge_lvgl's `lvgl_mem.c` and `pager.c`, the board's `display.c`,
   `touch.c`, `imu.c`, the harness's `board.py` / `harness.py` and the flash helper (espforge's
   `tools/devloop/flash_helper.py` is weather_amoled's `tools/flash_helper.py` with `.devloop/` and forge.json; the
-  PowerShell helpers restart through the console too since October 6). A fix in one gets ported, or a
+  PowerShell helpers restart through the console too since October 6). The browser emulator: its
+  `web/emu/emu_*.c` are the originals of espforge's `web/emu/forge/` (generic since October 7; weather_amoled
+  still has its own copy, with its audio, motion and partition stand-ins). A fix in one gets ported, or a
   task for the other. Its `slide.c` is the larger original: port ideas, not the file.
 
 ## Working setup (this PC)
@@ -69,6 +71,10 @@ app code (forge_lvgl and the board are not used there).
   `idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build`.
 - **GitHub CLI** signed in as TheMonkeyz; not on the PATH of older shells: Git Bash
   `"/c/Program Files/GitHub CLI/gh.exe"`, PowerShell `& "C:\Program Files\GitHub CLI\gh.exe"`.
+- **Browser emulator** (`web/emu`): Emscripten 6.0.11 in WSL at `~/emsdk`;
+  `wsl bash -lc 'source ~/emsdk/emsdk_env.sh && make -C /mnt/c/<checkout>/web/emu -j8'` (LVGL from
+  `managed_components` after an idf.py build; ~1 min from scratch, 5 s with nothing to do), then
+  `node web/emu/forge/smoke.js`.
 - **Host tests** run in WSL (Ubuntu): `wsl make -C tests/host`. **Harness + flash helper unit tests** need pyserial:
   `~/.espressif/python_env/idf5.5_py3.12_env/Scripts/python.exe -m unittest discover -s tools/harness -p "test_*.py"`
   (plain Python skips the helper's). **Settings page tests**: `cd tools/webtest && npm test`

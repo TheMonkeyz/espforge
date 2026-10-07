@@ -20,6 +20,9 @@ the display's setup network or Easy Connect (press and hold the screen). Later v
 offers them on its system screen and on its settings page. Release notes: [CHANGELOG.md](CHANGELOG.md); all builds:
 [Releases](https://github.com/TheMonkeyz/espforge/releases).
 
+No board at hand? The flasher page links to **Try it in your browser**: the starter app's own screens and settings
+page compiled to WebAssembly ([web/emu](web/emu/README.md)).
+
 ## The loop
 
 ```
@@ -98,6 +101,9 @@ tools/snapshot.py               a screen rendered off-display, saved as PNG
 tools/diag_summary.py           summary of the diag: lines in a log
 tools/make_flasher_site.py      release parts (dist) and the Pages flasher/OTA site (site)
 tools/webtest/                  Playwright tests of the settings page against a mock device
+web/flash/                      the web flasher page (the Pages site's index.html)
+web/emu/                        the display in the browser (WebAssembly): the app's list, emu_main.c, its page
+web/emu/forge/                  ...and the framework's stand-ins for the board and ESP-IDF (any app, unchanged)
 tests/host/                     C unit tests with gcc + AddressSanitizer (WSL / Linux)
 docs/                           workflow, testing, releasing, lessons, protocol, components, templates
 .claude/                        Claude Code permissions and skills
