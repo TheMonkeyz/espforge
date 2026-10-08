@@ -1,14 +1,18 @@
 // Smoke test of the display in the browser (README.md): serves web/emu/build, opens it in headless Chromium and
 // checks, with real mouse events, that it starts, draws, follows a drag and a press and hold, and that its settings
 // page talks to it (a language change on the page changes the screen). Any page or console error fails it.
-//   node web/emu/forge/smoke.js [build dir] [screenshots dir]      (Playwright from tools/webtest: npm ci there)
+//   node web/emu/forge/smoke.js [build dir] [screenshots dir]      (Playwright from tools/webtest: npm ci there;
+//   from an app's .espforge copy: cd tools/webtest && node ../../.espforge/web/emu/forge/smoke.js ../../web/emu/build)
 // Screenshots of the screen at each step: web/emu/build/smoke/ by default. Exit code 0 = passed.
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..', '..', '..');
-const { chromium } = require(require.resolve('playwright', { paths: [path.join(root, 'tools', 'webtest')] }));
+// Playwright from this repository's tools/webtest, else from where it is run: an app that takes espforge at a tag runs
+// this file from its .espforge copy, which has no node_modules (esp32-s3-rtcquebec: cd tools/webtest first)
+const { chromium } = require(require.resolve('playwright',
+  { paths: [path.join(root, 'tools', 'webtest'), process.cwd()] }));
 const dir = path.resolve(process.argv[2] || path.join(__dirname, '..', 'build'));
 const shots = path.resolve(process.argv[3] || path.join(dir, 'smoke'));
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.ttf': 'font/ttf' };
