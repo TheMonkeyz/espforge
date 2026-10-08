@@ -90,6 +90,17 @@ reason it stays in the app.
   instead of copies (as weather_amoled and now esp32-s3-rtcquebec): `tools/fetch_forge.py`, the Makefiles'
   `FORGE ?=` (managed_components, else `.espforge`), emu.mk's `FORGE_EMU`/`COMP`/`BOARD` pointed at the clone. Say
   so in docs/NEW-PROJECT.md (a section "Later: the framework at a tag") and ship `tools/fetch_forge.py` here.
+  **→** esp32-s3-rtcquebec moved (its PR #1, v0.3.1-rc.1: 20/20 on COM5); espforge's side: `gen_config.py` reads
+  espforge's own Kconfig (v0.3.0-rc.1), `smoke.js` finds Playwright from the current directory (PR #16). Still to
+  do here: NEW-PROJECT's section and `tools/fetch_forge.py` in the template.
+- [ ] 2026-10-07, espforge v0.3.0-rc.1 (harness on COM5): `perf.page_swipes` runs right after
+  `navigation.setup_pages_slide`, whose Easy Connect page leaves the home network: the first swipe can land while
+  Wi-Fi rejoins (46 fps and a 146 ms gap once, a console reply lost once; clean on re-runs). Wait for `net:
+  Connected` (or `wifi status`) before the perf suite measures.
+- [ ] 2026-10-07, espforge v0.3.0-rc.1: internal RAM since forge_presence: free 125 -> 111 KB, largest block 47-55 ->
+  36-41 KB (floor 40), most likely I2S0's DMA buffers both ways (4 x 320 frames each, internal) and the presence
+  task's stack. To measure (a build without presence_start), then: open TX only when an app plays sound, or fewer
+  DMA frames for the microphones. Before the stable v0.3.0.
 
 ## Emulator (web/emu)
 
