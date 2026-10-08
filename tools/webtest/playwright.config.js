@@ -5,16 +5,13 @@ const { defineConfig, devices } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: './tests',
-  workers: 1,                                   // one mock server, shared state
+  // One mock display per worker, on its own port (fixtures.js starts it): tests in different workers never share
+  // its state. 1 worker took ~45 s for the 33 tests, 4 take ~15 s.
+  workers: process.env.WEBTEST_WORKERS ? Number(process.env.WEBTEST_WORKERS) : 4,
+  fullyParallel: true,
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:8099',
     ...devices['Pixel 7'],                       // the page is used on a phone
     browserName: 'chromium',
-  },
-  webServer: {
-    command: 'node mock-server.js 8099',
-    url: 'http://localhost:8099/api/info',
-    reuseExistingServer: true,
   },
 });

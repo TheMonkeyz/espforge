@@ -8,10 +8,29 @@
 const base = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+const { spawn } = require('child_process');
 
 const KEY = process.env.MOCK_KEY || '0123456789abcdef';   // the same as mock-server.js
 
+// Each worker's own mock display (mock-server.js) on port 8100 + its index: parallel workers never share its state.
+// 127.0.0.1, not localhost: Node may resolve localhost to ::1 while the mock listens on IPv4 (ECONNREFUSED ::1).
+const up = url => new Promise(done => http.get(url, r => { r.resume(); done(r.statusCode === 200); })
+  .on('error', () => done(false)));
+
 exports.test = base.test.extend({
+  mockPort: [async ({}, use, workerInfo) => {
+    const port = 8100 + workerInfo.parallelIndex;
+    const mock = spawn(process.execPath, [path.join(__dirname, '..', 'mock-server.js'), String(port)], { stdio: 'ignore' });
+    const until = Date.now() + 10000;
+    while (!(await up(`http://127.0.0.1:${port}/api/info`))) {
+      if (Date.now() > until) throw new Error(`mock-server.js didn't answer on port ${port}`);
+      await new Promise(r => setTimeout(r, 100));
+    }
+    await use(port);
+    mock.kill();
+  }, { scope: 'worker' }],
+  baseURL: async ({ mockPort }, use) => use(`http://127.0.0.1:${mockPort}`),
   page: async ({ page, request }, use, testInfo) => {
     await request.post('/__reset');
     const errors = [];
@@ -19,7 +38,7 @@ exports.test = base.test.extend({
     // (a 401 is the display refusing a change without its key: the page handles it, the browser still logs it)
     page.on('console', m => { if (m.type() === 'error' && !/status of 40[01]/.test(m.text())) errors.push(m.text()); });
     page.on('dialog', d => d.accept());           // confirm() before an install or a Wi-Fi change: yes
-    await page.route(/^https?:\/\/(?!localhost)/, r => r.abort('internetdisconnected'));
+    await page.route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, r => r.abort('internetdisconnected'));
     await use(page);
     fs.mkdirSync(path.join(__dirname, '..', 'shots'), { recursive: true });
     await page.screenshot({ path: path.join(__dirname, '..', 'shots', testInfo.title.replace(/[^a-z0-9]+/gi, '_') + '.png'),

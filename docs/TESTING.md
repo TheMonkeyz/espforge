@@ -106,6 +106,7 @@ One command tests the board end to end. Needs the flash helper running and firmw
 ```bash
 python tools/harness/harness.py                                  # all suites on the firmware on the board
 python tools/harness/harness.py --flash                          # stage the build in forge.json build_dir, flash, test
+python tools/harness/harness.py --flash --quick                  # iterating: no idle minute, setup network, Playwright
 python tools/harness/harness.py --flash build/debug              # another build folder
 python tools/harness/harness.py boot web                         # some suites (or --suite boot,web)
 python tools/harness/harness.py wifi_setup --phone               # + Easy Connect with a real phone (asks the user)
@@ -203,6 +204,10 @@ npm test
 - Any page error or console error fails a test. Every test saves a screenshot in `tools/webtest/shots/`: look at them
   before flashing a page change.
 - Don't name a fixture option `offline` (L152).
+- **4 workers, one mock display each** (`fixtures.js` starts `mock-server.js` on port 8100 + the worker's index, at
+  127.0.0.1): ~15 s for the suite instead of ~45 with one shared mock. `WEBTEST_WORKERS=1 npm test` to debug one at a
+  time. A test may rely only on its own worker's mock (`POST /__reset` before each test). The harness starts the suite
+  in the background when a run begins (it needs no board) and collects it at `web.settings_page_tests`.
 
 ## 7b. The display in the browser (`web/emu/`)
 

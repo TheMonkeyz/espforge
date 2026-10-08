@@ -32,6 +32,7 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]   # a docs-only pull request builds nothing; main and tags always do
   workflow_dispatch:
 
 permissions:
