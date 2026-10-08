@@ -8,6 +8,13 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.3.0-rc.1 - 2026-10-07
+- The screen dims, then turns off, when the room stays quiet, and lights up again for voices, a touch, or when the display is picked up (settings page: Screen). The touch that wakes a dark screen does nothing else.
+- Measuring the background noise can no longer go wrong when someone talks during it: the page says the room wasn't quiet enough and keeps the previous level.
+- No board at hand? The installer page offers "Try it in your browser": the display's own screens and its settings page, running in your browser. Swipe, press and hold, change the language on the settings page and watch the screen follow.
+- For app developers: screen dimming as a component (forge_presence) and the board's microphones; pages shown or hidden and reordered (pager_set_count, pager_set_order); a tap right after a swipe can be told apart (slide_tap_ok); a press the app swallows (touch_set_press_filter); every app gets the "Try it" page (web/emu).
+- For app developers: the flash helper runs on macOS and Linux too, and a restart keeps the whole start-up log.
+
 ## v0.2.1 - 2026-10-06
 - Map tiles and pictures saved with few colours are shown: such a map tile appeared as a dark square, and its map was downloaded again at every start.
 
