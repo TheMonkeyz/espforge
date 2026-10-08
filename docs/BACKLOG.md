@@ -27,14 +27,16 @@ reason it stays in the app.
   swallow the click) so every app gets it.
   **→** `slide_tap_ok()` in forge_lvgl, PR #12 (no automatic swallowing: a tap can be wanted); esp32-s3-rtcquebec's
   `stop_tapped` takes it when it moves onto espforge's components, its harness `quick_swipes` the proof.
-- [ ] 2026-10-07, esp32-s3-rtcquebec v0.2.1: a street-map module: OpenStreetMap tiles around a place at zoom z,
+- [x] v0.4.0-rc.1 (phase 1), 2026-10-07, esp32-s3-rtcquebec v0.2.1: a street-map module: OpenStreetMap tiles around a place at zoom z,
   dimmed for the AMOLED, decoded a row at a time (`png_rows`), kept in PSRAM by zoom (`main/map.c`, `main/geo.c`
   with a host test). weather_amoled's radar.c does the same with a flash cache: a shared `forge_map` component
   would serve both (and the next app with a map).
   **→** Later (user, 2026-10-07): a plan first, after forge_presence. PR #20 (phase 1): `components/forge_map`
   (`forge_geo.h` + `forge_map.h`: the map task with PSRAM slots, `fmap_render` for another task, URL templates,
   host test `tests/host/test_map.c`); no flash cache yet (phase 2: weather_amoled's MAP7 layout). Then
-  esp32-s3-rtcquebec moves its map.c/geo.c onto it, and weather_amoled's radar.c its tile code.
+  esp32-s3-rtcquebec moves its map.c/geo.c onto it, and weather_amoled's radar.c its tile code. In v0.4.0-rc.1, with
+  the emulator's `USE_MAP := 1` (PR #22); esp32-s3-rtcquebec's map on it (its v0.4.0-rc.1). Still to do: phase 2 (the
+  flash cache) when weather_amoled's radar.c moves.
 - [x] v0.3.0-rc.1, 2026-10-07, esp32-s3-rtcquebec v0.3.0 (5114f19): screen dimming by sound, ported from weather_amoled's
   presence.c: typed NVS keys instead of its `cfg` blob (a blob that changes size drops the settings on an update), the
   state machine as pure C with a host test (`main/presence_sm.c`, `tests/host/test_presence.c`), touch counted as
@@ -51,13 +53,14 @@ reason it stays in the app.
   DIN 10; esp_codec_dev 1.5.11) set up in the app (`main/presence.c`): move into the board component
   (`board_mic_open()`), keeping I2S TX for the ES8311 speaker.
   **→** PR #14: `board_audio.h` (I2S0 both ways, `board_mic_open/read`, `board_audio_data_if` for a speaker).
-- [ ] 2026-10-07, espforge PR #14 (the other way: espforge → weather_amoled): weather_amoled's presence.c onto
+- [x] weather_amoled v1.15.0-rc.1, 2026-10-07, espforge PR #14 (the other way: espforge → weather_amoled): weather_amoled's presence.c onto
   forge_presence: its `cfg` blob read once into the typed keys (then erased), its speaker (`sound.c`) on
   `board_audio_data_if()`'s twin, its preview brightness and console commands kept in the app, its page for the
   200 + `"ok":false` answers and the `cal` message (en, fr, iu). A plan first (its own board and audio code).
   **→** weather_amoled PR #28 (branch `feat/forge-presence`, for v1.15.0-rc.1): on forge_presence v0.3.0 with hooks
   in its main.c; the blob is imported by the component and kept (not erased: a rollback reads it); preview brightness
   and the console commands are the component's; host test `test_presence_blob.c` pins the old struct's layout.
+  Merged; on COM5 the import read the real blob (every value as v1.14.4 showed it) and v1.15.0-rc.0 passed 22/22.
 - [ ] 2026-10-08, weather_amoled PR #28: `board_audio.c` copied into the app as `main/audio.c` only to use the app's own
   I2C bus (`touch_i2c_bus()` instead of `board_i2c_bus()`) and to open I2S both ways at start. A board-free audio
   helper (the bus as a parameter, e.g. `forge_audio_init(bus, speaker)`) would let an app with its own board code

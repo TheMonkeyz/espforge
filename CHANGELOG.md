@@ -8,6 +8,10 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.4.0-rc.1 - 2026-10-08
+- For app developers: a street map component (forge_map): OpenStreetMap tiles around a place, dimmed for the dark screen, kept in memory by place and zoom so going back downloads nothing; also in the browser emulator (USE_MAP).
+- For app developers: the test tools are faster (the settings page tests in parallel, a quick harness mode for small changes).
+
 ## v0.3.0 - 2026-10-07
 - The screen dims, then turns off, when the room stays quiet, and lights up again for voices, a touch, or when the display is picked up (settings page: Screen). The touch that wakes a dark screen does nothing else.
 - Measuring the background noise can no longer go wrong when someone talks during it: the page says the room wasn't quiet enough and keeps the previous level.
