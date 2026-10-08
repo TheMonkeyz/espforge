@@ -116,6 +116,10 @@ reason it stays in the app.
   DMA frames for the microphones. Before the stable v0.3.0.
   **→** Measured (no presence 128/58 KB, without microphones 123/52, rc.1 112/41) and fixed in v0.3.0-rc.2: the
   speaker's direction only on request (117/46). The rest (~6 KB) is the microphones' own DMA and the codec.
+- [ ] 2026-10-08, espforge v0.4.0 (harness on COM5): `memory.heap_numbers` in an `--ota` run measures right after the
+  update installed (the image confirmed, the update's TLS connection maybe still held): internal_largest_kb 35 there,
+  46 three times on the same firmware at rest and after a restart (36-46 across tonight's runs). Measure memory after
+  the OTA suite's settle, or let `--ota` runs wait for the update's connection to close before the memory suite.
 
 ## Emulator (web/emu)
 
