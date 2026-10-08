@@ -15,6 +15,8 @@ before using a function; the comments there say why things are done the way they
               └──► forge_core ◄──┘
 ```
 
+Not drawn: forge_presence and forge_map, which use forge_core and forge_net only (no LVGL, no board).
+
 ## Start-up order (main/main.c)
 
 1. `net_init()`: NVS (`nvs_init`), Wi-Fi driver, the "NTP" service, the test console's `wifi` command.
@@ -99,6 +101,36 @@ the touch that wakes a dark screen does nothing else.
   test `tests/host/test_presence.c`. The settings page's "Screen" section: `tools/webtest/tests/screen.spec.js`.
   On the board: harness suite `presence` (`dim_off_wake`: dim, off, a long-press on the dark screen only wakes it).
   In the browser: `web/emu/forge/emu_presence.c` stands in for `presence.c` (no microphones there).
+
+## forge_map (street map pictures)
+
+`forge_map.h`: a w x h RGB565 picture of the map around a place at a zoom, built from 256 px PNG tiles
+(OpenStreetMap's by default), desaturated and dimmed for the AMOLED (esp32-s3-rtcquebec's map.c and weather_amoled's
+radar.c, which each had a copy). No LVGL: the app shows `px` as an image. Options in `fmap_opts_t`
+(`fmap_opts_default(&o, w, h)`: OSM, zoom 0..19, 1 retry, half-way to grey then 55 %, 4 slots): the tile URL template
+(`{z}` `{x}` `{y}` replaced, everything else copied as it is, `%` included, L195), the User-Agent (NULL:
+`svc_user_agent()`), the attribution the app shows (`fmap_attribution()`), the service it reports to (`svc.h`), the
+zoom range, retries, dimming, the empty colour, the PSRAM pictures kept, an `updated(user)` callback.
+
+- `fmap_create(&o)` starts the map task (7 KB internal stack, its statics in PSRAM: L185). `fmap_set_center(lat, lon,
+  zoom, &view)` never waits for the network: it returns a kept picture (same zoom and origin: nothing downloaded) or a
+  new one the task fills tile by tile (`updated` after each, then `view.state` READY or FAILED; a failed one is tried
+  again when asked for again). The pictures are kept least recently used first, never the two returned last (an app
+  shows the previous zoom until the new one is complete) nor the one the task is still drawing into; a `px` stays
+  valid until its slot is reused. `fmap_status()` is the last picture now. Log: `fmap: zoom Z at X,Y: ok/total tiles`
+  (`kept`, `cancelled at ...`).
+- `fmap_render(&o, z, ox, oy, dst, w, h, cancel, user, &ok)`: one picture now, in the caller's task and buffer, with its
+  own connection (weather_amoled's alert map, later its radar's base map); `cancel` is asked before each request.
+- Downloads: one keep-alive `esp_http_client` per picture, dropped after a transport error; a 404 isn't retried, a
+  5xx, 429 or transport error is (1 s, then 2 s... later); the body grows in PSRAM from 64 KB to a 256 KB cap (past it: refused) and is freed
+  after each picture; tiles decode a row at a time (`png_rows`, every bit depth OSM sends, L190), pausing every 64 rows.
+- `forge_geo.h`: Web Mercator maths (`geo_world_px`, `geo_origin`, `geo_to_view`, `geo_cover`, `geo_wrap_x`,
+  `geo_distance_m`, `geo_clamp_circle`). x wraps (tile x mod 2^z: a picture across the 180th meridian shows the other
+  side); north and south of the world (85.05 degrees) there are no tiles: not requested, the empty colour stays.
+- Phase 2 (not yet): a flash cache of whole pictures with weather_amoled's "MAP7" layout (see the header's TODO).
+- Host test `tests/host/test_map.c` (geo.c, map_slots.c, map_draw.c against the scripted HTTP client: a real 4-bit OSM
+  tile at a negative offset, 404, retries, a body too big, cancel, the world's edge at zoom 4). Not in the browser
+  emulator yet (nothing there uses it).
 
 ## board (boards/ws_amoled175/board)
 

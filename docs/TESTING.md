@@ -173,7 +173,9 @@ setup network the harness sends `portal windows-quiet` (L117).
 ## 6. Host unit tests (`tests/host/`)
 
 Framework and app C files built with gcc against small shims of the ESP-IDF headers (`tests/host/shim/`) and a scripted
-HTTP client (`fake.c`: each request gets one reply, an HTTP status, a transport error, or "no client"), with
+HTTP client (`fake.c`: each request gets one reply, an HTTP status, a transport error, or "no client"; or a reply
+function per request, from its URL, with a body that may hold NULs, and counts of clients made and cleaned up:
+`test_map.c` serves map tiles that way; `osm_tile.h` is a real OSM tile for such tests), with
 AddressSanitizer and UBSan. forge_lvgl's `pager.c` builds against a fake of the LVGL calls it makes
 (`tests/host/lvfake/lvgl.h`, implemented in `test_pager.c`: objects, flags, a scroll range that skips hidden
 children); a new LVGL call in pager.c needs a line there.
