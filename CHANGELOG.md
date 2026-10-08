@@ -8,6 +8,13 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.3.0 - 2026-10-07
+- The screen dims, then turns off, when the room stays quiet, and lights up again for voices, a touch, or when the display is picked up (settings page: Screen). The touch that wakes a dark screen does nothing else.
+- Measuring the background noise can no longer go wrong when someone talks during it: the page says the room wasn't quiet enough and keeps the previous level.
+- No board at hand? The installer page offers "Try it in your browser": the display's own screens and its settings page, running in your browser. Swipe, press and hold, change the language on the settings page and watch the screen follow.
+- For app developers: screen dimming as a component (forge_presence, with a brightness slider and the settings weather_amoled saved before) and the board's microphones; pages shown or hidden and reordered (pager_set_count, pager_set_order); a tap right after a swipe can be told apart (slide_tap_ok); a press the app swallows (touch_set_press_filter); every app gets the "Try it" page (web/emu).
+- For app developers: the flash helper runs on macOS and Linux too, and a restart keeps the whole start-up log.
+
 ## v0.3.0-rc.2 - 2026-10-07
 - About 5 KB more of the scarcest memory left free: the speaker's half of the sound hardware is opened only by an app that plays sound.
 - For app developers: screen dimming takes a brightness slider (presence_preview_brightness), tells the app when the settings page changed its settings, and reads the settings weather_amoled saved before it used forge_presence.
