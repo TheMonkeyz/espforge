@@ -31,7 +31,10 @@ reason it stays in the app.
   dimmed for the AMOLED, decoded a row at a time (`png_rows`), kept in PSRAM by zoom (`main/map.c`, `main/geo.c`
   with a host test). weather_amoled's radar.c does the same with a flash cache: a shared `forge_map` component
   would serve both (and the next app with a map).
-  **→** Later (user, 2026-10-07): a plan first, after forge_presence.
+  **→** Later (user, 2026-10-07): a plan first, after forge_presence. PR #20 (phase 1): `components/forge_map`
+  (`forge_geo.h` + `forge_map.h`: the map task with PSRAM slots, `fmap_render` for another task, URL templates,
+  host test `tests/host/test_map.c`); no flash cache yet (phase 2: weather_amoled's MAP7 layout). Then
+  esp32-s3-rtcquebec moves its map.c/geo.c onto it, and weather_amoled's radar.c its tile code.
 - [x] v0.3.0-rc.1, 2026-10-07, esp32-s3-rtcquebec v0.3.0 (5114f19): screen dimming by sound, ported from weather_amoled's
   presence.c: typed NVS keys instead of its `cfg` blob (a blob that changes size drops the settings on an update), the
   state machine as pure C with a host test (`main/presence_sm.c`, `tests/host/test_presence.c`), touch counted as
