@@ -131,6 +131,8 @@ the site; if the emulator build or its smoke test fails, the site is published w
   offset from the date (`mktime` of the local fields against the UTC time), as its `rtc_iso_local` does (LESSONS L196).
 - `png_rows.c` (map tiles, pictures) inflates with the ROM's tinfl on the board: an app that adds it
   (`FORGE_CORE += png_rows.c`) gets miniz 3.0.2's tinfl here, downloaded once into `build/miniz`.
+- forge_map (a street map): `USE_MAP := 1` in the app's Makefile builds the whole component (its task, the tiles
+  as `fetch()`: tile servers like OSM's answer cross-origin requests) with `png_rows.c` and miniz.
 - The board's `touch_set_press_filter()` works here too (`emu_touch.c`): a press the app refuses is no press.
 - A hidden tab pauses `requestAnimationFrame` (the canvas updates only when shown) and slows timers.
 - `?lang=fr` in the address starts the starter app in French (`emu_main.c`), as if chosen on the settings page.

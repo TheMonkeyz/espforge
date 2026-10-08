@@ -44,6 +44,12 @@ FORGE_OTA := ota_web.c $(filter-out ota_web.c,$(FORGE_OTA))
 # forge_presence: its pure half and its routes; emu_presence.c stands in for presence.c (no microphones here)
 FORGE_PRESENCE := presence_sm.c presence_json.c presence_web.c \
                   $(filter-out presence_sm.c presence_json.c presence_web.c,$(FORGE_PRESENCE))
+# forge_map, for an app with a street map (USE_MAP := 1 before the include): all of it (its task, downloads as fetch()),
+# with png_rows.c and miniz
+ifneq ($(USE_MAP),)
+FORGE_MAP := geo.c map.c map_draw.c map_slots.c
+FORGE_CORE += $(if $(filter png_rows.c,$(FORGE_CORE)),,png_rows.c)
+endif
 EMU := emu_loop.c emu_display.c emu_touch.c emu_http.c emu_nvs.c emu_stubs.c emu_tasks.c emu_web.c emu_time.c \
        emu_presence.c
 LV_SRC := $(shell find $(LVGL)/src -name '*.c' 2>/dev/null)
@@ -54,7 +60,7 @@ USE_MINIZ := $(filter png_rows.c,$(FORGE_CORE))
 
 CFLAGS := -O2 -DEMU_BUILD '-DEMU_VERSION="$(VERSION)"' '-DEMU_APP="$(APP)"' -I. -I$(FORGE_EMU) -I$(FORGE_EMU)/shim \
           -I$(MAIN) -I$(COMP)/forge_core/include -I$(COMP)/forge_lvgl/include -I$(COMP)/forge_net/include \
-          -I$(COMP)/forge_ota/include -I$(COMP)/forge_presence/include -I$(COMP)/forge_presence -I$(BOARD) -I$(LVGL) -I$(LVGL)/src -I$(CJSON) $(if $(USE_MINIZ),-I$(MINIZ)) \
+          -I$(COMP)/forge_ota/include -I$(COMP)/forge_presence/include -I$(COMP)/forge_presence -I$(COMP)/forge_map/include -I$(BOARD) -I$(LVGL) -I$(LVGL)/src -I$(CJSON) $(if $(USE_MINIZ),-I$(MINIZ)) \
           -include string.h -include stdint.h '-DLV_CONF_KCONFIG_EXTERNAL_INCLUDE="lv_kconfig.h"' \
           -DLV_LVGL_H_INCLUDE_SIMPLE -Wno-unused-parameter $(APP_CFLAGS)
 # Header dependencies of our own files (LVGL and cJSON are fixed versions: tracking their 400 files costs minutes
@@ -70,7 +76,8 @@ LDFLAGS := -sASYNCIFY -sASYNCIFY_STACK_SIZE=65536 -sALLOW_MEMORY_GROWTH -sSTACK_
 OBJ := $(patsubst %.c,$(OUT)/fw/%.o,$(APP_SRC)) $(patsubst %.c,$(OUT)/app/%.o,$(APP_EMU)) \
        $(patsubst %.c,$(OUT)/forge_core/%.o,$(FORGE_CORE)) $(patsubst %.c,$(OUT)/forge_lvgl/%.o,$(FORGE_LVGL)) \
        $(patsubst %.c,$(OUT)/forge_net/%.o,$(FORGE_NET)) $(patsubst %.c,$(OUT)/forge_ota/%.o,$(FORGE_OTA)) \
-       $(patsubst %.c,$(OUT)/forge_presence/%.o,$(FORGE_PRESENCE)) $(patsubst %.c,$(OUT)/emu/%.o,$(EMU)) $(patsubst $(LVGL)/%.c,$(OUT)/lvgl/%.o,$(LV_SRC)) \
+       $(patsubst %.c,$(OUT)/forge_presence/%.o,$(FORGE_PRESENCE)) $(patsubst %.c,$(OUT)/forge_map/%.o,$(FORGE_MAP)) \
+       $(patsubst %.c,$(OUT)/emu/%.o,$(EMU)) $(patsubst $(LVGL)/%.c,$(OUT)/lvgl/%.o,$(LV_SRC)) \
        $(OUT)/cjson/cJSON.o $(if $(EMBED),$(OUT)/emu/embed.o) $(if $(USE_MINIZ),$(OUT)/miniz/miniz.o)
 # The page uses the flasher site's fonts (../fonts/, from main/); served alone, build/ is the site's root: a copy there
 PAGE_FONTS := $(foreach e,$(filter %.ttf,$(EMBED)),$(OUT)/fonts/$(notdir $(word 2,$(subst =, ,$(e)))))
