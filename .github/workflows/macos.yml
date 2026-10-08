@@ -41,7 +41,7 @@ jobs:
           ls -l "$B"/*.bin
 
       - name: Host unit tests (Apple clang, AddressSanitizer)
-        run: make -C tests/host
+        run: make -C tests/host IDF_PATH="$(bash tools/mac/setup.sh --idf-dir)"   # its cJSON (test_presence)
 
       - name: Harness unit tests + flash helper (loopback port, fake board; ESP-IDF's Python)
         run: |
