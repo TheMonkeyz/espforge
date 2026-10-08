@@ -55,6 +55,13 @@ reason it stays in the app.
   forge_presence: its `cfg` blob read once into the typed keys (then erased), its speaker (`sound.c`) on
   `board_audio_data_if()`'s twin, its preview brightness and console commands kept in the app, its page for the
   200 + `"ok":false` answers and the `cal` message (en, fr, iu). A plan first (its own board and audio code).
+  **→** weather_amoled PR #28 (branch `feat/forge-presence`, for v1.15.0-rc.1): on forge_presence v0.3.0 with hooks
+  in its main.c; the blob is imported by the component and kept (not erased: a rollback reads it); preview brightness
+  and the console commands are the component's; host test `test_presence_blob.c` pins the old struct's layout.
+- [ ] 2026-10-08, weather_amoled PR #28: `board_audio.c` copied into the app as `main/audio.c` only to use the app's own
+  I2C bus (`touch_i2c_bus()` instead of `board_i2c_bus()`) and to open I2S both ways at start. A board-free audio
+  helper (the bus as a parameter, e.g. `forge_audio_init(bus, speaker)`) would let an app with its own board code
+  share it.
 
 ## Tools and tests
 
@@ -119,6 +126,9 @@ reason it stays in the app.
 - [x] v0.3.0-rc.1, 2026-10-07, esp32-s3-rtcquebec v0.2.0: Emscripten's `strftime("%z")` ignores TZ too (it wrote local time as
   +00:00): the app computes the offset from the date (`rtc_iso_local`). A lesson for web/emu/README.md.
   **→** PR #12 (web/emu/README.md), PR #13 (LESSONS L196).
+- [ ] 2026-10-08, weather_amoled PR #28: its emulator builds forge_presence's real `presence.c` (not a stand-in like
+  `web/emu/forge/emu_presence.c`) with the app's hooks: it needed only a `testcon_register` / `testcon_add_where` stub
+  and NVS `i16` in the emulator's NVS. espforge's emulator could do the same and drop `emu_presence.c`.
 
 ## Lessons (docs/LESSONS.md)
 
