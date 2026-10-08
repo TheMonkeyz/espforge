@@ -36,7 +36,7 @@ endif
 endif
 
 # The framework's files every app needs, plus the ones the app's Makefile lists before the include
-# (FORGE_CORE += png_rows.c http_once.c ...): with `?=` an app's `+=` replaced the list instead of adding to it
+# (FORGE_CORE += png_rows.c ...): with `?=` an app's `+=` replaced the list instead of adding to it
 FORGE_CORE := i18n.c i18n_nvs.c textfit.c testcon_registry.c $(filter-out i18n.c i18n_nvs.c textfit.c testcon_registry.c,$(FORGE_CORE))
 FORGE_LVGL := forge_lvgl.c pager.c slide.c screens.c $(filter-out forge_lvgl.c pager.c slide.c screens.c,$(FORGE_LVGL))
 FORGE_NET := svc.c $(filter-out svc.c,$(FORGE_NET))
