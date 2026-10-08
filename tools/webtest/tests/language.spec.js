@@ -22,6 +22,9 @@ test('switching to French changes the page and tells the display', async ({ page
   await page.locator('#lang').selectOption('fr');
   await expect.poll(async () => (await state(request)).info.lang).toBe('fr');
   expect((await posts(request, '/api/settings')).map(e => e.body)).toContainEqual({ lang: 'fr' });
+  // The mock saves the language before the page has its answer: "saved" comes after the texts are applied (read
+  // right after the mock's state, on macOS CI the labels were still English)
+  await expect(page.locator('#msg')).toHaveText(I18N.fr.saved);
   const fr = await labels(page);
   for (const { key, text } of fr) expect(text, key).toContain(I18N.fr[key]);
   expect(fr.map(l => l.text)).not.toEqual(en.map(l => l.text));
