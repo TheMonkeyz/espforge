@@ -87,7 +87,11 @@ takes the microphones (`mic_open`, `mic_read`: 100 ms windows of 16 kHz samples)
 the touch that wakes a dark screen does nothing else.
 
 - Settings in NVS namespace `presence`, one typed key each (`enabled margin wake dim off bright dim_pct baseline
-  motion motion_mg`): weather_amoled's `cfg` blob was dropped as unreadable whenever the struct changed size.
+  motion motion_mg`, `enabled` written last): weather_amoled's `cfg` blob was dropped as unreadable whenever the struct
+  changed size. That blob is imported once when no typed keys exist (`presence_cfg_from_blob_v1`) and left in place
+  for a rollback.
+- `presence_preview_brightness(pct)`: a slider being dragged (shown at once, not saved); hook `settings_changed`: the
+  page changed the settings (an app's settings screen redraws).
 - Calibration (a few seconds of quiet): the baseline is the **median** of the levels; a spread over 12 dB (90th - 10th
   percentile: someone spoke) is refused and the old baseline kept (`"cal":"noisy"`). weather_amoled took the 90th
   percentile, and speech set it 30 dB too high: the screen would never have dimmed.
@@ -104,8 +108,10 @@ the longest hold and who held it), `display_brightness()`, `display_get_stats()`
 down: true = LVGL and the read hook see no finger until it lifts; "a touch on a dark screen only wakes it"), and for slide.c `display_raw_frame()` (a frame without
 LVGL, bands filled while the previous one is sent), `touch_get()` / `touch_fresh()` (the chip read at most every
 10 ms) and `touch_forget()`, handed over with `forge_lvgl_set_panel()`. Also `imu.h` (QMI8658 accelerometer) and
-`board_audio.h`: I2S0 in both directions (`board_audio_init`), the ES7210 microphones (`board_mic_open(gain_db)`,
-`board_mic_read`), and the shared data interface for an app's own ES8311 speaker device (`board_audio_data_if`).
+`board_audio.h`: I2S0 (`board_audio_init(speaker)`), the ES7210 microphones (`board_mic_open(gain_db)`,
+`board_mic_read`), and the shared data interface for an app's own ES8311 speaker device (`board_audio_data_if`). The
+speaker's direction is opened only when asked (`board_audio_init(true)` before the microphones): each direction's DMA
+buffers are ~5 KB of internal RAM (measured: the microphones cost 11 KB with both directions, 6 KB without).
 esp_codec_dev 1.5.11 (the board's `idf_component.yml`).
 
 Rules kept in the code (see [LESSONS.md](LESSONS.md), Display and Touch): the SPI interrupt runs on the LVGL core;

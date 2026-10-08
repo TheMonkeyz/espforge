@@ -54,7 +54,7 @@ USE_MINIZ := $(filter png_rows.c,$(FORGE_CORE))
 
 CFLAGS := -O2 -DEMU_BUILD '-DEMU_VERSION="$(VERSION)"' '-DEMU_APP="$(APP)"' -I. -I$(FORGE_EMU) -I$(FORGE_EMU)/shim \
           -I$(MAIN) -I$(COMP)/forge_core/include -I$(COMP)/forge_lvgl/include -I$(COMP)/forge_net/include \
-          -I$(COMP)/forge_ota/include -I$(COMP)/forge_presence/include -I$(BOARD) -I$(LVGL) -I$(LVGL)/src -I$(CJSON) $(if $(USE_MINIZ),-I$(MINIZ)) \
+          -I$(COMP)/forge_ota/include -I$(COMP)/forge_presence/include -I$(COMP)/forge_presence -I$(BOARD) -I$(LVGL) -I$(LVGL)/src -I$(CJSON) $(if $(USE_MINIZ),-I$(MINIZ)) \
           -include string.h -include stdint.h '-DLV_CONF_KCONFIG_EXTERNAL_INCLUDE="lv_kconfig.h"' \
           -DLV_LVGL_H_INCLUDE_SIMPLE -Wno-unused-parameter $(APP_CFLAGS)
 # Header dependencies of our own files (LVGL and cJSON are fixed versions: tracking their 400 files costs minutes

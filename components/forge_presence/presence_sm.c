@@ -3,6 +3,7 @@
 // (esp32-s3-rtcquebec v0.3.0) and a calibration that a voice can't spoil.
 #include "presence.h"
 #include <stdlib.h>
+#include <string.h>
 
 // The limits every setting is held to, whether it comes from the page or NVS (weather_amoled until v1.12.0: a value
 // loaded from NVS skipped them). The dimmed level may be above the full one: it is capped where it is used, so a
@@ -72,4 +73,19 @@ presence_cal_t presence_calib_baseline(float *levels, int n, float *baseline, fl
     if (!(*spread <= PRESENCE_CAL_SPREAD_DB)) return PRESENCE_CAL_NOISY;
     *baseline = n % 2 ? levels[n / 2] : (levels[n / 2 - 1] + levels[n / 2]) / 2;
     return PRESENCE_CAL_OK;
+}
+
+bool presence_cfg_from_blob_v1(const void *blob, size_t n, presence_cfg_t *out)
+{
+    if (!blob || n != 32) return false;
+    const uint8_t *b = blob;
+    float f[4], base;
+    int32_t pct[2];
+    memcpy(f, b + 4, sizeof(f));                         // margin_db, wake_s, dim_s, off_s at 4, 8, 12, 16
+    memcpy(pct, b + 20, sizeof(pct));                    // bright_pct, dim_pct at 20, 24
+    memcpy(&base, b + 28, sizeof(base));
+    *out = (presence_cfg_t){ .enabled = b[0] != 0, .margin_db = f[0], .wake_s = f[1], .dim_s = f[2], .off_s = f[3],
+                             .bright_pct = pct[0], .dim_pct = pct[1], .baseline_db = base };
+    presence_clamp_cfg(out);
+    return true;
 }

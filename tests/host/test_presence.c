@@ -139,5 +139,26 @@ int main(void)
           cJSON_GetObjectItem(j, "dim_s")->valuedouble == 30, "GET's answer");
     cJSON_Delete(j);
 
+    // weather_amoled's old "cfg" blob (32 bytes, little-endian): decoded field by field, clamped; other sizes refused
+    uint8_t blob[32] = {0};
+    float bf[4] = { 12.5f, 2.5f, 777, 200000 };          // margin, wake, dim, off (off over the 24 h limit)
+    int32_t bp[2] = { 63, 9 };
+    float bb = -61.25f;
+    blob[0] = 1;
+    memcpy(blob + 4, bf, sizeof(bf));
+    memcpy(blob + 20, bp, sizeof(bp));
+    memcpy(blob + 28, &bb, sizeof(bb));
+    presence_cfg_t bc;
+    CHECK(presence_cfg_from_blob_v1(blob, 32, &bc), "a 32-byte blob decodes");
+    CHECK(bc.enabled && bc.margin_db == 12.5f && bc.wake_s == 2.5f && bc.dim_s == 777 && bc.off_s == 86400 &&
+          bc.bright_pct == 63 && bc.dim_pct == 9 && bc.baseline_db == -61.25f, "%d %f %f %f %f %d %d %f", bc.enabled,
+          bc.margin_db, bc.wake_s, bc.dim_s, bc.off_s, bc.bright_pct, bc.dim_pct, bc.baseline_db);
+    float nan = NAN;
+    memcpy(blob + 4, &nan, sizeof(nan));
+    blob[0] = 0;
+    CHECK(presence_cfg_from_blob_v1(blob, 32, &bc) && !bc.enabled && bc.margin_db == 1, "NaN clamped: %f", bc.margin_db);
+    CHECK(!presence_cfg_from_blob_v1(blob, 28, &bc) && !presence_cfg_from_blob_v1(blob, 36, &bc) &&
+          !presence_cfg_from_blob_v1(NULL, 32, &bc), "other sizes refused");
+
     return check_done("presence");
 }

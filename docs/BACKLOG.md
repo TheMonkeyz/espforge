@@ -97,10 +97,12 @@ reason it stays in the app.
   `navigation.setup_pages_slide`, whose Easy Connect page leaves the home network: the first swipe can land while
   Wi-Fi rejoins (46 fps and a 146 ms gap once, a console reply lost once; clean on re-runs). Wait for `net:
   Connected` (or `wifi status`) before the perf suite measures.
-- [ ] 2026-10-07, espforge v0.3.0-rc.1: internal RAM since forge_presence: free 125 -> 111 KB, largest block 47-55 ->
+- [x] v0.3.0-rc.2, 2026-10-07, espforge v0.3.0-rc.1: internal RAM since forge_presence: free 125 -> 111 KB, largest block 47-55 ->
   36-41 KB (floor 40), most likely I2S0's DMA buffers both ways (4 x 320 frames each, internal) and the presence
   task's stack. To measure (a build without presence_start), then: open TX only when an app plays sound, or fewer
   DMA frames for the microphones. Before the stable v0.3.0.
+  **→** Measured (no presence 128/58 KB, without microphones 123/52, rc.1 112/41) and fixed in v0.3.0-rc.2: the
+  speaker's direction only on request (117/46). The rest (~6 KB) is the microphones' own DMA and the codec.
 
 ## Emulator (web/emu)
 
