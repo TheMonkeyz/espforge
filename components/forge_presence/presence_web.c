@@ -29,6 +29,7 @@ static esp_err_t presence_post(httpd_req_t *req)
     cJSON_Delete(j);
     bool saved = m.changed ? presence_set_motion(m.on, m.thr) : true;
     saved = presence_set_config(&c) && saved;
+    presence_settings_changed();
     return send(req, saved);
 }
 

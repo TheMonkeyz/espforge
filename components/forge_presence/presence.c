@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "nvs.h"
 #include "testcon.h"
+#include "presence_json.h"
 
 static const char *TAG = "presence";
 
@@ -50,8 +51,28 @@ static volatile float motion_g, motion_show;      // now; recent peak for the se
  *   enabled u8 (0/1) | margin u16 (0.1 dB) | wake u16 (0.1 s) | dim u32 (s) | off u32 (s) | bright u8 (%)
  *   dim_pct u8 (%) | baseline i16 (0.1 dBFS) | motion u8 (0/1) | motion_mg u16 (mg, 20..500) */
 
+static bool save_cfg(void);
+
+// weather_amoled's "cfg" blob (presence_cfg_from_blob_v1) into the typed keys, once: `enabled` is written last, so a
+// power cut midway leaves it missing and the next start imports again. The blob stays (a rollback reads it).
+static void import_blob_v1(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("presence", NVS_READONLY, &h) != ESP_OK) return;
+    uint8_t u8, blob[32];
+    size_t n = sizeof(blob);
+    bool typed = nvs_get_u8(h, "enabled", &u8) == ESP_OK;
+    esp_err_t e = typed ? ESP_ERR_NVS_NOT_FOUND : nvs_get_blob(h, "cfg", blob, &n);
+    nvs_close(h);
+    presence_cfg_t c;
+    if (e != ESP_OK || !presence_cfg_from_blob_v1(blob, n, &c)) return;
+    cfg = c;
+    ESP_LOGI(TAG, "settings imported from the old \"cfg\" blob: %s", save_cfg() ? "saved" : "NOT saved");
+}
+
 static void load_cfg(void)
 {
+    import_blob_v1();
     nvs_handle_t h;
     if (nvs_open("presence", NVS_READONLY, &h) != ESP_OK) return;
     presence_cfg_t c = cfg;
@@ -86,8 +107,7 @@ static bool save_cfg(void)
     presence_get_config(&c);
     nvs_handle_t h;
     if (!nvs_ok(nvs_open("presence", NVS_READWRITE, &h), "open presence")) return false;
-    bool ok = nvs_ok(nvs_set_u8(h, "enabled", c.enabled), "enabled") &&
-              nvs_ok(nvs_set_u16(h, "margin", (uint16_t)lroundf(c.margin_db * 10)), "margin") &&
+    bool ok = nvs_ok(nvs_set_u16(h, "margin", (uint16_t)lroundf(c.margin_db * 10)), "margin") &&
               nvs_ok(nvs_set_u16(h, "wake", (uint16_t)lroundf(c.wake_s * 10)), "wake") &&
               nvs_ok(nvs_set_u32(h, "dim", (uint32_t)lroundf(c.dim_s)), "dim") &&
               nvs_ok(nvs_set_u32(h, "off", (uint32_t)lroundf(c.off_s)), "off") &&
@@ -96,6 +116,7 @@ static bool save_cfg(void)
               nvs_ok(nvs_set_i16(h, "baseline", (int16_t)lroundf(c.baseline_db * 10)), "baseline") &&
               nvs_ok(nvs_set_u8(h, "motion", motion_wake), "motion") &&
               nvs_ok(nvs_set_u16(h, "motion_mg", (uint16_t)lroundf(motion_thr * 1000)), "motion_mg") &&
+              nvs_ok(nvs_set_u8(h, "enabled", c.enabled), "enabled") &&      // last: the import's marker
               nvs_ok(nvs_commit(h), "commit");
     nvs_close(h);
     return ok;
@@ -167,6 +188,25 @@ bool presence_calibrate(int seconds)
     calibrating = true;
     ESP_LOGI(TAG, "calibrating for %d s - keep quiet", seconds);
     return true;
+}
+
+static volatile TickType_t preview_until;          // presence_preview_brightness(): no fade until then
+
+void presence_preview_brightness(int pct)
+{
+    pct = pct < 5 ? 5 : pct > 100 ? 100 : pct;
+    taskENTER_CRITICAL(&mux);
+    cfg.bright_pct = pct;
+    taskEXIT_CRITICAL(&mux);
+    preview_until = xTaskGetTickCount() + pdMS_TO_TICKS(300);
+    presence_wake();
+    if (hk.set_brightness) hk.set_brightness(pct);
+    cur_pct = pct;
+}
+
+void presence_settings_changed(void)
+{
+    if (hk.settings_changed) hk.settings_changed();
 }
 
 void presence_wake(void)
@@ -296,7 +336,8 @@ static void presence_task(void *arg)
             last_state = sm.state;
         }
         int dim = c.dim_pct < c.bright_pct ? c.dim_pct : c.bright_pct;   // never brighter than "full"
-        apply_brightness(sm.state == PRESENCE_ACTIVE ? c.bright_pct : sm.state == PRESENCE_DIM ? dim : 0);
+        if ((int32_t)(xTaskGetTickCount() - preview_until) >= 0)   // a slider being dragged sets it itself
+            apply_brightness(sm.state == PRESENCE_ACTIVE ? c.bright_pct : sm.state == PRESENCE_DIM ? dim : 0);
 
         if (++log_tick % 50 == 0 && mic_ok) {                  // every 5 s
             ESP_LOGI(TAG, "level %.1f dB (threshold %.1f), score %.1f/%.1f, quiet %.0f s, motion peak %.3f g%s",

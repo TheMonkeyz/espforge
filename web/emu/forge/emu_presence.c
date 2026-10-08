@@ -3,6 +3,7 @@
 // and the settings page shows "No microphone"; the settings are kept for the session. The board's microphones and
 // motion sensor (board_audio.h, imu.h) answer "not here" for an app that opens them itself.
 #include "presence.h"
+#include "presence_json.h"
 #include "board_audio.h"
 #include "imu.h"
 
@@ -31,6 +32,8 @@ void presence_get_status(presence_status_t *st)
 }
 bool presence_calibrate(int seconds) { (void)seconds; return false; }
 void presence_wake(void) {}
+void presence_settings_changed(void) {}
+void presence_preview_brightness(int pct) { cfg.bright_pct = pct < 5 ? 5 : pct > 100 ? 100 : pct; }
 bool presence_touch(void) { return false; }
 bool presence_screen_off(void) { return false; }
 bool presence_motion_wake(void) { return motion_wake; }
@@ -41,7 +44,7 @@ bool presence_set_motion(bool on, float threshold_g)
     return true;
 }
 
-bool board_audio_init(void) { return false; }
+bool board_audio_init(bool speaker) { (void)speaker; return false; }
 bool board_mic_open(float gain_db) { (void)gain_db; return false; }
 bool board_mic_read(int16_t *samples, size_t n) { (void)samples; (void)n; return false; }
 const void *board_audio_data_if(void) { return NULL; }

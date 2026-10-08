@@ -52,6 +52,8 @@ typedef struct {
     uint32_t (*touch_idle_ms)(void);
     // Sets the screen's brightness (0..100 %), taking the display lock itself
     void (*set_brightness)(int pct);
+    // The settings changed through the page (POST /api/presence): an app that shows them on a screen redraws it
+    void (*settings_changed)(void);
 } presence_hooks_t;
 
 void presence_start(const presence_hooks_t *hooks);   // loads the settings, starts the task, the console commands
@@ -62,6 +64,9 @@ bool presence_set_config(const presence_cfg_t *in); // saves to NVS (baseline is
 void presence_get_status(presence_status_t *st);
 bool presence_calibrate(int seconds);               // measure background noise; keep quiet meanwhile
 void presence_wake(void);
+// A brightness slider being dragged: shown at once (no fade), kept as the full level without saving; the fade takes
+// over again 300 ms after the last call. Save on release with presence_set_config().
+void presence_preview_brightness(int pct);
 // A finger came down: wakes; true if the screen was off. Give it to the board as its press filter
 // (touch_set_press_filter(presence_touch)): the touch that wakes a dark screen does nothing else.
 bool presence_touch(void);
@@ -86,3 +91,9 @@ void presence_clamp_cfg(presence_cfg_t *c);         // the limits every setting 
 // percentile weather_amoled took then sat 30 dB above the room) or there are fewer than 10: *baseline is left alone.
 #define PRESENCE_CAL_SPREAD_DB 12.0f
 presence_cal_t presence_calib_baseline(float *levels, int n, float *baseline, float *spread);
+
+// weather_amoled's settings before forge_presence: one 32-byte NVS blob "cfg" (namespace "presence"): enabled (bool,
+// 3 bytes padding), margin_db, wake_s, dim_s, off_s (float), bright_pct, dim_pct (int32), baseline_db (float),
+// little-endian. Decoded field by field and clamped; false for any other size. presence_start() imports it once
+// into the typed keys (when they don't exist yet) and leaves the blob for a rollback to the old firmware.
+bool presence_cfg_from_blob_v1(const void *blob, size_t n, presence_cfg_t *out);
