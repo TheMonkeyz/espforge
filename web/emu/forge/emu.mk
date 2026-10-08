@@ -4,12 +4,13 @@
 #   APP_SRC    the app's files in main/ (main.c ui.c ...), built unchanged
 #   APP_EMU    the app's own emulator files in web/emu (emu_main.c, any stand-in of its own hardware)
 #   EMBED      the files main/CMakeLists.txt embeds that the app reads as arrays: name=path (name_start, name_end)
-# and may add to: FORGE_CORE FORGE_LVGL FORGE_NET FORGE_OTA (the framework's files to build, += before the include), APP_CFLAGS,
+# and may add to: FORGE_CORE FORGE_LVGL FORGE_NET FORGE_OTA FORGE_PRESENCE (the framework's files to build, += before the include), APP_CFLAGS,
 # APP_EXPORTS (more C functions the page calls, e.g. ,_emu_mic), BOARD (the board's include folder), COMP.
 #   make            # in WSL, after `source ~/emsdk/emsdk_env.sh`: build/ (serve it over HTTP)
 #   make config     # lv_kconfig.h and sdkconfig.h from the firmware's sdkconfig, after changing its options
 #   make try F=../../main/ui.c   # compile one file, show the first errors
-FORGE_EMU := forge
+# The framework part (this folder): an app that takes espforge at a tag points it at that copy (tools/fetch_forge.py)
+FORGE_EMU ?= forge
 # LVGL: the firmware's own copy (ESP-IDF's component manager puts it in managed_components); cJSON: ESP-IDF's
 LVGL ?= ../../managed_components/lvgl__lvgl
 IDF_PATH ?= /mnt/c/Espressif/esp-idf
@@ -35,12 +36,16 @@ endif
 endif
 
 # The framework's files every app needs, plus the ones the app's Makefile lists before the include
-# (FORGE_CORE += png_rows.c http_once.c ...): with `?=` an app's `+=` replaced the list instead of adding to it
+# (FORGE_CORE += png_rows.c ...): with `?=` an app's `+=` replaced the list instead of adding to it
 FORGE_CORE := i18n.c i18n_nvs.c textfit.c testcon_registry.c $(filter-out i18n.c i18n_nvs.c textfit.c testcon_registry.c,$(FORGE_CORE))
 FORGE_LVGL := forge_lvgl.c pager.c slide.c screens.c $(filter-out forge_lvgl.c pager.c slide.c screens.c,$(FORGE_LVGL))
 FORGE_NET := svc.c $(filter-out svc.c,$(FORGE_NET))
 FORGE_OTA := ota_web.c $(filter-out ota_web.c,$(FORGE_OTA))
-EMU := emu_loop.c emu_display.c emu_touch.c emu_http.c emu_nvs.c emu_stubs.c emu_tasks.c emu_web.c emu_time.c
+# forge_presence: its pure half and its routes; emu_presence.c stands in for presence.c (no microphones here)
+FORGE_PRESENCE := presence_sm.c presence_json.c presence_web.c \
+                  $(filter-out presence_sm.c presence_json.c presence_web.c,$(FORGE_PRESENCE))
+EMU := emu_loop.c emu_display.c emu_touch.c emu_http.c emu_nvs.c emu_stubs.c emu_tasks.c emu_web.c emu_time.c \
+       emu_presence.c
 LV_SRC := $(shell find $(LVGL)/src -name '*.c' 2>/dev/null)
 # png_rows.c inflates with tinfl, in the ESP32-S3's ROM: here miniz 3.0.2's (MIT, as tests/host), downloaded once, only
 # when the app builds png_rows.c (FORGE_CORE += png_rows.c: map tiles, pictures)
@@ -49,7 +54,7 @@ USE_MINIZ := $(filter png_rows.c,$(FORGE_CORE))
 
 CFLAGS := -O2 -DEMU_BUILD '-DEMU_VERSION="$(VERSION)"' '-DEMU_APP="$(APP)"' -I. -I$(FORGE_EMU) -I$(FORGE_EMU)/shim \
           -I$(MAIN) -I$(COMP)/forge_core/include -I$(COMP)/forge_lvgl/include -I$(COMP)/forge_net/include \
-          -I$(COMP)/forge_ota/include -I$(BOARD) -I$(LVGL) -I$(LVGL)/src -I$(CJSON) $(if $(USE_MINIZ),-I$(MINIZ)) \
+          -I$(COMP)/forge_ota/include -I$(COMP)/forge_presence/include -I$(BOARD) -I$(LVGL) -I$(LVGL)/src -I$(CJSON) $(if $(USE_MINIZ),-I$(MINIZ)) \
           -include string.h -include stdint.h '-DLV_CONF_KCONFIG_EXTERNAL_INCLUDE="lv_kconfig.h"' \
           -DLV_LVGL_H_INCLUDE_SIMPLE -Wno-unused-parameter $(APP_CFLAGS)
 # Header dependencies of our own files (LVGL and cJSON are fixed versions: tracking their 400 files costs minutes
@@ -65,7 +70,7 @@ LDFLAGS := -sASYNCIFY -sASYNCIFY_STACK_SIZE=65536 -sALLOW_MEMORY_GROWTH -sSTACK_
 OBJ := $(patsubst %.c,$(OUT)/fw/%.o,$(APP_SRC)) $(patsubst %.c,$(OUT)/app/%.o,$(APP_EMU)) \
        $(patsubst %.c,$(OUT)/forge_core/%.o,$(FORGE_CORE)) $(patsubst %.c,$(OUT)/forge_lvgl/%.o,$(FORGE_LVGL)) \
        $(patsubst %.c,$(OUT)/forge_net/%.o,$(FORGE_NET)) $(patsubst %.c,$(OUT)/forge_ota/%.o,$(FORGE_OTA)) \
-       $(patsubst %.c,$(OUT)/emu/%.o,$(EMU)) $(patsubst $(LVGL)/%.c,$(OUT)/lvgl/%.o,$(LV_SRC)) \
+       $(patsubst %.c,$(OUT)/forge_presence/%.o,$(FORGE_PRESENCE)) $(patsubst %.c,$(OUT)/emu/%.o,$(EMU)) $(patsubst $(LVGL)/%.c,$(OUT)/lvgl/%.o,$(LV_SRC)) \
        $(OUT)/cjson/cJSON.o $(if $(EMBED),$(OUT)/emu/embed.o) $(if $(USE_MINIZ),$(OUT)/miniz/miniz.o)
 # The page uses the flasher site's fonts (../fonts/, from main/); served alone, build/ is the site's root: a copy there
 PAGE_FONTS := $(foreach e,$(filter %.ttf,$(EMBED)),$(OUT)/fonts/$(notdir $(word 2,$(subst =, ,$(e)))))

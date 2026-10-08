@@ -1,7 +1,7 @@
 # Host unit tests: firmware C files built with gcc against small shims of the ESP-IDF headers (shim/) and a scripted
 # HTTP client (fake.c), with AddressSanitizer. Linux, WSL or macOS (Apple clang, docs/MACOS.md):   make -C tests/host
 # IDF_PATH: an ESP-IDF checkout (cJSON, for tests of JSON parsers); on the Windows PC through WSL it is
-# /mnt/c/Espressif/esp-idf. The tests below don't need it.
+# /mnt/c/Espressif/esp-idf. test_presence needs it (CI downloads cJSON 1.7.19 and passes CJSON=).
 IDF_PATH ?= /mnt/c/Espressif/esp-idf
 CJSON := $(IDF_PATH)/components/json/cJSON
 FORGE := ../../components/forge_core
@@ -11,7 +11,7 @@ OUT := build
 CFLAGS := -std=gnu11 -D_DEFAULT_SOURCE -g -O1 -Wall -Wno-unused-function -fsanitize=address,undefined \
           -fno-sanitize-recover=undefined -Ishim -I$(FORGE)/include -I$(MAIN) -include shim/host.h
 # test_testcon only once the firmware has the pure command table (testcon_registry.c)
-TESTS := utf8 version png i18n textfit pager $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
+TESTS := utf8 version png i18n textfit pager presence $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
 
 all: $(TESTS:%=$(OUT)/test_%)
 	@set -e; for t in $(TESTS); do ./$(OUT)/test_$$t; done
@@ -28,6 +28,10 @@ $(OUT)/test_textfit: test_textfit.c $(FORGE)/textfit.c $(FORGE)/include/textfit.
 # pager.c against a fake of the LVGL calls it makes (lvfake/lvgl.h, implemented in test_pager.c)
 $(OUT)/test_pager: test_pager.c $(LVGLC)/pager.c $(LVGLC)/include/pager.h lvfake/lvgl.h | $(OUT)
 	$(CC) -Ilvfake $(CFLAGS) -I$(LVGLC)/include -o $@ test_pager.c $(LVGLC)/pager.c
+# forge_presence's pure half (presence.c, the task and NVS, is not compiled here); cJSON from ESP-IDF
+PRES := ../../components/forge_presence
+$(OUT)/test_presence: test_presence.c $(PRES)/presence_sm.c $(PRES)/presence_json.c $(PRES)/include/presence.h | $(OUT)
+	$(CC) $(CFLAGS) -I$(PRES)/include -I$(PRES) -I$(CJSON) -o $@ test_presence.c $(PRES)/presence_sm.c 	    $(PRES)/presence_json.c $(CJSON)/cJSON.c -lm
 $(OUT)/test_testcon: test_testcon.c $(FORGE)/testcon_registry.c $(FORGE)/include/testcon.h | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_testcon.c $(FORGE)/testcon_registry.c
 

@@ -41,9 +41,9 @@
   "ref": 0
  },
  "page_kb": {
-  "max": 16,
-  "note": "v0.1.0-rc.0, measured",
-  "ref": 9
+  "max": 22,
+  "note": "v0.3.0-rc.0: 17 KB measured with the Screen section (forge_presence)",
+  "ref": 17
  },
  "psram_min_kb": {
   "min": 5000,

@@ -79,7 +79,7 @@ another one, or the page shows the other checkout's build.
 
 1. `Makefile`: `APP_SRC` (the `main/` files that build for the browser: usually all of `main/CMakeLists.txt`'s SRCS),
    `APP_EMU` (its `emu_*.c` files), `EMBED` (`name=path` for each embedded file its code reads), and if it uses more
-   of the framework than the starter, `FORGE_CORE` / `FORGE_NET` ... (e.g. `FORGE_CORE += png_rows.c http_once.c`).
+   of the framework than the starter, `FORGE_CORE` / `FORGE_NET` ... (e.g. `FORGE_CORE += png_rows.c`; `http_once.h` is header-only).
 2. `emu_main.c`: `main()`. Usually demo data a first visitor should see (a place, a stop), `?parameters` from the
    page's address (`emu_param`), then `emu_start_app_main(); emu_loop();`. An app whose `main.c` can't run here writes
    that part itself (weather_amoled's `emu_main.c` fetches and shows the forecast in its own loop, `emu_step()`).

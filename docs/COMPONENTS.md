@@ -21,7 +21,8 @@ before using a function; the comments there say why things are done the way they
 2. `app_text_init()`: the app's text table and the saved language.
 3. `diag_start(60)`: periodic `diag:` lines.
 4. `board_init()`: display, LVGL task, touch, `forge_lvgl_init()` (touch and screen commands), `fps`, `where`.
-5. `web_set_page()`, `web_add_routes()` for the app's routes; `ota_start(listener)` (adds `/api/update`).
+5. `web_set_page()`, `web_add_routes()` for the app's routes; `presence_start(hooks)`, `presence_web_routes()` and
+   `touch_set_press_filter(presence_touch)` (screen dimming); `ota_start(listener)` (adds `/api/update`).
 6. `ui_init()`: screens, `screens_register()`, `web_set_snapshot()`.
 7. `testcon_start()`: the console task and its built-in commands.
 8. Wi-Fi: saved network → `net_begin()` + `web_start()` + `net_wait()`; none → first setup; unreachable → offline
@@ -75,6 +76,26 @@ Kconfig: `FORGE_OTA_SITE` (the Pages URL, ending with `/`).
 | `pager.h` | Full-screen pager: pages side by side (or stacked), `pager_switch` / `pager_go`; its drags are `slide.h`'s. `pager_set_count(pager, n)` shows only the first n of the pages created (the others are hidden, out of reach of swipes; `pager_page()` still gives them): build every page once, show as many as there is data for. `pager_set_order(pager, pages, n)` shows those pages in that order, the others hidden after them (a summary page that stays last after a varying list; keep page objects, not numbers: `pager_index()`). `pager_shown(pager, i)`: page i only if it is shown (slide.c's neighbours). Host test: `tests/host/test_pager.c`. |
 | `slide.h` | Moves drawn as pictures copied to the panel (~66 fps, LVGL's own scrolling ~24): `slide_pager(pager)` takes over its drags (follow the finger, bounce at the ends, flick), `slide_change()` / `slide_to()` slide an in-place change or a screen load. `slide_tap_ok()`: false during a move and 600 ms after it (a quick swipe's next press can reach LVGL as a tap); a click handler on a pager page asks it first. A shadow of the panel (every flush copied) plus the current page's neighbours kept ready (rendered when idle, refreshed every 2 s): 4 pictures, 1.7 MB of PSRAM at 466x466. Log: `slide: drag: first frame after N ms, ... gap max, held reads, finger still max, renders`. Needs the board's panel hooks (`forge_lvgl_set_panel`). |
 
+## forge_presence (screen dimming)
+
+`presence.h`: the screen dims, then turns off, when the room stays quiet; sustained noise, a movement or a touch
+wakes it (weather_amoled's presence.c, through esp32-s3-rtcquebec v0.3.0). No board code: `presence_start(hooks)`
+takes the microphones (`mic_open`, `mic_read`: 100 ms windows of 16 kHz samples), the motion sensor, the touch's
+`touch_idle_ms` and `set_brightness` (with the display lock) as `presence_hooks_t`; a NULL hook = that part missing
+(no microphones: always on). `presence_web_routes()` adds `GET/POST /api/presence` and `POST /api/calibrate`
+(PROTOCOL.md §4); console `presence [calibrate N]`, `wake`. Give `presence_touch` to the board as its press filter:
+the touch that wakes a dark screen does nothing else.
+
+- Settings in NVS namespace `presence`, one typed key each (`enabled margin wake dim off bright dim_pct baseline
+  motion motion_mg`): weather_amoled's `cfg` blob was dropped as unreadable whenever the struct changed size.
+- Calibration (a few seconds of quiet): the baseline is the **median** of the levels; a spread over 12 dB (90th - 10th
+  percentile: someone spoke) is refused and the old baseline kept (`"cal":"noisy"`). weather_amoled took the 90th
+  percentile, and speech set it 30 dB too high: the screen would never have dimmed.
+- Pure half (`presence_sm.c`: the state machine, the limits, the calibration statistic; `presence_json.c`): host
+  test `tests/host/test_presence.c`. The settings page's "Screen" section: `tools/webtest/tests/screen.spec.js`.
+  On the board: harness suite `presence` (`dim_off_wake`: dim, off, a long-press on the dark screen only wakes it).
+  In the browser: `web/emu/forge/emu_presence.c` stands in for `presence.c` (no microphones there).
+
 ## board (boards/ws_amoled175/board)
 
 `board.h`: `BOARD_NAME`, `DISP_W`, `DISP_H`, `BOARD_ROUND`, `board_init()`, `display_lock/unlock` (recursive; records
@@ -82,7 +103,10 @@ the longest hold and who held it), `display_brightness()`, `display_get_stats()`
 `board_i2c_bus()`, `touch_idle_ms()`, `touch_set_read_hook()`, `touch_set_press_filter()` (asked when a finger comes
 down: true = LVGL and the read hook see no finger until it lifts; "a touch on a dark screen only wakes it"), and for slide.c `display_raw_frame()` (a frame without
 LVGL, bands filled while the previous one is sent), `touch_get()` / `touch_fresh()` (the chip read at most every
-10 ms) and `touch_forget()`, handed over with `forge_lvgl_set_panel()`. Also `imu.h` (QMI8658 accelerometer).
+10 ms) and `touch_forget()`, handed over with `forge_lvgl_set_panel()`. Also `imu.h` (QMI8658 accelerometer) and
+`board_audio.h`: I2S0 in both directions (`board_audio_init`), the ES7210 microphones (`board_mic_open(gain_db)`,
+`board_mic_read`), and the shared data interface for an app's own ES8311 speaker device (`board_audio_data_if`).
+esp_codec_dev 1.5.11 (the board's `idf_component.yml`).
 
 Rules kept in the code (see [LESSONS.md](LESSONS.md), Display and Touch): the SPI interrupt runs on the LVGL core;
 no esp_lcd call from outside LVGL while its last band is in flight (`display_brightness` waits); every touch report
@@ -95,7 +119,7 @@ A new board: copy the directory, keep the `board.h` API, change pins, panel init
 
 | File | What |
 |---|---|
-| `main.c` | Start-up order, BOOT button (forget Wi-Fi), first-time and offline setup (15 min window), `POST /api/settings`, the work loop placeholder. |
+| `main.c` | Start-up order, BOOT button (forget Wi-Fi), first-time and offline setup (15 min window), `POST /api/settings`, screen dimming's hooks (board microphones, motion sensor, touch, brightness), the work loop placeholder. |
 | `ui.c` | Screens `hello`, `system` (pager), `setup` (setup network / Easy Connect), `message`; registry for the console and snapshots. |
 | `app_text.h/.c`, `i18n_strings.h` | The texts, English and Québec French. |
 | `web/index.html` | Settings page: Wi-Fi, language, updates; `I18N` + `t()`. Tested by `tools/webtest`. |

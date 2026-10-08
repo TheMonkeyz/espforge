@@ -50,6 +50,9 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `screen` | `test: screen <name>` (a name from `forge.json` `screens`) | forge_lvgl (screen registry) |
 | `screen <name>` | `test: ok screen <name>` | forge_lvgl |
 | `profile` | `PROFILE-BEGIN <name>` … `PROFILE-END <name>`, then `test: ok profile done` (profiler builds only) | forge_lvgl |
+| `presence` | `test: presence state=0\|1\|2 brightness=% quiet_s=S mic=0/1 imu=0/1 level=dB threshold=dB calibrating=0/1 cal=0\|1\|2 spread=dB` (state: active, dim, off; cal: none, ok, noisy) | forge_presence |
+| `presence calibrate N` | `test: ok presence calibrate N` (then `presence: calibrated: ok\|too noisy, baseline kept, …`) | forge_presence |
+| `wake` | `test: ok wake` | forge_presence |
 
 ## 3. Log lines the tools read
 
@@ -88,6 +91,9 @@ are JSON (`415` otherwise); a Host header that isn't the display's address gets 
 | `POST /api/update` | `{"action":"check"}`, `{"action":"install"}` or `{"channel":"stable"\|"beta"}` |
 | `GET /api/snapshot?screen=<name>` | 24-bit BMP of that screen, rendered off-display. `forge.json` `screens_not_shown`: screens the harness snapshots without showing them (showing changes the device's state: the starter's Easy Connect page leaves the home network). |
 | `POST /api/settings` | App settings, starter: `{"lang":"en"\|"fr"}` |
+| `GET /api/presence` (no key) | Screen dimming: `{"ok","enabled","margin_db","wake_s","dim_s","off_s","bright_pct","dim_pct","baseline_db","level_db","threshold_db","state":"active"\|"dim"\|"off","wake_progress","quiet_s","calibrating","calib_left_s","cal":"none"\|"ok"\|"noisy","cal_spread_db","mic_ok","brightness","imu_ok","motion_g","motion_wake","motion_thr"}` (forge_presence) |
+| `POST /api/presence` | Any of `enabled margin_db wake_s dim_s off_s bright_pct dim_pct motion_wake motion_thr` (held to the limits; `baseline_db` only by calibration) → GET's answer, `"ok":false` = not saved |
+| `POST /api/calibrate` | `{"seconds":5}` → GET's answer with `"calibrating":true`, or `{"ok":false,"why":"no_mic"\|"busy"}` (200). Its end: `"cal"` in GET. |
 
 ## 5. OTA site (GitHub Pages, `tools/make_flasher_site.py`)
 
