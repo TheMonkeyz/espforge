@@ -198,6 +198,8 @@ def parse_args(argv=None):
     ap.add_argument('--update-baseline', action='store_true',
                     help='write baseline.proposed.json with the measured numbers as the reference')
     ap.add_argument('--minutes', type=int, default=40, help='log window to request from the flash helper')
+    ap.add_argument('--quick', action='store_true',
+                    help='iterating: leave out idle_stable, wifi_setup and the Playwright suite (a full run before an rc)')
     ap.add_argument('--expect', help='fail unless the board runs this version (e.g. v1.2.0-rc.2)')
     ap.add_argument('--ota', metavar='VERSION', help="install this published release with the display's own updater "
                     'first (waits until its channel offers it), then test it (implies --expect and the ota suite)')
@@ -215,7 +217,8 @@ def parse_args(argv=None):
     if 'ota' in asked and not opts.ota:
         ap.error('the ota suite needs --ota VERSION')
     opts.run = asked or [s for s in ORDER if (s not in core_suites.ON_REQUEST or (s == 'ota' and opts.ota))
-                         and (WINDOWS or s != 'wifi_setup')]
+                         and (WINDOWS or s != 'wifi_setup') and not (opts.quick and s in core_suites.QUICK_SKIP)]
+    core_suites.QUICK = opts.quick
     if not asked and not WINDOWS:
         print('(wifi_setup left out: it needs the Windows PC, docs/MACOS.md)', flush=True)
     return opts
@@ -230,6 +233,8 @@ def flash_mode(lines):
 def main(argv=None):
     opts = parse_args(argv)
     suites = opts.run
+    if 'web' in suites:
+        core_suites.webtest_start()                 # board-free: runs alongside the board's suites
     outdir = os.path.join(HERE, 'reports', time.strftime('%Y-%m-%d_%H%M%S'))
     os.makedirs(outdir, exist_ok=True)
     log = Log()

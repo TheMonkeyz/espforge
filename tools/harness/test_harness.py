@@ -128,6 +128,13 @@ class Args(unittest.TestCase):
         self.assertNotIn('ota', o.run)
         self.assertIn('boot', o.run)
 
+    def test_quick_leaves_out_the_slow_suites(self):
+        o = parse_args(['--quick'])
+        self.assertNotIn('idle_stable', o.run)
+        self.assertNotIn('wifi_setup', o.run)
+        self.assertIn('web', o.run)                          # the web suite's device tests stay; Playwright doesn't
+        self.assertEqual(parse_args(['--quick', 'idle_stable']).run, ['idle_stable'])   # asked for: run
+
     def test_ota_flag_adds_the_suite_and_expect(self):
         o = parse_args(['--ota', 'v1.2.0-rc.1'])
         self.assertIn('ota', o.run)

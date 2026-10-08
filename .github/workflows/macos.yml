@@ -9,6 +9,7 @@ name: macOS
 on:
   push:
     branches-ignore: [main]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]   # docs only: nothing to build or test on macOS
   workflow_dispatch:
 
 permissions:

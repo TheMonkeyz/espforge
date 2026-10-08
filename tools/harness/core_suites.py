@@ -15,6 +15,10 @@ import snapshot
 
 # Suites that only run when asked for (or with their flag): ota needs --ota
 ON_REQUEST = {'ota'}
+# Left out by --quick (iterating on a change): an idle minute, the PC joining the setup network, and the Playwright
+# suite (board-free: npm test and CI run it). The full run, before a release candidate, has them.
+QUICK_SKIP = {'idle_stable', 'wifi_setup'}
+QUICK = False
 
 
 def ms_of(line):
@@ -165,12 +169,53 @@ def every_screen(ctx):
 
 # ---------------------------------------------------------------- web
 
+_webtest = {}
+
+
+def webtest_start():
+    """Start the Playwright suite in the background when the run begins: it needs no board, so it runs while the
+    board's suites do (~15-50 s saved); settings_page_tests collects it."""
+    wt = os.path.join(ROOT, 'tools', 'webtest')
+    if QUICK or _webtest or not os.path.isdir(os.path.join(wt, 'node_modules')):
+        return
+    env = dict(os.environ)
+    # Microsoft Store Python virtualises AppData\Local for its child processes, so Playwright can't see the browsers
+    # in AppData\Local\ms-playwright. Use a copy next to the tests (git-ignored).
+    browsers = os.path.join(wt, '.browsers')
+    if os.path.isdir(browsers):
+        env['PLAYWRIGHT_BROWSERS_PATH'] = browsers
+    npm = shutil.which('npm') or r'C:\Program Files\nodejs\npm.cmd'
+    if not os.path.exists(npm):
+        return                                     # settings_page_tests says so
+    import tempfile
+    out = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')
+    _webtest.update(proc=subprocess.Popen([npm, 'test'], cwd=wt, env=env, stdout=out, stderr=subprocess.STDOUT,
+                                          text=True), out=out)
+
+
 @test('web')
 def settings_page_tests(ctx):
     """Playwright suite against the mock display (tools/webtest), when it is installed."""
     wt = os.path.join(ROOT, 'tools', 'webtest')
+    if QUICK:
+        ctx.note('Playwright: left out by --quick (cd tools/webtest && npm test)')
+        return
     if not os.path.isdir(os.path.join(wt, 'node_modules')):
         ctx.note('tools/webtest not installed (npm install && npx playwright install chromium): page tests not run')
+        return
+    if _webtest:                                    # started with the run (webtest_start)
+        try:
+            rc = _webtest['proc'].wait(timeout=600)
+        except subprocess.TimeoutExpired:
+            _webtest['proc'].kill()
+            raise Fail('Playwright: no result within 10 min')
+        _webtest['out'].seek(0)
+        out = _webtest['out'].read()
+        m = re.search(r'(\d+) passed', out)
+        failed = re.search(r'(\d+) failed', out)
+        open(ctx.out('webtest.txt'), 'w', encoding='utf-8').write(out)
+        check(rc == 0 and m and not failed, f'Playwright: {failed.group(0) if failed else "error"} (webtest.txt)')
+        ctx.note(f'Playwright: {m.group(0)}')
         return
     env = dict(os.environ)
     # Microsoft Store Python virtualises AppData\Local for its child processes, so Playwright can't see the browsers
