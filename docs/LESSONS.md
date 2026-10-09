@@ -1112,3 +1112,21 @@ Fix: `stage/manifest.json` records the build folder; the helpers (`flash_helper.
 `elf_path()` read it (espforge v0.5.0). Flash another folder with `stage.py --build <dir>` then
 `devloop.py flash N --no-stage`, or `harness.py --flash <dir>`.
 Check: `tools/harness/test_flash_helper.py` `test_another_build_folder_staged_is_flashed`.
+
+**L199. The Claude desktop app's shell redirects AppData\Local: a component manager fetch fails.**
+Why: Claude Code in the desktop app runs inside its MSIX package, which redirects `AppData\Local` to
+`Packages\Claude_...\LocalCache\Local` for its child processes, not for all of them alike: ESP-IDF's component manager
+put its git cache in one view and git ran in the other ("'git init --bare' failed ... unable to get current working
+directory"), on the first build that fetched a new espforge tag (esp32-s3-rtcquebec v0.4.0, 2026-10-09). L146 is the
+same trap with the Microsoft Store Python.
+Fix: `$env:IDF_COMPONENT_CACHE_PATH="$HOME\.espressif\component_cache"` (any folder outside AppData) before `idf.py`.
+Check: a build after bumping the espforge tags, from the desktop app's shell.
+
+**L200. A page whose frames take over ~100 ms loses drags.**
+Why: LVGL reads the touch between frames; esp32-s3-rtcquebec's map page (a 466 px image under two 700-point, 6 px
+`lv_line`s) took 170-200 ms a frame, redrawn for every tile that arrived. slide.c saw a swipe's first point late (x 130
+of a 388 -> 78 swipe) or not at all: no drag, and LVGL fired a long press (Settings opened), since it fires one for a
+press held 400 ms however far it moved.
+Fix: draw what doesn't change into one picture (a canvas: the map and the path, composed once per change), don't
+redraw a busy page while a finger is down, and accept a long press only from a finger that stayed within ~24 px.
+Check: the `fps` console command on that page (`render_avg_ms`), and a harness swipe on it right after it opens.
