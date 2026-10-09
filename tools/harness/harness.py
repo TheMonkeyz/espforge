@@ -87,7 +87,14 @@ class Ctx:
 
 
 def elf_path(cfg=CFG):
-    return os.path.join(ROOT, *cfg['build_dir'].split('/'), cfg['app'] + '.elf')
+    """The ELF of the build last staged (stage.py --build build/forge: tools/forge_local.py's), else forge.json's."""
+    build = cfg['build_dir']
+    try:
+        with open(os.path.join(DEV, 'stage', 'manifest.json'), encoding='utf-8') as f:
+            build = json.load(f).get('build_dir') or build
+    except (OSError, ValueError):
+        pass
+    return os.path.join(ROOT, *build.split('/'), cfg['app'] + '.elf')
 
 
 def addr2line(chip=None):

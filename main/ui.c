@@ -21,6 +21,7 @@
 #include "net.h"
 #include "web.h"
 #include "app_text.h"
+#include "forge_settings.h"
 
 static const char *TAG = "ui";
 
@@ -37,7 +38,7 @@ extern const uint8_t ttf_start[] asm("_binary_montserrat_ttf_start");
 extern const uint8_t ttf_end[]   asm("_binary_montserrat_ttf_end");
 #endif
 
-static lv_font_t *f_big, *f_mid, *f_small;
+static lv_font_t *f_big, *f_mid, *f_small, *f_tiny;
 static lv_obj_t *scr_main, *pager, *scr_msg, *scr_setup;
 static lv_obj_t *h_title, *h_clock, *h_date, *h_sub, *h_hint;
 static lv_obj_t *s_title, *s_lines, *s_qr, *s_scan;
@@ -91,7 +92,19 @@ static lv_obj_t *make_qr(lv_obj_t *parent, int size)
     return qr;
 }
 
+// A long press: Settings (forge_settings); offline, Wi-Fi setup is what's needed (as weather_amoled)
 static void long_pressed(lv_event_t *e)
+{
+    if (net_is_connected()) {
+        ESP_LOGI(TAG, "long-press: settings");
+        settings_open();
+        return;
+    }
+    ESP_LOGI(TAG, "long-press while offline: Wi-Fi setup");
+    ui_wifi_setup(NULL);
+}
+
+static void msg_long_pressed(lv_event_t *e)          // the start-up message: Wi-Fi setup
 {
     ESP_LOGI(TAG, "long-press: Wi-Fi setup");
     ui_wifi_setup(NULL);
@@ -236,7 +249,7 @@ static void msg_create(void)
     m_title = label(scr_msg, f_mid, C_ACCENT, 120, 320);
     m_body = label(scr_msg, f_small, C_TEXT, 180, 340);
     lv_obj_add_flag(scr_msg, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(scr_msg, long_pressed, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_add_event_cb(scr_msg, msg_long_pressed, LV_EVENT_LONG_PRESSED, NULL);
 }
 
 void ui_message(const char *title, const char *body)
@@ -419,6 +432,7 @@ static void su_leave(void)
 static void su_close(void)
 {
     su_leave();
+    if (settings_resume()) return;                   // opened from Settings' Wi-Fi row: back there
     lv_screen_load_anim(scr_main, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, false);
 }
 
@@ -521,6 +535,42 @@ void ui_texts_changed(void)
     display_unlock();
 }
 
+/* ---------- Settings (forge_settings) ---------- */
+
+// The app's words for forge_settings' codes, in settings_text_t's order
+static const int set_texts[] = {
+    T_SET_DONE, T_SET_SEC_SCREEN, T_SET_DIM_QUIET, T_SET_WAKE_PICKUP, T_SET_TIMING, T_SET_SHORT, T_SET_NORMAL,
+    T_SET_LONG, T_SET_CUSTOM, T_SET_BRIGHTNESS, T_SET_LANGUAGE, T_SET_SEC_MORE, T_SET_PHONE, T_SET_PHONE_SCAN,
+    T_SET_PHONE_NONE, T_SET_WIFI, T_SET_UPDATES, T_SET_CHECK_NOW, T_SET_CHECKING, T_SET_UP_TO_DATE, T_SET_FAILED,
+    T_SET_INSTALL, T_SET_TAP_AGAIN, T_SET_RESTART, T_SET_RESTARTING, T_SET_SEC_ABOUT, T_SET_VERSION, T_SET_NETWORK,
+    T_SET_OFFLINE, T_SET_IP, T_SET_MEMORY, T_SET_MEMORY_KB, T_SET_UPTIME, T_SET_UPTIME_MIN, T_SET_UPTIME_H,
+    T_SET_UPTIME_D,
+};
+_Static_assert(sizeof(set_texts) / sizeof(set_texts[0]) == SET_T_COUNT, "one text per settings_text_t code");
+
+static void wifi_from_settings(void) { ui_wifi_setup(NULL); }
+
+static void lang_changed(void)                       // display lock held (a Settings row)
+{
+    hello_refresh();
+    system_refresh();
+}
+
+static void settings_make(void)
+{
+    const settings_row_t rows[] = {
+        settings_std_section(SET_T_SEC_SCREEN),
+        settings_std_dim(), settings_std_motion(), settings_std_timing(),
+        settings_std_language(lang_changed),
+        settings_std_section(SET_T_SEC_MORE),
+        settings_std_phone(), settings_std_wifi(wifi_from_settings), settings_std_updates(), settings_std_restart(),
+        settings_std_section(SET_T_SEC_ABOUT),
+        settings_std_version(), settings_std_network(), settings_std_ip(), settings_std_memory(), settings_std_uptime(),
+    };
+    settings_opts_t o = { .texts = set_texts, .font = f_small, .font_small = f_tiny, .brightness = true };
+    settings_create(&o, rows, sizeof(rows) / sizeof(rows[0]));
+}
+
 /* ---------- screen registry (test console, snapshots) ---------- */
 
 static lv_obj_t *get_hello(void) { return pager_page(pager, 0); }
@@ -537,6 +587,15 @@ static bool shown_setup(void) { return lv_screen_active() == scr_setup && pager_
 static bool shown_setup1(void) { return lv_screen_active() == scr_setup && pager_current(su_pager) == 1; }
 static void show_setup1(void) { ui_wifi_setup(NULL); pager_switch(su_pager, 1); }
 static bool shown_msg(void) { return lv_screen_active() == scr_msg; }
+static lv_obj_t *get_settings(void) { return settings_screen(); }
+static void show_settings(void) { su_leave(); settings_show_page(0); }
+static void show_settings1(void) { su_leave(); settings_show_page(1); }
+static void prep_settings(void) { settings_scroll(0); }
+static void prep_settings1(void) { settings_scroll(1); }
+static void prep_settings2(void) { settings_scroll(2); }
+static void show_settings2(void) { su_leave(); settings_show_page(2); }
+static bool shown_settings(void) { return lv_screen_active() == settings_screen(); }
+static bool shown_never(void) { return false; }      // settings1: the same screen, never named as the one shown
 static void prep_setup(void)                         // texts only: no access point or Easy Connect is started
 {
     if (su_open) return;
@@ -549,6 +608,10 @@ static const screen_def_t screens[] = {
     { "system",  get_system, show_system, system_refresh, shown_system },
     { "setup",   get_setup,  show_setup,  prep_setup,     shown_setup },
     { "setup1",  get_setup1, show_setup1, prep_setup,     shown_setup1 },
+    { "settings", get_settings, show_settings, prep_settings, shown_settings },
+    // The list scrolled down a box height
+    { "settings1", get_settings, show_settings1, prep_settings1, shown_never },
+    { "settings2", get_settings, show_settings2, prep_settings2, shown_never },   // ...and further (About)
     { "message", get_msg,    NULL,        NULL,           shown_msg },
 };
 
@@ -562,9 +625,11 @@ void ui_init(void)
     f_big = mkfont(64);
     f_mid = mkfont(30);
     f_small = mkfont(20);
+    f_tiny = mkfont(14);
     main_create();
     msg_create();
     setup_create();
+    settings_make();
     screens_register(screens, sizeof(screens) / sizeof(screens[0]));
     lv_screen_load(scr_msg);
     display_unlock();

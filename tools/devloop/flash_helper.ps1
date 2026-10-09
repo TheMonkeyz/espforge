@@ -75,12 +75,15 @@ function Run-Monitor($port, $secs, [switch]$Reboot) {
 
 # The esptool arguments for a flash, or a string saying why not (a stale or incomplete stage)
 function Flash-Args {
-  $faPath = Join-Path $BuildDir "flasher_args.json"
   $mfPath = Join-Path $Dev "stage\manifest.json"
-  if (-not (Test-Path $faPath)) { return "no $faPath (build the firmware first)" }
   if (-not (Test-Path $mfPath)) { return "no stage\manifest.json (run tools/devloop/stage.py)" }
-  $fa = Get-Content $faPath -Raw | ConvertFrom-Json
   $man = Get-Content $mfPath -Raw | ConvertFrom-Json
+  # The build that was staged (stage.py --build build/forge: another folder than forge.json's; checking the staged
+  # copies against forge.json's refused them as "changed since it was staged", 2026-10-09)
+  $bd = if ($man.build_dir) { Join-Path $Root ($man.build_dir -replace '/', '\') } else { $BuildDir }
+  $faPath = Join-Path $bd "flasher_args.json"
+  if (-not (Test-Path $faPath)) { return "no $faPath (build the firmware first)" }
+  $fa = Get-Content $faPath -Raw | ConvertFrom-Json
   $fs = $fa.flash_settings
   $extra = $fa.extra_esptool_args
   $chip = if ($extra.chip) { $extra.chip } else { $Chip }
@@ -99,7 +102,7 @@ function Flash-Args {
     $got = Md5 $f
     if ($got -ne $part.md5.ToLower()) { return "staged $($part.file): md5 $got, the manifest says $($part.md5)" }
     # A build newer than the stage: flashing would test old firmware
-    $src = Join-Path $BuildDir ($p.Value -replace '/', '\')
+    $src = Join-Path $bd ($p.Value -replace '/', '\')
     if ((Test-Path $src) -and ((Md5 $src) -ne $got)) { return "$($p.Value) changed since it was staged (run stage.py again)" }
     Say ("  {0,9}  {1}  {2:N0} B  md5 ok" -f $off, $part.file, (Get-Item $f).Length)
     $a += @($off, $f)

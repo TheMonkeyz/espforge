@@ -65,6 +65,21 @@ reason it stays in the app.
   I2C bus (`touch_i2c_bus()` instead of `board_i2c_bus()`) and to open I2S both ways at start. A board-free audio
   helper (the bus as a parameter, e.g. `forge_audio_init(bus, speaker)`) would let an app with its own board code
   share it.
+- [x] v0.5.0-rc.1, 2026-10-09, esp32-s3-rtcquebec v0.4.0 (the user's new navigation, as weather_amoled's places): a
+  pager on a page of another, across it (the stops in a column, in the middle of a row alerts | stops | map), each
+  axis dragging its own: `pager_on_view()` (pager.c, host test), slide.c picking the pager by the drag's axis, four
+  neighbour pictures instead of two, `slide_stale()` for neighbours whose contents the app changed.
+  **→** PR #26.
+- [x] v0.5.0-rc.1, 2026-10-09, esp32-s3-rtcquebec v0.4.0 (the user: "maybe the whole settings screen should be
+  standardized in espforge for current and future projects"): weather_amoled's on-device Settings (`cfg_*` in its
+  ui.c) as `components/forge_settings`: the screen (Done, rows in sections, brightness arc), ready-made rows (dimming,
+  pick-up, timing, language, phone QR, Wi-Fi, updates, restart, About), the app's own rows, texts by code.
+  **→** PR #26; the starter opens it with a long press (harness `long_press_opens_settings`, `settings_row_acts`).
+- [ ] 2026-10-09, espforge v0.5.0-rc.1: weather_amoled onto forge_settings (its `cfg_*`, main/ui.c:2347-2672). It has
+  its own slide.c, not forge_lvgl's, and forge_settings slides with forge_lvgl's `slide_to()`: give forge_settings a
+  hook for the slide (or move weather_amoled to forge_lvgl first). Its rows of its own: units, sound.
+- [ ] 2026-10-09, espforge v0.5.0-rc.1: list scrolls drawn as pictures (weather_amoled's `slide_scroll`) in forge_lvgl,
+  for forge_settings' list and apps' lists (esp32-s3-rtcquebec's alerts): LVGL scrolls them at ~25 fps.
 
 ## Tools and tests
 
@@ -120,6 +135,14 @@ reason it stays in the app.
   update installed (the image confirmed, the update's TLS connection maybe still held): internal_largest_kb 35 there,
   46 three times on the same firmware at rest and after a restart (36-46 across tonight's runs). Measure memory after
   the OTA suite's settle, or let `--ota` runs wait for the update's connection to close before the memory suite.
+- [x] v0.5.0-rc.1, 2026-10-09, esp32-s3-rtcquebec v0.4.0: the flash helpers (`flash_helper.ps1`, `.py`) checked the
+  staged parts against forge.json's build_dir and the harness looked for the ELF there: a build staged from another
+  folder (`stage.py --build build/forge`) was refused, and its panic not decoded. Both follow
+  `stage/manifest.json`'s `build_dir` now; test `test_another_build_folder_staged_is_flashed` (LESSONS L198).
+  **→** PR #26.
+- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0: its `tools/forge_local.py` (weather_amoled's, with every espforge
+  component of the manifest and the board, `COMPONENTS` a name -> folder map): ship it in the template with the
+  "framework at a tag" section of NEW-PROJECT.md (the open entry above).
 
 ## Emulator (web/emu)
 
@@ -157,3 +180,6 @@ reason it stays in the app.
   page should say "quiet" plainly, or the calibration use the median, or reject a spread that wide.
   **→** PR #14: the median, a spread over 12 dB refused with the old baseline kept (`"cal":"noisy"`, shown
   on the page); host test.
+- [x] v0.5.0-rc.1, 2026-10-09, esp32-s3-rtcquebec v0.4.0: L197 (code a console command reaches runs on the
+  console's 4 KB stack: a `screen stop2` overflowed it), L198 (tools follow the staged build).
+  **→** PR #26.

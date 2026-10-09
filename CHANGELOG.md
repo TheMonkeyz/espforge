@@ -8,6 +8,11 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.5.0-rc.1 - 2026-10-09
+- Touch and hold opens a Settings screen on the display: screen dimming and its timing, wake on pick-up, brightness (the arc along the bottom), language, the phone's settings page as a QR code, Wi-Fi, updates, restart, and an About section. Done or a swipe right closes it.
+- For app developers: the Settings screen as a component (forge_settings) with ready-made rows and room for the app's own; a pager can sit on a page of another one across it (a column of pages in the middle of a row), each direction dragging its own (pager_on_view, slide_stale).
+- For app developers: the flash helper and the test harness follow the build that was staged (stage.py --build), so a build against an unreleased espforge can be flashed and its crashes decoded.
+
 ## v0.4.0 - 2026-10-08
 - For app developers: a street map component (forge_map): OpenStreetMap tiles around a place, dimmed for the dark screen, kept in memory by place and zoom so going back downloads nothing; also in the browser emulator (USE_MAP).
 - For app developers: the test tools are faster (the settings page tests in parallel, a quick harness mode for small changes).

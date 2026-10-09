@@ -13,6 +13,16 @@ typedef struct {
     lv_obj_t *page[];
 } pager_t;
 
+// The pagers alive, so pager_on_view() can tell a pager from any other object (user data alone can't)
+#define MAX_LIVE 8
+static lv_obj_t *live[MAX_LIVE];
+
+static bool is_pager(const lv_obj_t *o)
+{
+    for (int i = 0; i < MAX_LIVE; i++) if (o && live[i] == o) return true;
+    return false;
+}
+
 static int page_at(lv_obj_t *o, const pager_t *p)
 {
     int pos = p->vertical ? lv_obj_get_scroll_y(o) : lv_obj_get_scroll_x(o);
@@ -37,7 +47,10 @@ static void scrolled(lv_event_t *e)
 
 static void deleted(lv_event_t *e)
 {
-    if (lv_event_get_target(e) == lv_event_get_current_target(e)) lv_free(lv_obj_get_user_data(lv_event_get_target(e)));
+    lv_obj_t *o = lv_event_get_target(e);
+    if (o != lv_event_get_current_target(e)) return;
+    for (int i = 0; i < MAX_LIVE; i++) if (live[i] == o) live[i] = NULL;
+    lv_free(lv_obj_get_user_data(o));
 }
 
 lv_obj_t *pager_create(lv_obj_t *parent, bool vertical, int pages, pager_cb_t on_change, pager_cb_t on_settle,
@@ -58,6 +71,7 @@ lv_obj_t *pager_create(lv_obj_t *parent, bool vertical, int pages, pager_cb_t on
     lv_obj_add_event_cb(o, scrolled, LV_EVENT_SCROLL, NULL);
     lv_obj_add_event_cb(o, scrolled, LV_EVENT_SCROLL_END, NULL);
     lv_obj_add_event_cb(o, deleted, LV_EVENT_DELETE, NULL);
+    for (int i = 0; i < MAX_LIVE; i++) if (!live[i]) { live[i] = o; break; }
     for (int i = 0; i < pages; i++) {
         lv_obj_t *pg = p->page[i] = lv_obj_create(o);
         lv_obj_remove_style_all(pg);
@@ -166,3 +180,16 @@ void pager_switch(lv_obj_t *o, int i)
 
 void pager_freeze(lv_obj_t *o) { lv_obj_set_scroll_dir(o, LV_DIR_NONE); }
 bool pager_vertical(lv_obj_t *o) { return ((pager_t *)lv_obj_get_user_data(o))->vertical; }
+
+// Up from the pager: each pager page on the way must be the one its pager shows (and nothing on the way hidden)
+bool pager_on_view(lv_obj_t *o)
+{
+    for (lv_obj_t *c = o; c; ) {
+        if (lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) return false;
+        lv_obj_t *page = lv_obj_get_parent(c);
+        lv_obj_t *outer = page ? lv_obj_get_parent(page) : NULL;
+        if (is_pager(outer) && pager_shown(outer, pager_current(outer)) != page) return false;
+        c = page;
+    }
+    return true;
+}

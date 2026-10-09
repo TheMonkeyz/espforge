@@ -71,19 +71,48 @@ def quick_swipes(ctx):
 
 
 @test('navigation')
-def long_press_opens_setup(ctx):
-    """A long-press opens Wi-Fi setup; a tap closes it, back where it was."""
+def long_press_opens_settings(ctx):
+    """A long press opens Settings (forge_settings) while online; Done goes back, and so does a swipe right."""
     b = ctx.board
-    if 'setup' not in CFG['screens']:
-        ctx.note('no "setup" screen in forge.json: not checked')
+    if 'settings' not in CFG['screens']:
+        ctx.note('no "settings" screen in forge.json: not checked')
         return
     go_home(ctx)
-    b.press()
-    b.wait_screen('setup', 6)
-    time.sleep(1)                                      # a tap within the long-press's own release window is ignored
-    b.tap()
-    b.wait_screen(HOME, 6)
-    ctx.note(f'long-press at {SCREEN_C}: setup; tap: back to {HOME}')
+    for close, how in ((lambda: b.tap(SCREEN_C[0], 42), 'Done'), (lambda: b.cmd('swipe right'), 'a swipe right')):
+        b.press()
+        b.wait_screen('settings', 6)
+        time.sleep(1)                                  # its slide up, and the long-press's own release
+        close()
+        b.wait_screen(HOME, 6)
+        time.sleep(0.5)
+    ctx.note(f'long-press at {SCREEN_C}: Settings; Done and a swipe right: back to {HOME}')
+
+
+@test('navigation')
+def settings_row_acts(ctx):
+    """A Settings row acts through the same setting as the phone's page: a tap on "Dim when quiet" (the first row,
+    under the SCREEN title: list at y 70, title 22 px, 6 px gap, a 52 px row) switches dimming, and the page sees it."""
+    b = ctx.board
+    if 'settings' not in CFG['screens']:
+        ctx.note('no "settings" screen in forge.json: not checked')
+        return
+    saved = b.api('/api/presence')
+    try:
+        go_home(ctx)
+        b.press()
+        b.wait_screen('settings', 6)
+        time.sleep(1)
+        at = len(ctx.log.lines())
+        b.tap(SCREEN_C[0], 70 + 22 + 6 + 26)
+        ctx.log.wait(r'settings: row 1\b', 4, 'the "Dim when quiet" row tapped', start=at)
+        time.sleep(0.5)
+        check(b.api('/api/presence')['enabled'] != saved['enabled'], 'dimming unchanged after a tap on its row')
+        b.tap(SCREEN_C[0], 42)
+        b.wait_screen(HOME, 6)
+    finally:
+        keys = ('enabled', 'margin_db', 'wake_s', 'dim_s', 'off_s', 'bright_pct', 'dim_pct', 'motion_wake')
+        b.api('/api/presence', {k: saved[k] for k in keys if k in saved})
+    ctx.note('a tap on "Dim when quiet" switched dimming (the page saw it); put back')
 
 
 @test('navigation')

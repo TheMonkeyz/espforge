@@ -27,10 +27,13 @@ static lv_draw_buf_t *other;                // the picture coming in, rendered w
 /* The neighbours of the page shown, kept ready: rendered while a drag waited for them (35-45 ms), the page started late
  * and jumped to catch the finger up (the user's "hiccups", October 4). Rendered by the idle timer, one per tick, when
  * nobody has touched the screen for IDLE_MS; re-rendered when older than STALE_MS (contents change: a clock, a status
- * line), so a drag shows at most 2 s old contents for the length of the drag (LVGL redraws the real page after). */
+ * line), so a drag shows at most 2 s old contents for the length of the drag (LVGL redraws the real page after).
+ * NB slots, each holding the picture of one page: prev and next of every pager on view (two with a pager on a page of
+ * another: up to four). slide_stale() marks them all old (the app changed what a neighbour shows). */
 #define IDLE_MS 300
 #define STALE_MS 2000
-static struct { lv_draw_buf_t *buf; lv_obj_t *page; uint32_t at; } nb[2];   // [0] = prev, [1] = next
+#define NB 4
+static struct { lv_draw_buf_t *buf; lv_obj_t *page; uint32_t at, used; } nb[NB];
 static uint32_t touched_ms;                 // lv_tick of the last press seen
 static bool shadow_ok;                      // a whole frame has been flushed since the shadow was (re)started
 
@@ -177,7 +180,7 @@ static int finger(int *x, int *y, int *errs)
 
 /* ---------- pager drags ---------- */
 
-#define MAX_PAGERS 4
+#define MAX_PAGERS 6
 #define DRAG_PX 10                      // decided after 10 px, by the larger axis (as LVGL picks a scroll direction)
 static lv_obj_t *pagers[MAX_PAGERS];
 static int npagers;
@@ -191,18 +194,49 @@ bool slide_tap_ok(void) { return !slide_busy() && (!moved_ms || lv_tick_elaps(mo
 
 static bool ready(void) { return P && shadow && other && shadow_ok; }
 
-// The picture of page `target` of `pg` as neighbour i (0 prev, 1 next): the cached one, else rendered now
-static const uint8_t *neighbour(lv_obj_t *pg, int target, int i, int *renders)
+static int slot_of(const lv_obj_t *page)                  // the slot holding this page's picture, -1 if none
+{
+    for (int i = 0; i < NB; i++) if (nb[i].buf && nb[i].page == page) return i;
+    return -1;
+}
+
+// A slot for a new picture: an empty one, else the least recently used of those holding none of the pages in `keep`
+// (the neighbours on view)
+static int slot_free(lv_obj_t *const *keep, int nkeep)
+{
+    int best = -1;
+    for (int i = 0; i < NB; i++) {
+        if (!nb[i].buf) continue;
+        if (!nb[i].page) return i;
+        bool kept = false;
+        for (int k = 0; k < nkeep && !kept; k++) kept = nb[i].page == keep[k];
+        if (!kept && (best < 0 || (int32_t)(nb[i].used - nb[best].used) < 0)) best = i;
+    }
+    return best;
+}
+
+// The picture of page `target` of `pg`: the kept one, else rendered now (into a slot, or `other` without one)
+static const uint8_t *neighbour(lv_obj_t *pg, int target, int *renders)
 {
     lv_obj_t *page = pager_shown(pg, target);
     if (!page) return NULL;
-    if (nb[i].buf && nb[i].page == page && nb[i].at) return nb[i].buf->data;
-    lv_draw_buf_t *dst = nb[i].buf ? nb[i].buf : other;
+    int i = slot_of(page);
+    if (i >= 0 && nb[i].at) { nb[i].used = lv_tick_get(); return nb[i].buf->data; }
+    if (i < 0) i = slot_free(NULL, 0);
+    lv_draw_buf_t *dst = i >= 0 ? nb[i].buf : other;
     lv_obj_update_layout(lv_obj_get_screen(page));
-    if (lv_snapshot_take_to_draw_buf(page, LV_COLOR_FORMAT_RGB565, dst) != LV_RESULT_OK) return NULL;
+    if (lv_snapshot_take_to_draw_buf(page, LV_COLOR_FORMAT_RGB565, dst) != LV_RESULT_OK) {
+        if (i >= 0) nb[i].page = NULL;
+        return NULL;
+    }
     (*renders)++;
-    if (dst == nb[i].buf) { nb[i].page = page; nb[i].at = lv_tick_get(); }
+    if (i >= 0) { nb[i].page = page; nb[i].at = nb[i].used = lv_tick_get(); }
     return dst->data;
+}
+
+void slide_stale(void)
+{
+    for (int i = 0; i < NB; i++) nb[i].at = 0;
 }
 
 static void drag_run(void *unused)
@@ -215,7 +249,7 @@ static void drag_run(void *unused)
     // The neighbour the finger is heading to, rendered before the first frame (a quick flick may be over by then)
     int side = (drag.vertical ? drag.y1 - drag.y0 : drag.x1 - drag.x0) > 0 ? -1 : 1, target = cur + side;
     int renders = 0;
-    const uint8_t *pic = neighbour(pg, target, side > 0, &renders);
+    const uint8_t *pic = neighbour(pg, target, &renders);
     bool have = pic != NULL;
     if (side < 0) f.prev = pic; else f.next = pic;
     (void)n;
@@ -251,7 +285,7 @@ static void drag_run(void *unused)
         if (s && s != side) {                                // the finger turned: the other neighbour
             side = s;
             target = cur + side;
-            pic = neighbour(pg, target, side > 0, &renders);
+            pic = neighbour(pg, target, &renders);
             have = pic != NULL;
             f.prev = side < 0 ? pic : NULL;
             f.next = side > 0 ? pic : NULL;
@@ -285,15 +319,19 @@ static void drag_run(void *unused)
     int64_t t1 = esp_timer_get_time();
     phase = 16;
     if (go) {
+        lv_obj_t *arrived = pager_shown(pg, target), *left = pager_shown(pg, cur);
         pager_switch(pg, target);                           // no LVGL animation: the pictures already moved
-        // The page left is now a neighbour: its picture is the shadow (what the panel showed when the drag started)
-        int back = side > 0 ? 0 : 1;
-        if (nb[back].buf) {
+        // The page left is now a neighbour: its picture is the shadow (what the panel showed when the drag started),
+        // in the slot of the page arrived at (no longer a neighbour). After pager_switch: the app's on_settle may have
+        // called slide_stale(). The one beyond: rendered when idle.
+        int back = slot_of(arrived);
+        if (back < 0) back = slot_of(left);
+        if (back < 0) back = slot_free(NULL, 0);
+        if (back >= 0) {
             memcpy(nb[back].buf->data, shadow->data, shadow->header.stride * H);
-            nb[back].page = pager_page(pg, cur);
-            nb[back].at = lv_tick_get();
+            nb[back].page = left;
+            nb[back].at = nb[back].used = lv_tick_get();
         }
-        nb[!back].page = NULL;                              // the one beyond: rendered when idle
     }
     lv_obj_invalidate(lv_screen_active());                  // LVGL repaints the real thing (and the shadow)
     touch_resync(true);
@@ -309,22 +347,40 @@ static void drag_run(void *unused)
     phase = 0;
 }
 
-static lv_obj_t *pager_under(lv_obj_t *scr)
+// The pagers on view on this screen (pager_on_view: one on a page of another counts while that page is shown)
+static int pagers_on_view(lv_obj_t *scr, lv_obj_t **out)
 {
+    int n = 0;
     for (int i = 0; i < npagers; i++)
-        if (lv_obj_get_screen(pagers[i]) == scr && !lv_obj_has_flag(pagers[i], LV_OBJ_FLAG_HIDDEN)) return pagers[i];
-    return NULL;
+        if (lv_obj_get_screen(pagers[i]) == scr && pager_on_view(pagers[i])) out[n++] = pagers[i];
+    return n;
 }
 
-// Each touch read, before LVGL handles it: a press on a slide pager that moves 10 px becomes a drag
+// The pager a drag along this axis moves: the deepest on view that way (a pager on a page of another is above it)
+static lv_obj_t *pager_for(lv_obj_t *scr, bool vertical)
+{
+    lv_obj_t *on[MAX_PAGERS], *best = NULL;
+    int n = pagers_on_view(scr, on), depth = -1;
+    for (int i = 0; i < n; i++) {
+        if (pager_vertical(on[i]) != vertical) continue;
+        int d = 0;
+        for (lv_obj_t *o = on[i]; o; o = lv_obj_get_parent(o)) d++;
+        if (d > depth) { depth = d; best = on[i]; }
+    }
+    return best;
+}
+
+// Each touch read, before LVGL handles it: a press on a screen with a slide pager on view that moves 10 px becomes a
+// drag of the pager on view along that axis (with a pager on a page of another, each axis has its own); with none that
+// way it stays LVGL's (a list scrolling, a gesture)
 static void read_hook(lv_indev_t *in, lv_indev_data_t *data)
 {
     if (data->state != LV_INDEV_STATE_PRESSED) { track.down = false; return; }
     touched_ms = lv_tick_get();
     if (!track.down) {                                     // a new press: may become a drag
+        lv_obj_t *on[MAX_PAGERS];
         track.down = true;
-        track.pager = slide_busy() ? NULL : pager_under(lv_screen_active());
-        track.armed = track.pager != NULL;
+        track.armed = !slide_busy() && pagers_on_view(lv_screen_active(), on) > 0;
         track.p0 = data->point;
         return;
     }
@@ -332,8 +388,9 @@ static void read_hook(lv_indev_t *in, lv_indev_data_t *data)
     int dx = data->point.x - track.p0.x, dy = data->point.y - track.p0.y;
     if (abs(dx) < DRAG_PX && abs(dy) < DRAG_PX) return;
     track.armed = false;
-    bool vertical = pager_vertical(track.pager);
-    if ((abs(dy) > abs(dx)) != vertical || !ready() || slide_busy()) return;   // the other axis: LVGL's
+    bool vertical = abs(dy) > abs(dx);
+    track.pager = pager_for(lv_screen_active(), vertical);
+    if (!track.pager || !ready() || slide_busy()) return;   // no pager that way: LVGL's
     drag = (typeof(drag)){ true, vertical, track.pager, track.p0.x, track.p0.y, data->point.x, data->point.y };
     lv_async_call(drag_run, NULL);                         // at the top of the LVGL task (stack for the render)
     lv_indev_wait_release(in);                             // the drag owns this touch: LVGL ignores it from now on
@@ -396,21 +453,29 @@ void slide_to(lv_obj_t *scr, int dir, bool vertical)
     if (scr != lv_screen_active()) queue_change(dir, vertical, NULL, NULL, scr);
 }
 
-// Keeps the neighbours of the page shown ready (see nb): one picture per tick, only while nobody touches the screen
+// Keeps the neighbours of the pages shown ready (see nb): one picture per tick, only while nobody touches the screen
 static void idle_tick(lv_timer_t *t)
 {
     if (!ready() || slide_busy() || lv_tick_elaps(touched_ms) < IDLE_MS) return;
-    lv_obj_t *pg = pager_under(lv_screen_active());
-    if (!pg) return;
-    int cur = pager_current(pg);
-    for (int i = 0; i < 2; i++) {
-        lv_obj_t *page = pager_shown(pg, cur + (i ? 1 : -1));   // not one hidden by pager_set_count
-        if (!page || !nb[i].buf) continue;
-        if (nb[i].page == page && lv_tick_elaps(nb[i].at) < STALE_MS) continue;
-        lv_obj_update_layout(lv_obj_get_screen(page));
-        bool ok = lv_snapshot_take_to_draw_buf(page, LV_COLOR_FORMAT_RGB565, nb[i].buf) == LV_RESULT_OK;
-        nb[i].page = ok ? page : NULL;
-        nb[i].at = lv_tick_get();
+    lv_obj_t *on[MAX_PAGERS], *want[2 * MAX_PAGERS];
+    int n = pagers_on_view(lv_screen_active(), on), nw = 0;
+    for (int k = 0; k < n; k++) {
+        int cur = pager_current(on[k]);
+        for (int i = 0; i < 2; i++) {
+            lv_obj_t *page = pager_shown(on[k], cur + (i ? 1 : -1));   // not one hidden by pager_set_count
+            if (page) want[nw++] = page;
+        }
+    }
+    if (nw > NB) nw = NB;
+    for (int w = 0; w < nw; w++) {
+        int i = slot_of(want[w]);
+        if (i >= 0 && nb[i].at && lv_tick_elaps(nb[i].at) < STALE_MS) continue;
+        if (i < 0) i = slot_free(want, nw);
+        if (i < 0) return;
+        lv_obj_update_layout(lv_obj_get_screen(want[w]));
+        bool ok = lv_snapshot_take_to_draw_buf(want[w], LV_COLOR_FORMAT_RGB565, nb[i].buf) == LV_RESULT_OK;
+        nb[i].page = ok ? want[w] : NULL;
+        nb[i].at = nb[i].used = lv_tick_get();
         return;                                             // one per tick: LVGL stays responsive
     }
 }
@@ -438,8 +503,10 @@ void slide_init(void)
     if (in) lv_indev_set_scroll_limit(in, 2 * DRAG_PX);
     lv_obj_invalidate(lv_screen_active());                 // a whole frame for the shadow
     for (int i = 0; i < npagers; i++) pager_freeze(pagers[i]);
-    for (int i = 0; i < 2; i++) nb[i].buf = lv_draw_buf_create(W, H, LV_COLOR_FORMAT_RGB565, 0);   // 434 KB each
-    if (!nb[0].buf || !nb[1].buf) ESP_LOGW(TAG, "no room to keep neighbours ready: rendered when a drag starts");
+    int got = 0;
+    for (int i = 0; i < NB; i++) got += (nb[i].buf = lv_draw_buf_create(W, H, LV_COLOR_FORMAT_RGB565, 0)) != NULL;
+    if (got < NB) ESP_LOGW(TAG, "room for %d of %d neighbour pictures (434 KB each): the others rendered when a drag "
+                                "starts", got, NB);
     lv_timer_create(idle_tick, 100, NULL);
     testcon_add_where(where_slide);
 }
