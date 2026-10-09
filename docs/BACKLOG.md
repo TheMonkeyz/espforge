@@ -69,12 +69,12 @@ reason it stays in the app.
   pager on a page of another, across it (the stops in a column, in the middle of a row alerts | stops | map), each
   axis dragging its own: `pager_on_view()` (pager.c, host test), slide.c picking the pager by the drag's axis, four
   neighbour pictures instead of two, `slide_stale()` for neighbours whose contents the app changed.
-  **→** PR #PRNUM.
+  **→** PR #26.
 - [x] v0.5.0-rc.1, 2026-10-09, esp32-s3-rtcquebec v0.4.0 (the user: "maybe the whole settings screen should be
   standardized in espforge for current and future projects"): weather_amoled's on-device Settings (`cfg_*` in its
   ui.c) as `components/forge_settings`: the screen (Done, rows in sections, brightness arc), ready-made rows (dimming,
   pick-up, timing, language, phone QR, Wi-Fi, updates, restart, About), the app's own rows, texts by code.
-  **→** PR #PRNUM; the starter opens it with a long press (harness `long_press_opens_settings`, `settings_row_acts`).
+  **→** PR #26; the starter opens it with a long press (harness `long_press_opens_settings`, `settings_row_acts`).
 - [ ] 2026-10-09, espforge v0.5.0-rc.1: weather_amoled onto forge_settings (its `cfg_*`, main/ui.c:2347-2672). It has
   its own slide.c, not forge_lvgl's, and forge_settings slides with forge_lvgl's `slide_to()`: give forge_settings a
   hook for the slide (or move weather_amoled to forge_lvgl first). Its rows of its own: units, sound.
@@ -139,7 +139,7 @@ reason it stays in the app.
   staged parts against forge.json's build_dir and the harness looked for the ELF there: a build staged from another
   folder (`stage.py --build build/forge`) was refused, and its panic not decoded. Both follow
   `stage/manifest.json`'s `build_dir` now; test `test_another_build_folder_staged_is_flashed` (LESSONS L198).
-  **→** PR #PRNUM.
+  **→** PR #26.
 - [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0: its `tools/forge_local.py` (weather_amoled's, with every espforge
   component of the manifest and the board, `COMPONENTS` a name -> folder map): ship it in the template with the
   "framework at a tag" section of NEW-PROJECT.md (the open entry above).
@@ -182,4 +182,4 @@ reason it stays in the app.
   on the page); host test.
 - [x] v0.5.0-rc.1, 2026-10-09, esp32-s3-rtcquebec v0.4.0: L197 (code a console command reaches runs on the
   console's 4 KB stack: a `screen stop2` overflowed it), L198 (tools follow the staged build).
-  **→** PR #PRNUM.
+  **→** PR #26.
