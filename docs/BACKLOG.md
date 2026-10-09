@@ -3,13 +3,19 @@
 Every project built on espforge (or that espforge came from) adds a line here when it changes something that could
 help the others: framework code, board support, tools, tests, docs, a lesson learned. An alignment session works
 through the list: port it (a PR here, then the apps take the new tag), or decide not to, and says so in the entry.
-The rule is in each project's CLAUDE.md (esp32-s3-rtcquebec, weather_amoled, espforge).
+The rule is in each project's CLAUDE.md (esp32-s3-rtcquebec, weather_amoled, esp32-s3-meteobus, espforge).
 
 How to write an entry: `- [ ] YYYY-MM-DD, <project> <version or commit>: what, where (files), why it matters.` Add
 "PR #n" once a pull request exists here; tick it `[x]` with the espforge version that has it, or strike it with the
 reason it stays in the app.
 
 ## Framework code
+
+- [ ] 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0 (3bbe34a): forge_net `svc_user_agent()` builds the User-Agent in a
+  128-byte buffer, and `-Werror=format-truncation` fails the build once `CONFIG_FORGE_PRODUCT`, `CONFIG_FORGE_REPO` and
+  `CONFIG_FORGE_UA_COMMENT` are a little longer ("esp32-s3-meteobus", "open-source weather and bus display").
+  MeteoBus shortened its comment to "open-source weather/bus". Make the buffer larger (256) or check the lengths
+  with a `_Static_assert` with a clear message, in `components/forge_net/svc.c`.
 
 - [x] v0.3.0-rc.1, 2026-10-06, esp32-s3-rtcquebec v0.1.0: forge_lvgl `pager_set_count()`: build every page once, show as many as
   the app has data for (pages past n hidden, out of the scroll range and of slide.c's drags). PR #8; review found
@@ -89,6 +95,12 @@ reason it stays in the app.
   its own picture (an overlay list per view): no second 434 KB buffer, and weather_amoled's radar could use it too.
 
 ## Tools and tests
+
+- [ ] 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0: this was the third new repo (after esp32-s3-weather and
+  esp32-s3-rtcquebec) set up by hand: the "protect main" and "release tags" rulesets, Pages built by a workflow, the
+  `github-pages` environment's branch and tag policy (`main`, `v*`) and Actions' default read permissions. A
+  `tools/setup_github.py` (or a step in the new-project skill) that copies these from a reference repo with `gh api`,
+  then checks they match, would make this repeatable.
 
 - [x] v0.3.0-rc.1, 2026-10-06, esp32-s3-rtcquebec v0.1.0: the flash helper started by Claude in the background, windowless;
   `tools\esptool.exe` to copy into a new project (git-ignored). PR #7.
