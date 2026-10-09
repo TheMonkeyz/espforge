@@ -80,6 +80,13 @@ reason it stays in the app.
   hook for the slide (or move weather_amoled to forge_lvgl first). Its rows of its own: units, sound.
 - [ ] 2026-10-09, espforge v0.5.0-rc.1: list scrolls drawn as pictures (weather_amoled's `slide_scroll`) in forge_lvgl,
   for forge_settings' list and apps' lists (esp32-s3-rtcquebec's alerts): LVGL scrolls them at ~25 fps.
+- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: a long press only from a finger that stayed put (its ui.c
+  `long_pressed`: within 24 px of where it came down). LVGL fires LONG_PRESSED for a press held 400 ms however far it
+  moved: a swipe read late on a slow page opened Settings (L200). A forge_lvgl helper (`touch_held_still()`), used by
+  the starter and forge_settings' openers; weather_amoled's `open_cfg` has the same exposure.
+- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: its map composes picture + route path in a canvas (`map_compose`,
+  434 KB PSRAM) because `lv_line`s over the image cost 170-200 ms a frame (L200). forge_map could draw polylines into
+  its own picture (an overlay list per view): no second 434 KB buffer, and weather_amoled's radar could use it too.
 
 ## Tools and tests
 
@@ -143,6 +150,9 @@ reason it stays in the app.
 - [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0: its `tools/forge_local.py` (weather_amoled's, with every espforge
   component of the manifest and the board, `COMPONENTS` a name -> folder map): ship it in the template with the
   "framework at a tag" section of NEW-PROJECT.md (the open entry above).
+- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: building from the Claude desktop app's shell needs
+  `IDF_COMPONENT_CACHE_PATH` outside AppData for the component manager's git fetches (L199): say so in WORKFLOW.md
+  and the build skill (or set it in the devloop / CI helper scripts that build).
 
 ## Emulator (web/emu)
 
@@ -159,6 +169,10 @@ reason it stays in the app.
 - [ ] 2026-10-08, weather_amoled PR #28: its emulator builds forge_presence's real `presence.c` (not a stand-in like
   `web/emu/forge/emu_presence.c`) with the app's hooks: it needed only a `testcon_register` / `testcon_add_where` stub
   and NVS `i16` in the emulator's NVS. espforge's emulator could do the same and drop `emu_presence.c`.
+- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: the CI emulator job builds the latest stable release (the site's
+  "Try it"), so a pull request that changes the emulator or the UI is never built for the browser in CI (rtcquebec's
+  PR #8 passed "emulator" on v0.3.3 while its Makefile lacked USE_SETTINGS). Build the branch too on pull requests
+  (and keep publishing the stable one).
 
 ## Lessons (docs/LESSONS.md)
 
@@ -183,3 +197,5 @@ reason it stays in the app.
 - [x] v0.5.0-rc.1, 2026-10-09, esp32-s3-rtcquebec v0.4.0: L197 (code a console command reaches runs on the
   console's 4 KB stack: a `screen stop2` overflowed it), L198 (tools follow the staged build).
   **→** PR #26.
+- [x] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: L199 (the desktop app's shell and the component manager's cache), L200
+  (a page with slow frames loses drags; long presses from moved fingers).
