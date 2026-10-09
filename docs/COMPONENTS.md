@@ -75,8 +75,8 @@ Kconfig: `FORGE_OTA_SITE` (the Pages URL, ending with `/`).
 |---|---|
 | `forge_lvgl.h` | `forge_lvgl_init(lock, unlock)` (called by the board), `ui_lock/ui_unlock`, the simulated finger (`finger_inject`, `finger_injected` for the board's touch driver) and the console's `tap press swipe drag`. `lvgl_mem.c` puts LVGL's heap in PSRAM (small blocks fall back to internal RAM, counted; out of memory = restart). |
 | `screens.h` | Named screens: `screens_register(defs, n)` with `get / show / prepare / shown`; console `screen [name]`; `screens_snapshot` for `/api/snapshot`. Names = `forge.json` `screens`. |
-| `pager.h` | Full-screen pager: pages side by side (or stacked), `pager_switch` / `pager_go`; its drags are `slide.h`'s. `pager_set_count(pager, n)` shows only the first n of the pages created (the others are hidden, out of reach of swipes; `pager_page()` still gives them): build every page once, show as many as there is data for. `pager_set_order(pager, pages, n)` shows those pages in that order, the others hidden after them (a summary page that stays last after a varying list; keep page objects, not numbers: `pager_index()`). `pager_shown(pager, i)`: page i only if it is shown (slide.c's neighbours). Host test: `tests/host/test_pager.c`. |
-| `slide.h` | Moves drawn as pictures copied to the panel (~66 fps, LVGL's own scrolling ~24): `slide_pager(pager)` takes over its drags (follow the finger, bounce at the ends, flick), `slide_change()` / `slide_to()` slide an in-place change or a screen load. `slide_tap_ok()`: false during a move and 600 ms after it (a quick swipe's next press can reach LVGL as a tap); a click handler on a pager page asks it first. A shadow of the panel (every flush copied) plus the current page's neighbours kept ready (rendered when idle, refreshed every 2 s): 4 pictures, 1.7 MB of PSRAM at 466x466. Log: `slide: drag: first frame after N ms, ... gap max, held reads, finger still max, renders`. Needs the board's panel hooks (`forge_lvgl_set_panel`). |
+| `pager.h` | Full-screen pager: pages side by side (or stacked), `pager_switch` / `pager_go`; its drags are `slide.h`'s. `pager_set_count(pager, n)` shows only the first n of the pages created (the others are hidden, out of reach of swipes; `pager_page()` still gives them): build every page once, show as many as there is data for. `pager_set_order(pager, pages, n)` shows those pages in that order, the others hidden after them (a summary page that stays last after a varying list; keep page objects, not numbers: `pager_index()`). `pager_shown(pager, i)`: page i only if it is shown (slide.c's neighbours). A pager can sit on a page of another, across it (esp32-s3-rtcquebec: the stops in a column, in the middle of a row alerts | stops | map): `pager_on_view(pager)` says whether every pager page above it is the one shown. Host test: `tests/host/test_pager.c`. |
+| `slide.h` | Moves drawn as pictures copied to the panel (~66 fps, LVGL's own scrolling ~24): `slide_pager(pager)` takes over its drags (follow the finger, bounce at the ends, flick), `slide_change()` / `slide_to()` slide an in-place change or a screen load. `slide_tap_ok()`: false during a move and 600 ms after it (a quick swipe's next press can reach LVGL as a tap); a click handler on a pager page asks it first. With a pager on a page of another, a drag moves the pager on view along its axis (none that way: LVGL's, a list or a gesture). A shadow of the panel (every flush copied) plus the neighbours of the pagers on view kept ready (rendered when idle, refreshed every 2 s; `slide_stale()` when the app changed what they show): 6 pictures, 2.6 MB of PSRAM at 466x466. Log: `slide: drag: first frame after N ms, ... gap max, held reads, finger still max, renders`. Needs the board's panel hooks (`forge_lvgl_set_panel`). |
 
 ## forge_presence (screen dimming)
 
@@ -101,6 +101,26 @@ the touch that wakes a dark screen does nothing else.
   test `tests/host/test_presence.c`. The settings page's "Screen" section: `tools/webtest/tests/screen.spec.js`.
   On the board: harness suite `presence` (`dim_off_wake`: dim, off, a long-press on the dark screen only wakes it).
   In the browser: `web/emu/forge/emu_presence.c` stands in for `presence.c` (no microphones there).
+
+## forge_settings (the Settings screen)
+
+`forge_settings.h`: the screen a long press opens (weather_amoled's, shared since espforge v0.5.0). Done at the top,
+rows in sections that scroll, a brightness arc along the bottom (the finger's x on the band under it: previewed live,
+saved on release). It slides up from below; Done or a swipe right slides back to the screen it came from. Refreshed
+every second while shown, so a change made on the phone's page shows up.
+
+- Rows (`settings_row_t`: kind, label, callbacks): a section title, a switch (the whole row toggles it), a value (a tap
+  cycles it), an action (a tap does it), an info line. Ready-made ones, `settings_std_*`: dimming, wake on pick-up
+  (only with a motion sensor), timing presets (forge_presence); language (`i18n_save`, then the app's `changed`); the
+  phone's settings page (a QR code of `web_url()`); Wi-Fi (the app's setup screen, which calls `settings_resume()` when
+  it closes); updates (check, then "Install vX" on a second tap); restart (a second tap); About (version, network,
+  IP, memory, uptime). The app adds rows of its own.
+- Texts are the app's: each row's label is an app text id; the ready-made rows' words come from
+  `settings_opts_t.texts`, the app's id for each `settings_text_t` code (a table in `settings_text_t`'s order, checked
+  by a `_Static_assert` on its length: see the starter's `ui.c`).
+- Snapshots: register `settings` (shown), and `settings1` / `settings2` (the list scrolled down, `settings_scroll(n)`;
+  in `screens_not_shown`). Harness: the starter's `long_press_opens_settings` and `settings_row_acts`. In the browser:
+  `USE_SETTINGS := 1` in `web/emu/Makefile`.
 
 ## forge_map (street map pictures)
 
@@ -158,7 +178,7 @@ A new board: copy the directory, keep the `board.h` API, change pins, panel init
 | File | What |
 |---|---|
 | `main.c` | Start-up order, BOOT button (forget Wi-Fi), first-time and offline setup (15 min window), `POST /api/settings`, screen dimming's hooks (board microphones, motion sensor, touch, brightness), the work loop placeholder. |
-| `ui.c` | Screens `hello`, `system` (pager), `setup` (setup network / Easy Connect), `message`; registry for the console and snapshots. |
+| `ui.c` | Screens `hello`, `system` (pager), `settings` (forge_settings, a long press), `setup` (setup network / Easy Connect: offline, a long press; online, Settings' Wi-Fi row), `message`; registry for the console and snapshots. |
 | `app_text.h/.c`, `i18n_strings.h` | The texts, English and Québec French. |
 | `web/index.html` | Settings page: Wi-Fi, language, updates; `I18N` + `t()`. Tested by `tools/webtest`. |
 

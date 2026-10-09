@@ -142,18 +142,20 @@ def esptool(args):
 def flash_args(port):
     """(esptool arguments, None), or (None, why not): the parts in <build_dir>/flasher_args.json, from the staged
     copies, each checked by md5 against stage/manifest.json and against the build (a build newer than the stage would
-    test old firmware). As Flash-Args in flash_helper.ps1."""
-    build = forgecfg.path(CFG, CFG['build_dir'])
-    fa_path = os.path.join(build, 'flasher_args.json')
+    test old firmware). The build is the one staged (stage.py --build: another folder than forge.json's; checked
+    against forge.json's, its copies were refused as "changed since it was staged", 2026-10-09). As Flash-Args in
+    flash_helper.ps1."""
     mf_path = p(os.path.join('stage', 'manifest.json'))
-    if not os.path.exists(fa_path):
-        return None, f'no {fa_path} (build the firmware first)'
     if not os.path.exists(mf_path):
         return None, 'no stage/manifest.json (run tools/devloop/stage.py)'
-    with open(fa_path, encoding='utf-8') as f:
-        fa = json.load(f)
     with open(mf_path, encoding='utf-8') as f:
         man = json.load(f)
+    build = forgecfg.path(CFG, man.get('build_dir') or CFG['build_dir'])
+    fa_path = os.path.join(build, 'flasher_args.json')
+    if not os.path.exists(fa_path):
+        return None, f'no {fa_path} (build the firmware first)'
+    with open(fa_path, encoding='utf-8') as f:
+        fa = json.load(f)
     fs, extra = fa.get('flash_settings', {}), fa.get('extra_esptool_args', {})
     args = (['--port', port] if port else []) + [
         '--chip', extra.get('chip') or CFG['chip'], '-b', str(CFG['baud']),

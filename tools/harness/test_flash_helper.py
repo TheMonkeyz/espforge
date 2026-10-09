@@ -257,6 +257,23 @@ class Flash(TempDev):
         self.assertIsNone(args)
         self.assertIn('md5', err)
 
+    def test_another_build_folder_staged_is_flashed(self):
+        # stage.py --build build/forge (tools/forge_local.py's folder): checked against forge.json's build_dir, which
+        # holds other files, the stage was refused (2026-10-09)
+        other = os.path.join(self.root, 'build', 'forge')
+        shutil.copytree(self.build, other)
+        with open(os.path.join(other, 'espforge.bin'), 'wb') as f:
+            f.write(os.urandom(256))
+        man = stage.stage(fh.CFG, build=other)
+        args, err = fh.flash_args(None)
+        self.assertIsNone(err)
+        app = next(x for x in man['parts'] if x['offset'] == '0x10000')
+        self.assertIn(os.path.join(fh.DEV, 'stage', app['file']), args)
+        with open(os.path.join(other, 'espforge.bin'), 'wb') as f:   # that folder rebuilt: refused
+            f.write(os.urandom(256))
+        args, err = fh.flash_args(None)
+        self.assertIn('changed since it was staged', err)
+
     def test_a_build_newer_than_the_stage_is_refused(self):
         stage.stage(fh.CFG)
         with open(os.path.join(self.build, 'espforge.bin'), 'wb') as f:

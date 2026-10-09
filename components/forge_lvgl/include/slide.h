@@ -17,7 +17,13 @@
 // pictures, the same calls fall back to LVGL's own animation (or none). Log lines: "slide: ...".
 
 void slide_init(void);                       // forge_lvgl_set_panel() calls it
-void slide_pager(lv_obj_t *pager);           // up to 4 pagers; freezes LVGL's own scrolling of it
+void slide_pager(lv_obj_t *pager);           // up to 6 pagers; freezes LVGL's own scrolling of it
+// A pager can sit on a page of another, across it (pager_on_view): a drag moves the pager on view along the drag's
+// axis; with none that way it stays LVGL's (a list scrolling, a gesture). Neighbour pictures are kept for both
+// (4 x 434 KB of PSRAM).
+// The app changed what a neighbour page shows (the alerts next to a stop, after the stop changed): the kept pictures
+// are old; re-rendered when idle, or when a drag reaches them first.
+void slide_stale(void);
 // The active screen changes in place: change(user) is called, then the old picture slides out towards -dir (dir 1:
 // the new state comes in from the right / below). For pages that are one screen with different contents.
 void slide_change(int dir, bool vertical, void (*change)(void *user), void *user);

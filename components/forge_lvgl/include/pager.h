@@ -30,6 +30,9 @@ lv_obj_t *pager_shown(lv_obj_t *pager, int i);
 // The index of a page changes with the order: keep the page object, not its number (pager_index finds it).
 void pager_set_order(lv_obj_t *pager, lv_obj_t *const *pages, int n);
 bool pager_vertical(lv_obj_t *pager);
+// A pager can sit on a page of another pager across it (a vertical list of stops in the middle of a row of screens):
+// each axis drags its own (slide.c). On view: every pager page above it is the one its pager shows, nothing hidden.
+bool pager_on_view(lv_obj_t *pager);
 int pager_index(lv_obj_t *pager, const lv_obj_t *page);   // -1: not one of its pages
 
 // For drags drawn as pictures (outside LVGL): the finger no longer scrolls the pager (pager_freeze); a page's picture is

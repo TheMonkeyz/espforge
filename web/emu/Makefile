@@ -8,5 +8,7 @@ APP_SRC := main.c ui.c app_text.c
 APP_EMU := emu_main.c
 # What main/CMakeLists.txt embeds that the app reads (EMBED_FILES): the font, as ttf_start / ttf_end (ui.c)
 EMBED := ttf=../../main/montserrat.ttf
+# The Settings screen a long press opens (forge_settings)
+USE_SETTINGS := 1
 
 include forge/emu.mk

@@ -1093,3 +1093,22 @@ Why: they use the browser's zone and offset; the emulator's clock showed the vis
 Fix: web/emu/forge/emu_time.c applies the firmware's TZ to `localtime_r`; for an offset, compute it from the date
 (`mktime` of the local fields against the UTC time) rather than `%z`.
 Check: run the emulator with the browser in another time zone (Playwright's `timezoneId`).
+
+**L197. Code a test console command reaches runs on the console task's 4 KB stack.**
+Why: esp32-s3-rtcquebec's `screen stop2` (v0.4.0-nav.1) ran the app's page refresh in the `testcon` task: a whole
+departures board (`dep_entry_t`) and a 500-byte buffer on its stack, twice down the call chain: "A stack overflow in
+task testcon", a restart. The same refresh from the LVGL task (a bigger stack) had always been fine.
+Fix: large locals in code that a `screens_def_t` show / prepare reaches are `static` (one caller at a time: the
+display lock is held), or the work goes to the LVGL task.
+Check: the harness's screens and navigation suites drive every screen through the console; `where` and the panic line
+name the task.
+
+**L198. A tool that flashes or reads a build must follow the build that was staged, not forge.json's.**
+Why: `stage.py --build build/forge` (a build against an unreleased espforge, `tools/forge_local.py`) staged the right
+parts, then the flash helper checked them against `build/v55` and refused them ("changed since it was staged"), and
+`devloop.py flash` without `--no-stage` staged `build/v55` again: the board ran the previous firmware until the log's
+`ota: Running` line said so (L2). The harness then looked for the ELF in `build/v55` and couldn't decode a panic.
+Fix: `stage/manifest.json` records the build folder; the helpers (`flash_helper.ps1` / `.py`) and the harness's
+`elf_path()` read it (espforge v0.5.0). Flash another folder with `stage.py --build <dir>` then
+`devloop.py flash N --no-stage`, or `harness.py --flash <dir>`.
+Check: `tools/harness/test_flash_helper.py` `test_another_build_folder_staged_is_flashed`.

@@ -17,7 +17,7 @@ struct lv_obj_t {
     int nev;
 };
 struct lv_event_t { lv_obj_t *target, *current; lv_event_code_t code; };
-static lv_obj_t objs[64];
+static lv_obj_t objs[96];
 static int nobj;
 
 int32_t lv_display_get_horizontal_resolution(void *d) { (void)d; return W; }
@@ -30,6 +30,7 @@ lv_obj_t *lv_obj_create(lv_obj_t *parent)
     if (parent) parent->child[parent->nchild++] = o;
     return o;
 }
+lv_obj_t *lv_obj_get_parent(const lv_obj_t *o) { return o->parent; }
 void lv_obj_remove_style_all(lv_obj_t *o) { (void)o; }
 void lv_obj_set_size(lv_obj_t *o, int32_t w, int32_t h) { o->w = w; o->h = h; }
 void lv_obj_set_pos(lv_obj_t *o, int32_t x, int32_t y) { o->x = x; o->y = y; }
@@ -141,5 +142,28 @@ int main(void)
     lv_obj_t *vw[] = { v2, v0 };
     pager_set_order(vp, vw, 2);
     CHECK(lv_obj_get_y(v2) == 0 && lv_obj_get_y(v0) == H && lv_obj_get_x(v0) == 0, "vertical positions");
+
+    // a pager on a page of another (esp32-s3-rtcquebec: the stops, vertical, in the middle of alerts | stops | map):
+    // on view only while that page is the one shown, all the way up
+    lv_obj_t *scr2 = lv_obj_create(NULL);
+    lv_obj_t *row = pager_create(scr2, false, 3, NULL, NULL, NULL);
+    lv_obj_t *col = pager_create(pager_page(row, 1), true, 4, NULL, NULL, NULL);
+    lv_obj_t *deep = pager_create(pager_page(col, 2), false, 2, NULL, NULL, NULL);
+    pager_go(row, 0, false);
+    CHECK(pager_on_view(row) && !pager_on_view(col), "row's page 0 shown: the column is off view");
+    pager_go(row, 1, false);
+    CHECK(pager_on_view(col), "row's page 1 shown: the column is on view");
+    CHECK(!pager_on_view(deep), "the column shows its page 0, not the page holding the third pager");
+    pager_go(col, 2, false);
+    CHECK(pager_on_view(deep), "all the way up");
+    pager_go(row, 2, false);
+    CHECK(!pager_on_view(deep) && !pager_on_view(col), "the row moved on: neither below it is on view");
+    pager_go(row, 1, false);
+    lv_obj_add_flag(col, LV_OBJ_FLAG_HIDDEN);
+    CHECK(!pager_on_view(col) && !pager_on_view(deep), "hidden");
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *plain = lv_obj_create(scr2), *inside = lv_obj_create(plain);
+    lv_obj_t *under_plain = pager_create(inside, true, 2, NULL, NULL, NULL);
+    CHECK(pager_on_view(under_plain), "inside plain objects (not pager pages): on view");
     return check_done("pager");
 }

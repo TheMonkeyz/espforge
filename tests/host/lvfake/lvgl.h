@@ -23,6 +23,7 @@ enum {
 int32_t lv_display_get_horizontal_resolution(void *disp);
 int32_t lv_display_get_vertical_resolution(void *disp);
 lv_obj_t *lv_obj_create(lv_obj_t *parent);
+lv_obj_t *lv_obj_get_parent(const lv_obj_t *o);
 void lv_obj_remove_style_all(lv_obj_t *o);
 void lv_obj_set_size(lv_obj_t *o, int32_t w, int32_t h);
 void lv_obj_set_pos(lv_obj_t *o, int32_t x, int32_t y);
