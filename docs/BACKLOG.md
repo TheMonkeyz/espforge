@@ -11,6 +11,28 @@ reason it stays in the app.
 
 ## Framework code
 
+- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc (dbd61f2): slide.c's `get()` with `force` (a slide that needs a picture
+  now) allocated a new 434 KB buffer even when `room_for(1)` said no: PSRAM's low point fell from ~450 to 268 KB the
+  first time a screen not kept as a neighbour (the radar, opened on top since MeteoBus) slid in. Now it takes the
+  buffer of the picture worth least (not a spare). forge_lvgl's slide.c has the same `!room_for(1) && !force` test:
+  port the fix (`main/slide.c`, `get()`).
+- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: slide.c's idle work never took a slot holding a needed picture, even
+  one worth less than the picture it had to render, nor reused a less useful picture's buffer when PSRAM had no room
+  for another: with five neighbours to keep (MeteoBus's weather screen: itself, the next place, extras, the stop page,
+  the hourly view) the next place's picture, evicted during a visit to the extras page, never came back, and place
+  drags waited ~0.12 s (harness drag_start_ms.drag_place 14 -> 121 ms). `slot_for(..., want_p)` and the idle path's
+  buffer reuse in `main/slide.c`; forge_lvgl's slide.c has the same rule.
+- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: `slide_cache_release_unneeded()`: frees the pictures not in the keep
+  list, for a screen that needs PSRAM for a while (MeteoBus's bus map: its 434 KB picture and its tiles exist only
+  while it is open). A small addition to forge_lvgl's slide.c for any app with a memory-hungry screen on top.
+- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: `netq.c`: who is downloading now (flags set around the weather loop's,
+  the radar's and the bus map's downloads), so a lower-priority poller (departures.c) waits before each request: each
+  TLS download holds 10-15 KB of internal RAM, and two at once took a place switch's low point from ~40 to 29 KB.
+  A forge_net-level "download slot" would let every app (and svc probes, OTA checks) take turns. MeteoBus went
+  further (rc.13): no task for the poller at all, its requests run in the radar task's idle time
+  (`radar_set_side_work`), after a PSRAM-stack TLS task stopped for good once and an internal one cost 6 KB. A
+  framework "background download worker" with a queue would serve every app's pollers the same way.
+
 - [ ] 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0 (3bbe34a): forge_net `svc_user_agent()` builds the User-Agent in a
   128-byte buffer, and `-Werror=format-truncation` fails the build once `CONFIG_FORGE_PRODUCT`, `CONFIG_FORGE_REPO` and
   `CONFIG_FORGE_UA_COMMENT` are a little longer ("esp32-s3-meteobus", "open-source weather and bus display").
@@ -187,6 +209,14 @@ reason it stays in the app.
   (and keep publishing the stable one).
 
 ## Lessons (docs/LESSONS.md)
+
+- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: LVGL 9.2's `LV_LABEL_LONG_DOT` needs a fixed width **and** a fixed
+  height: with the width set by its content (a pill sized to its text) it showed only "…"; with a fixed width but a
+  content height it wrapped and ran into the line below ("Terminus Chute-Montmorency"). Size a one-line label from
+  `lv_text_get_size()` (width capped, height one line). A lesson for docs/LESSONS.md (LVGL).
+- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: a weather app and a bus app merged into one firmware (docs/MERGE-PLAN.md
+  there): the memory plan that held (one picture cache, the two maps taking turns, a poller's stack in PSRAM, one TLS
+  download at a time) is worth a page in docs/ for future merges of espforge apps.
 
 - [x] v0.3.0-rc.1, 2026-10-07, esp32-s3-rtcquebec v0.2.1: during `lv_screen_load_anim()` (200 ms) `lv_screen_active()` is still
   the previous screen, and LVGL 9.2 has no public getter for the one loading: a timer that checks "is my screen
