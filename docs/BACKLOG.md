@@ -11,6 +11,13 @@ reason it stays in the app.
 
 ## Framework code
 
+- [ ] 2026-10-10, esp32-s3-meteobus v0.2.1 (fix/radar-wifi-power-save): forge_net leaves the station in ESP-IDF's
+  default power save (`WIFI_PS_MIN_MODEM`, and `net_dpp_stop()` sets it back): each reply then waits for the router's
+  next beacon, ~100 ms a request. The radar's 14 past frames (28 small GeoMet requests on one kept-alive connection)
+  took 4.9-6.6 s, 3.1-3.7 s with power save off (the PC: ~90 ms a request). MeteoBus turns it off while a map screen
+  is open (`netq_awake()` in `main/netq.c`) and leaves forge_net alone. For espforge: a `net_low_latency(bool)` (a
+  count of users, kept off while Easy Connect holds the radio) and a LESSONS entry: before blaming a server or the
+  parsing for slow requests, compare the board with the PC on the same URLs, and try `WIFI_PS_NONE`.
 - [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc (dbd61f2): slide.c's `get()` with `force` (a slide that needs a picture
   now) allocated a new 434 KB buffer even when `room_for(1)` said no: PSRAM's low point fell from ~450 to 268 KB the
   first time a screen not kept as a neighbour (the radar, opened on top since MeteoBus) slid in. Now it takes the
