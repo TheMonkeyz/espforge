@@ -217,6 +217,13 @@ reason it stays in the app.
 
 ## Lessons (docs/LESSONS.md)
 
+- [ ] 2026-10-10, esp32-s3-meteobus (PR #13): a settings-page list whose rows act on the list they were drawn from
+  (My stops: `rm.onclick = () => saveFavs(favs.filter((_, k) => k !== i))`) removes the wrong item when a tap lands
+  between a save the display accepted and the page's redraw (Remove right after Move up: the old first stop went).
+  Found as a flaky Playwright test on the Mac runner; reproduced every time by holding the display's answer back 1.5 s
+  (`page.route` + `route.fetch`, then a delay, then `route.fulfill`). Fix: disable the rows during a save and show the
+  saved list at once. Lesson: a flaky UI test may be a real race; hold the reply back to make it deterministic.
+  **esp32-s3-rtcquebec's `main/web/index.html` has the same handlers** (its `saveFavs`): port the fix there.
 - [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: LVGL 9.2's `LV_LABEL_LONG_DOT` needs a fixed width **and** a fixed
   height: with the width set by its content (a pill sized to its text) it showed only "…"; with a fixed width but a
   content height it wrapped and ran into the line below ("Terminus Chute-Montmorency"). Size a one-line label from
