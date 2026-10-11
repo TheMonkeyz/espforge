@@ -11,6 +11,27 @@ reason it stays in the app.
 
 ## Framework code
 
+- [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power (not committed yet): forge_presence's "off" is only brightness 0; the
+  panel kept refreshing and the CPU stayed at 240 MHz for the hours the screen was dark. MeteoBus makes it a real off
+  in its `set_brightness` hook (`main/main.c`) and `display_sleep()` (`main/display.c`): DISPOFF + SLPIN from the
+  presence task (after LVGL's last band, as `display_brightness()`); the way back is split, SLPOUT from the presence
+  task, then the LVGL task (core 1, the transfer-done interrupt's core) waits the 120 ms, sends a whole frame and
+  DISPON (a whole refresh from core 0 would be lesson L81's race). Power management for frequency scaling only
+  (`CONFIG_PM_ENABLE`, 80..240 MHz, no light sleep) with an `ESP_PM_CPU_FREQ_MAX` "screen" lock held while the panel is
+  awake: profiled, 100 % at 240 MHz with the screen on, 72 % at 80 MHz with it off (ESP-IDF's per-core "rtos" locks
+  give a running task 240 anyway). For espforge: a `screen_off(bool)` hook in `presence_hooks_t` (or document
+  `set_brightness(0)` as "off"), panel sleep in the board component (L88), the PM recipe in forge_core, and the harness
+  check (`presence.dim_off_wake`: console `power` reports `panel=` and `screen_lock=`). Pitfall met on the way: a
+  console command that reads `esp_clk_cpu_freq()` always sees 240 MHz (it runs); check the lock, profile the time.
+- [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power: slide.c's zoom 42-43 -> 54-58 fps (radar 57.8, bus map 54.5). One
+  pass per pixel (gather two pixels, swap to the panel's byte order in the same word: `copy_swap()` over the band again
+  is gone), a row whose source row is the one above is a `memcpy`, and the overlays (pill, labels, ring) are runs of
+  one colour and alpha blended with one multiply a pixel (RGB565 spread over 32 bits, 5-bit alpha: at most one step
+  off, checked against the old code at 110 scales on the PC). The overlays were ~40 % of the fill (found with a
+  cycle-counter split in the zoom's log line); the frame is now bound by PSRAM reads and the bus's waits (fill ~11 ms,
+  bus ~11 ms, overlapping in two 32-row buffers). forge_lvgl's slide.c has the same zoom: port `zoom_fill()`, the
+  overlay runs and the split log.
+
 - [ ] 2026-10-10, esp32-s3-meteobus v0.2.1 (fix/radar-wifi-power-save): forge_net leaves the station in ESP-IDF's
   default power save (`WIFI_PS_MIN_MODEM`, and `net_dpp_stop()` sets it back): each reply then waits for the router's
   next beacon, ~100 ms a request. The radar's 14 past frames (28 small GeoMet requests on one kept-alive connection)
@@ -125,6 +146,10 @@ reason it stays in the app.
 
 ## Tools and tests
 
+- [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power: `CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y` (32 by default, same 32 KB
+  cache): every PSRAM-bound frame got faster, none slower in the harness (zoom fill -5 %, bus map drawn 1725 -> 1663 ms,
+  snapshots ~4 % faster). A board default for any app that copies pictures out of PSRAM.
+
 - [ ] 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0: this was the third new repo (after esp32-s3-weather and
   esp32-s3-rtcquebec) set up by hand: the "protect main" and "release tags" rulesets, Pages built by a workflow, the
   `github-pages` environment's branch and tag policy (`main`, `v*`) and Actions' default read permissions. A
@@ -216,6 +241,13 @@ reason it stays in the app.
   (and keep publishing the stable one).
 
 ## Lessons (docs/LESSONS.md)
+
+- [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power: measure the split before guessing, again (L54/LESSONS 29): three
+  plausible zoom speed-ups measured nothing (the column table in internal RAM and an unrolled loop: fill 185 vs
+  188 ms; the other core's TLS and tile decoding held back until the zoom ended: 54 fps both ways; 64-bit divisions in
+  the per-frame tables: none), while a cycle counter around the overlay blend found 40 % of the fill at once. And a
+  harness check can be wrong in the test, not the firmware: "CPU at 80 MHz while off" failed because the command that
+  asks runs at 240 MHz.
 
 - [ ] 2026-10-10, esp32-s3-meteobus (PR #13): a settings-page list whose rows act on the list they were drawn from
   (My stops: `rm.onclick = () => saveFavs(favs.filter((_, k) => k !== i))`) removes the wrong item when a tap lands
