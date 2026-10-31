@@ -11,7 +11,7 @@ OUT := build
 CFLAGS := -std=gnu11 -D_DEFAULT_SOURCE -g -O1 -Wall -Wno-unused-function -fsanitize=address,undefined \
           -fno-sanitize-recover=undefined -Ishim -I$(FORGE)/include -I$(MAIN) -include shim/host.h
 # test_testcon only once the firmware has the pure command table (testcon_registry.c)
-TESTS := utf8 version png i18n textfit pager presence map dlgate slideslots $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
+TESTS := utf8 version png i18n textfit pager presence map mapcache dlgate slideslots $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
 
 all: $(TESTS:%=$(OUT)/test_%)
 	@set -e; for t in $(TESTS); do ./$(OUT)/test_$$t; done
@@ -53,11 +53,14 @@ $(OUT)/test_png: test_png.c osm_tile.h $(FORGE)/png_rows.c $(FORGE)/include/png_
 # forge_map's pure half and its drawing (map.c, the task, is not compiled here): geo.c, map_slots.c, map_draw.c with
 # png_rows.c, the scripted HTTP client (fake.c) and svc.h's declarations (the test stubs what it calls)
 FMAP := ../../components/forge_map
-$(OUT)/test_map: test_map.c osm_tile.h fake.c fake.h $(FMAP)/geo.c $(FMAP)/map_slots.c $(FMAP)/map_draw.c \
+$(OUT)/test_map: test_map.c osm_tile.h fake.c fake.h $(FMAP)/geo.c $(FMAP)/map_slots.c $(FMAP)/map_draw.c $(FMAP)/map_path.c \
                  $(FMAP)/map_priv.h $(FMAP)/include/forge_map.h $(FMAP)/include/forge_geo.h $(FORGE)/png_rows.c \
                  $(MINIZ)/miniz.c | $(OUT)
 	$(CC) $(CFLAGS) -I$(MINIZ) -I$(FMAP) -I$(FMAP)/include -I../../components/forge_net/include -o $@ test_map.c fake.c \
-	    $(FMAP)/geo.c $(FMAP)/map_slots.c $(FMAP)/map_draw.c $(FORGE)/png_rows.c $(MINIZ)/miniz.c -lm
+	    $(FMAP)/geo.c $(FMAP)/map_slots.c $(FMAP)/map_draw.c $(FMAP)/map_path.c $(FORGE)/png_rows.c $(MINIZ)/miniz.c -lm
+# forge_map's flash cache over a RAM-backed I/O table (map_cache.c; the esp_partition binding is not compiled here)
+$(OUT)/test_mapcache: test_map_cache.c $(FMAP)/map_cache.c $(FMAP)/include/forge_map.h | $(OUT)
+	$(CC) $(CFLAGS) -I$(FMAP) -I$(FMAP)/include -o $@ test_map_cache.c $(FMAP)/map_cache.c -lm
 
 $(OUT):
 	mkdir -p $(OUT)

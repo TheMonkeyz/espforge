@@ -42,6 +42,10 @@ static void display_init(void)
 bool display_lock(int timeout_ms) { (void)timeout_ms; return true; }   // one thread
 void display_unlock(void) {}
 void display_brightness(uint8_t l) { level = l; }
+static bool asleep;                                       // the panel sleep (board.h): kept as a flag
+void display_sleep(bool off) { asleep = off; }
+bool display_asleep(void) { return asleep; }
+bool display_cpu_full_speed(void) { return !asleep; }
 void display_get_stats(display_stats_t *out, bool reset) { (void)reset; memset(out, 0, sizeof(*out)); }
 void display_set_flush_hook(display_flush_hook_t hook) { flush_hook = hook; }
 
@@ -60,6 +64,26 @@ void display_raw_frame(display_fill_cb_t fill, void *user)
     emscripten_sleep(0);                                   // let the page show it (the browser paints between frames)
 }
 
+// A part of the screen (slide.c's list scrolls): the same, for columns x0..x0 + w - 1 of rows y0..y1
+void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_area_fill_cb_t fill, void *user)
+{
+    static uint16_t band[DISP_W * 32];
+    (void)bottom_up;                                       // the frame buffer takes the rows in any order
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > DISP_W - 1) x1 = DISP_W - 1;
+    if (y1 > DISP_H - 1) y1 = DISP_H - 1;
+    int w = x1 - x0 + 1;
+    for (int y = y0; y <= y1; y += 32) {
+        int n = y + 32 > y1 + 1 ? y1 + 1 - y : 32;
+        fill(x0, w, y, n, band, user);
+        for (int r = 0; r < n; r++)
+            for (int c = 0; c < w; c++) fb[(y + r) * DISP_W + x0 + c] = unswap(band[r * w + c]);
+    }
+    dirty = 1;
+    emscripten_sleep(0);
+}
+
 static uint32_t tick(void) { return (uint32_t)emscripten_get_now(); }
 
 void touch_register_lvgl(void);                            // emu_touch.c
@@ -73,6 +97,7 @@ static const forge_panel_t panel = {
     .touch_get = touch_get,
     .touch_fresh = touch_fresh,
     .touch_forget = touch_forget,
+    .raw_area = display_raw_area,
 };
 
 // main.c calls it after the texts, as on the display

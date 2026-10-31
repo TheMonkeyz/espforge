@@ -15,6 +15,7 @@
 #include "slide_slots.h"
 #include "testcon.h"
 #include "indev/lv_indev_private.h"         // wait_until_release: cleared after a drag (touch_resync)
+#include "lvgl_private.h"                   // list scrolls: layers, the redraw list (inv_p)
 
 static const char *TAG = "slide";
 static const forge_panel_t *P;
@@ -137,7 +138,7 @@ static int animate(frame_t *f, int to, int ms)
  * release (lv_indev_wait_release), so LVGL took the next touch for the same one: quick successive swipes were missed.
  * After the move: LVGL starts afresh, and a finger already down counts as a new press. */
 // The press read_hook is tracking (a pager drag in the making); p0 where it came down, p where it is
-static struct { bool down, armed; lv_point_t p0, p; lv_obj_t *pager; } track;
+static struct { bool down, armed; lv_point_t p0, p; lv_obj_t *pager; int64_t t0; } track;
 
 bool slide_held_still(int max_px)
 {
@@ -197,11 +198,15 @@ static lv_obj_t *pagers[MAX_PAGERS];
 static int npagers;
 static struct { bool queued, vertical; lv_obj_t *pager; int x0, y0, x1, y1; } drag;
 static struct { bool queued; int dir; bool vertical; void (*change)(void *); void *user; lv_obj_t *to; } chg;
+static struct { lv_obj_t *list; int y0, y1; int64_t t0, t1; bool queued; } scroll;   // a list scroll (below)
+static lv_obj_t *slide_scroll_target(lv_obj_t *scr, int x, int y);
+static bool slide_scroll(lv_obj_t *list, int y0, int64_t t0, int y1);
 
-bool slide_busy(void) { return drag.queued || chg.queued; }
+bool slide_busy(void) { return drag.queued || chg.queued || scroll.queued; }
 
 static uint32_t moved_ms;                                   // lv_tick when the last move ended (slide_tap_ok)
 bool slide_tap_ok(void) { return !slide_busy() && (!moved_ms || lv_tick_elaps(moved_ms) >= SLIDE_TAP_GUARD_MS); }
+bool slide_screen_busy(void) { return slide_busy() || lv_tick_elaps(touched_ms) < 500; }
 
 static bool ready(void) { return P && shadow && other && shadow_ok; }
 
@@ -451,8 +456,9 @@ static void read_hook(lv_indev_t *in, lv_indev_data_t *data)
     if (!track.down) {                                     // a new press: may become a drag
         lv_obj_t *on[MAX_PAGERS];
         track.down = true;
-        track.armed = !slide_busy() && pagers_on_view(lv_screen_active(), on) > 0;
+        track.armed = !slide_busy() && (pagers_on_view(lv_screen_active(), on) > 0 || (P && P->raw_area));
         track.p0 = data->point;
+        track.t0 = esp_timer_get_time();
         return;
     }
     if (!track.armed) return;
@@ -461,7 +467,14 @@ static void read_hook(lv_indev_t *in, lv_indev_data_t *data)
     track.armed = false;
     bool vertical = abs(dy) > abs(dx);
     track.pager = pager_for(lv_screen_active(), vertical);
-    if (!track.pager || !ready() || slide_busy()) return;   // no pager that way: LVGL's
+    if (!track.pager) {                                    // no pager that way: a list under the finger, as pictures
+        if (vertical && P->raw_area && ready() && !slide_busy()) {
+            lv_obj_t *list = slide_scroll_target(lv_screen_active(), track.p0.x, track.p0.y);
+            if (list && slide_scroll(list, track.p0.y, track.t0, data->point.y)) lv_indev_wait_release(in);
+        }
+        return;                                            // else LVGL's (a gesture)
+    }
+    if (!ready() || slide_busy()) return;
     drag = (typeof(drag)){ true, vertical, track.pager, track.p0.x, track.p0.y, data->point.x, data->point.y };
     lv_async_call(drag_run, NULL);                         // at the top of the LVGL task (stack for the render)
     lv_indev_wait_release(in);                             // the drag owns this touch: LVGL ignores it from now on
@@ -471,6 +484,346 @@ void slide_pager(lv_obj_t *pager)
 {
     if (npagers < MAX_PAGERS) pagers[npagers++] = pager;
     if (P) pager_freeze(pager);                            // drags are ours; without the panel LVGL keeps them
+}
+
+/* ---------- list scrolls drawn as pictures ----------
+ * A vertical drag on a scrollable list with no pager that way (the Settings screen) is drawn from the shadow: each frame
+ * moves the list's rows within the picture, renders the rows coming in (LVGL, clipped to a strip) and sends only the
+ * list's rectangle (P->raw_area). LVGL's own scrolling redrew the whole list every frame (~25 fps). From weather_amoled's
+ * slide.c (v1.14), without its sideways hand-off. */
+
+// How far a label's glyphs may reach past its box: LVGL skips a label whose box misses the rows drawn, but syllabics'
+// tops rise ROW_UP rows above the box at 28 px and descenders go ROW_DOWN below (Montserrat alone: 4 and 1). Those rows
+// are rendered too, and the outer margin rows put back as they were.
+#define ROW_UP 9
+#define ROW_DOWN 3
+#define ROW_MARGIN (ROW_UP + ROW_DOWN)
+static uint8_t *keep;                       // ROW_MARGIN rows kept across a strip render (PSRAM, slide_init)
+
+// Rows y0..y1 of a screen into dst (whose first row is `top`): lv_snapshot's path clipped to those rows, so a strip is
+// rendered at a time (a whole screen blocks LVGL for 60-180 ms)
+static bool render_rows_reach(lv_obj_t *scr, lv_draw_buf_t *dst, int top, int y0, int y1, int up, int down)
+{
+    lv_obj_update_layout(scr);
+    int last = top + (int)dst->header.h - 1;
+    int g0 = y0 - up, g1 = y1 + down, nk = 0;
+    y0 = LV_MAX(LV_MAX(y0 - up - down, top), 0);
+    y1 = LV_MIN(LV_MIN(y1 + up + down, last), H - 1);
+    uint32_t st = dst->header.stride;
+    if (keep) for (int y = y0; y <= y1; y++) if (y < g0 || y > g1) memcpy(keep + (nk++) * W * 2, dst->data + (y - top) * st, W * 2);
+    lv_area_t rows = {0, y0, W - 1, y1}, in_buf = {0, y0 - top, W - 1, y1 - top};
+    lv_draw_buf_clear(dst, &in_buf);
+    lv_layer_t layer;
+    lv_memzero(&layer, sizeof(layer));
+    layer.draw_buf = dst;
+    layer.buf_area = (lv_area_t){0, top, W - 1, top + dst->header.h - 1};
+    layer.color_format = LV_COLOR_FORMAT_RGB565;
+    layer._clip_area = rows;
+    layer.phy_clip_area = rows;
+    lv_display_t *d = lv_obj_get_display(scr), *old = lv_refr_get_disp_refreshing();
+    lv_layer_t *old_head = d->layer_head;
+    d->layer_head = &layer;
+    lv_refr_set_disp_refreshing(d);
+    lv_obj_redraw(&layer, scr);
+    while (layer.draw_task_head) {
+        lv_draw_dispatch_wait_for_request();
+        lv_draw_dispatch();
+    }
+    d->layer_head = old_head;
+    lv_refr_set_disp_refreshing(old);
+    nk = 0;
+    if (keep) for (int y = y0; y <= y1; y++) if (y < g0 || y > g1) memcpy(dst->data + (y - top) * st, keep + (nk++) * W * 2, W * 2);
+    return true;
+}
+
+// The scrollable list under a point, if it has room to scroll (else LVGL's own scrolling has nothing to do either)
+static lv_obj_t *slide_scroll_target(lv_obj_t *scr, int x, int y)
+{
+    lv_point_t p = {x, y};
+    for (lv_obj_t *o = lv_indev_search_obj(scr, &p); o && o != scr; o = lv_obj_get_parent(o)) {
+        if (!lv_obj_has_flag(o, LV_OBJ_FLAG_SCROLLABLE) || !(lv_obj_get_scroll_dir(o) & LV_DIR_VER)) continue;
+        if (lv_obj_get_scroll_top(o) > 0 || lv_obj_get_scroll_bottom(o) > 0) return o;
+    }
+    return NULL;
+}
+
+static void scroll_run(void *unused);
+
+static bool slide_scroll(lv_obj_t *list, int y0, int64_t t0, int y1)
+{
+    if (slide_busy() || !shadow_ok) return false;          // no exact picture of the screen: LVGL scrolls
+    scroll = (typeof(scroll)){ list, y0, y1, t0, esp_timer_get_time(), true };
+    lv_async_call(scroll_run, NULL);
+    return true;
+}
+
+static void scroll_fill(int x0, int w, int y0, int n, void *dst, void *user)
+{
+    const lv_draw_buf_t *p = user;
+    uint8_t *d = dst;
+    for (int y = y0; y < y0 + n; y++, d += w * 2) copy_swap(d, p->data + y * p->header.stride + x0 * 2, w);
+}
+
+typedef struct {
+    lv_obj_t *scr, *list;
+    lv_draw_buf_t *pic;                  // the screen shown (the shadow)
+    lv_draw_buf_t *strip;                // the rows coming into view, rendered before the frame is sent
+    int d, in0, in1;                     // this frame: rows move by d (> 0: up); rows in0..in1 come from the strip
+    int last;                            // the last move's way (> 0: up), for scroll_settle
+    lv_area_t r;                         // the list on screen: the rows that move
+    int shown;                           // the scroll position the picture shows
+    int frames;
+    int64_t us_move, us_render, us_send, us_settle;
+} scroller_t;
+
+// One pass per frame: each row of the list area is moved within the picture (or taken from the strip) and sent. Moving
+// rows down in place needs the bottom rows first: then the bands go bottom up and each band's rows too. From the strip:
+// the rows coming in, and ROW_UP above them and ROW_DOWN below (drawn while the next label was still past the list's
+// edge, so without its glyphs' tops; a slow drag left 6-7 rows off every time in weather_amoled's Inuktitut).
+static void scroll_move_fill(int x0, int w, int y0, int n, void *dst, void *user)
+{
+    scroller_t *s = user;
+    const lv_area_t *r = &s->r;
+    uint32_t st = s->pic->header.stride, lw = lv_area_get_width(r) * 2;
+    uint8_t *pic = s->pic->data;
+    int s0 = s->in0 - ROW_UP, s1 = s->in1 + ROW_DOWN;     // rows taken from the strip
+    for (int i = 0; i < n; i++) {
+        int y = s->d < 0 ? y0 + n - 1 - i : y0 + i;
+        if (y >= r->y1 && y <= r->y2) {
+            const uint8_t *src = y >= s0 && y <= s1 ? s->strip->data + (y - s->in0 + ROW_MARGIN) * s->strip->header.stride
+                                                    : pic + (y + s->d) * st;
+            memcpy(pic + y * st + r->x1 * 2, src + r->x1 * 2, lw);
+        }
+        copy_swap((uint8_t *)dst + (y - y0) * w * 2, pic + y * st + x0 * 2, w);
+    }
+}
+
+// Scroll to position `want`: LVGL's state, the picture (moved rows + rendered new ones), the panel
+static void scroll_step(scroller_t *s, int want)
+{
+    int d = want - s->shown, h = lv_area_get_height(&s->r);
+    if (!d) return;
+    s->last = d;
+    // Raw: lv_obj_scroll_to_y() stops at the ends (pulled past them, the picture moved while the list didn't), and
+    // lv_obj_scroll_by()'s SCROLL events bubbled up and laid the whole screen out again on every frame
+    lv_obj_scroll_by_raw(s->list, 0, lv_obj_get_scroll_y(s->list) - want);
+    const lv_area_t *r = &s->r;
+    int64_t t0 = esp_timer_get_time(), t1 = t0, t2;
+    if (abs(d) < h && s->strip && abs(d) <= (int)s->strip->header.h - 2 * ROW_MARGIN) {
+        s->d = d;                                        // the rows coming in (at the bottom when the content goes up)
+        s->in0 = d > 0 ? r->y2 - d + 1 : r->y1;
+        s->in1 = d > 0 ? r->y2 : r->y1 - d - 1;
+        render_rows_reach(s->scr, s->strip, s->in0 - ROW_MARGIN, s->in0, s->in1, ROW_UP, ROW_DOWN);
+        t2 = esp_timer_get_time();
+        P->raw_area(r->x1, r->y1, r->x2, r->y2, d < 0, scroll_move_fill, s);
+    } else {                                             // a jump (or no strip): the whole list, then send
+        if (abs(d) >= h) render_rows_reach(s->scr, s->pic, 0, r->y1, r->y2, ROW_UP, ROW_DOWN);
+        else {
+            uint8_t *base = s->pic->data + r->x1 * 2;
+            uint32_t st = s->pic->header.stride, w = lv_area_get_width(r) * 2;
+            if (d > 0) for (int y = r->y1; y <= r->y2 - d; y++) memcpy(base + y * st, base + (y + d) * st, w);
+            else for (int y = r->y2; y >= r->y1 - d; y--) memcpy(base + y * st, base + (y + d) * st, w);
+            t1 = esp_timer_get_time();
+            render_rows_reach(s->scr, s->pic, 0, d > 0 ? r->y2 - d + 1 : r->y1, d > 0 ? r->y2 : r->y1 - d - 1, ROW_UP, ROW_DOWN);
+        }
+        t2 = esp_timer_get_time();
+        P->raw_area(r->x1, r->y1, r->x2, r->y2, false, scroll_fill, s->pic);
+    }
+    s->us_move += t1 - t0;
+    s->us_render += t2 - t1;
+    s->us_send += esp_timer_get_time() - t2;
+    s->shown = want;
+    s->frames++;
+}
+
+// After the last frame, the edge the list last moved away from: a label whose box has just gone past it was skipped by
+// LVGL, but the rows moved within the picture still hold what its glyphs reached past the box. Rendered again, once.
+static void scroll_settle(scroller_t *s)
+{
+    if (!s->last) return;
+    int64_t t0 = esp_timer_get_time();
+    const lv_area_t *r = &s->r;
+    int y0 = s->last < 0 ? r->y2 - ROW_UP + 1 : r->y1, y1 = s->last < 0 ? r->y2 : r->y1 + ROW_DOWN - 1;
+    render_rows_reach(s->scr, s->pic, 0, y0, y1, ROW_UP, ROW_DOWN);
+    P->raw_area(0, y0 - ROW_UP, W - 1, y1 + ROW_DOWN, false, scroll_fill, s->pic);
+    s->us_settle = esp_timer_get_time() - t0;
+}
+
+static void scroll_run(void *unused)
+{
+    scroller_t s = { .scr = lv_screen_active(), .list = scroll.list, .pic = shadow };
+    lv_display_t *disp = lv_display_get_default();
+    phase = 31;
+    if (!shadow_ok || !lv_obj_is_valid(s.list)) { scroll.queued = false; phase = 0; return; }
+    s.strip = lv_draw_buf_create(W, 96 + 2 * ROW_MARGIN, LV_COLOR_FORMAT_RGB565, 0);   // 112 KB; NULL: slower path
+    int64_t t0 = esp_timer_get_time();
+    // LVGL lets go of the touch (the row pressed under the finger, its own scroll if it had begun) and draws that now:
+    // to the panel and, through flushed(), into the shadow
+    lv_indev_t *in = lv_indev_get_next(NULL);
+    lv_indev_reset(in, NULL);
+    lv_refr_now(disp);
+    uint32_t inv0 = disp->inv_p;
+    lv_obj_get_coords(s.list, &s.r);
+    lv_area_t screen = {0, 0, W - 1, H - 1};
+    lv_area_intersect(&s.r, &s.r, &screen);
+    const int LH = lv_area_get_height(&s.r);
+    s.shown = lv_obj_get_scroll_y(s.list);
+    const int lo = s.shown - lv_obj_get_scroll_top(s.list), hi = s.shown + lv_obj_get_scroll_bottom(s.list);
+    const int over = LH / 5;                             // how far past an end it can be pulled
+    phase = 32;
+
+    int ref_y = scroll.y1, ref_pos = s.shown, pos = s.shown, fy = scroll.y1, errs = 0, moved = 0;
+    float fpos = pos, v = 0;
+    struct { int64_t t; int p; } smp[8];                 // finger samples (time, position) for the flick speed:
+    smp[0].t = scroll.t0;                                // the press and the 10 px that made it a scroll come first
+    smp[0].p = ref_pos + (scroll.y1 - scroll.y0);        // (a flick can be over by now)
+    smp[1].t = scroll.t1;
+    smp[1].p = ref_pos;
+    int ns = 2;
+    bool down = true;
+    // A touch while coasting stops the list; it moves again only once the finger has moved 10 px (a new touch is
+    // decided). maybe_up: coasting on an "up" not confirmed yet.
+    bool deciding = false, maybe_up = false;
+    int lifts = 0, touches = 0, read_errs = 0;
+    int64_t last_read = 0, gap_max = 0;
+    int tx0 = 0, ty0 = 0;
+    int64_t t = esp_timer_get_time(), touched_at = t;
+    for (;;) {
+        int x, y, r = finger(&x, &y, &errs);
+        int64_t now = esp_timer_get_time();
+        if (down) {
+            if (r == -1) read_errs++;
+            if (last_read && now - last_read > gap_max) gap_max = now - last_read;
+            last_read = now;
+        } else last_read = 0;
+        if (down && deciding && r != 0) {
+            if (r < 0 || (abs(x - tx0) < 10 && abs(y - ty0) < 10)) { vTaskDelay(1); continue; }
+            deciding = false;
+            ref_y = ty0;                                 // the list follows from where the touch went down
+            fy = y;                                      // (catching up the 10 px it took to decide)
+            ref_pos = pos;
+            smp[0].t = touched_at;
+            smp[0].p = ref_pos;
+            smp[1].t = now;
+            smp[1].p = ref_pos + (ty0 - y);
+            ns = 2;
+        }
+        if (down) {
+            bool stuck = now - touched_at > FINGER_FOLLOW_US;
+            if (stuck) ESP_LOGW(TAG, "scroll: finger down for 20 s, ending it");
+            if (r == 0 || r == -2 || stuck) {            // lifted (or 5 silent reads), or maybe: coast, follow again
+                maybe_up = r == -2;                      // if the finger is back
+                if (!maybe_up) lifts++;
+                down = false;
+                deciding = false;
+                v = 0;                                   // speed over the last ~80 ms (0 if the finger stopped)
+                if (ns) {
+                    int nk = (ns - 1) % 8;
+                    for (int i = ns - 2; i >= 0 && i >= ns - 8; i--) {
+                        int k = i % 8;
+                        int64_t span = smp[nk].t - smp[k].t;
+                        if (span > 80000) break;
+                        if (span >= 10000) v = (float)(smp[nk].p - smp[k].p) / (span / 1000.0f);
+                    }
+                    if (now - smp[nk].t > 80000 + UP_HOLD_US) v = 0;   // (the lift is known UP_HOLD_US late)
+                }
+                fpos = pos;
+                t = now;
+                if (stuck) break;
+                continue;
+            }
+            if (r > 0) fy = y;                           // (a read error: keep the last point)
+            int raw = ref_pos + (ref_y - fy);            // the content follows the finger
+            if (r > 0 && P->touch_fresh() && (!ns || now - smp[(ns - 1) % 8].t >= 8000)) { smp[ns % 8].t = now; smp[ns % 8].p = raw; ns++; }
+            int want = raw < lo ? lo - (lo - raw) / 3 : raw > hi ? hi + (raw - hi) / 3 : raw;   // resists past an end
+            if (want < lo - over) want = lo - over;
+            if (want > hi + over) want = hi + over;
+            if (want == s.shown) { vTaskDelay(1); continue; }
+            moved += abs(want - pos);
+            pos = want;
+            scroll_step(&s, pos);
+            continue;
+        }
+        if (maybe_up && r >= 0) {                        // the "up" settled: a real lift, or the same finger back
+            maybe_up = false;
+            if (r == 0) lifts++;
+            else if (r > 0) {                            // it never lifted (a brief "up"): follow it again from here
+                down = true;
+                ref_y = fy = y;
+                ref_pos = pos;
+                smp[0].t = now;
+                smp[0].p = pos;
+                ns = 1;
+                continue;
+            }
+        }
+        if (r > 0) {                                     // touched while moving: stop, and see where the finger goes
+            touches++;
+            down = deciding = true;
+            touched_at = now;
+            tx0 = x;
+            ty0 = y;
+            ref_y = fy = y;
+            ref_pos = pos;
+            ns = 0;
+            continue;
+        }
+        float dt = (now - t) / 1000.0f;
+        t = now;
+        bool past = pos < lo || pos > hi;
+        if (past) v *= expf(-dt / 30.0f);                // past an end: brake hard...
+        else v *= expf(-dt / 300.0f);                    // a flick goes on ~v x 300 ms, as LVGL's
+        if (past ? fabsf(v) < 0.1f : fabsf(v) < 0.03f) {
+            if (!past && maybe_up) { vTaskDelay(1); continue; }   // stopped, but the finger may still be there
+            if (!past) break;
+            int from = pos, to = pos < lo ? lo : hi;     // ...then spring back to the end (ease out, 220 ms)
+            int64_t start = esp_timer_get_time();
+            bool touched = false;
+            for (;;) {
+                float k = (esp_timer_get_time() - start) / 220000.0f;
+                if (k > 1) k = 1;
+                float ease = 1 - (1 - k) * (1 - k) * (1 - k);
+                pos = from + (int)((to - from) * ease);
+                scroll_step(&s, pos);
+                if (k >= 1) break;
+                if (finger(&x, &y, &errs) > 0) { touched = true; touches++; break; }
+            }
+            if (!touched && maybe_up) { fpos = pos; v = 0; continue; }   // (undecided "up": wait at the end)
+            if (!touched) break;
+            down = deciding = true;
+            touched_at = esp_timer_get_time();
+            tx0 = x;
+            ty0 = y;
+            ref_y = fy = y;
+            ref_pos = pos;
+            fpos = pos;
+            v = 0;
+            ns = 0;
+            continue;
+        }
+        fpos += v * dt;
+        if (fpos < lo - over) { fpos = lo - over; v = 0; }
+        if (fpos > hi + over) { fpos = hi + over; v = 0; }
+        if ((int)fpos == pos) { vTaskDelay(1); continue; }
+        moved += abs((int)fpos - pos);
+        pos = (int)fpos;
+        scroll_step(&s, pos);
+    }
+    scroll_settle(&s);
+    disp->inv_p = inv0;                                  // LVGL's redraw requests for the list: already on the panel
+    if (s.strip) lv_draw_buf_destroy(s.strip);
+    touch_resync(true);
+    touched_ms = lv_tick_get();
+    int64_t t1 = esp_timer_get_time();
+    int f = s.frames ? s.frames : 1;
+    ESP_LOGI(TAG, "scroll: %d frames in %lld ms, moved %d px, now at %d of %d..%d; per frame: move %.1f, render %.1f, "
+                  "send %.1f ms, then the edge's rows %.1f ms; finger: %d lifts, %d touches again, %d read errors, "
+                  "longest gap %lld ms", s.frames, (t1 - t0) / 1000, moved, pos, lo, hi, s.us_move / 1000.0f / f,
+             s.us_render / 1000.0f / f, s.us_send / 1000.0f / f, s.us_settle / 1000.0f, lifts, touches, read_errs,
+             gap_max / 1000);
+    moved_ms = lv_tick_get();
+    scroll.queued = false;
+    phase = 0;
 }
 
 /* ---------- in-place changes and screen loads ---------- */
@@ -569,5 +922,6 @@ void slide_init(void)
     ESP_LOGI(TAG, "pictures: shadow and other (%d KB each); up to %d neighbours allocated when needed, %d KB kept for "
                   "the app", W * H * 2 / 1024, NB, SLIDE_PSRAM_RESERVE_KB);
     lv_timer_create(idle_tick, 100, NULL);
+    keep = heap_caps_malloc(ROW_MARGIN * W * 2, MALLOC_CAP_SPIRAM);   // list scrolls: the margin rows kept
     testcon_add_where(where_slide);
 }

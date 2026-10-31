@@ -61,6 +61,7 @@ bool net_setup_ap_active(void) { return false; }
 bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done) { (void)on_uri; (void)on_done; return false; }
 void net_dpp_stop(void) {}
 bool net_dpp_active(void) { return false; }
+bool net_dpp_supported(void) { return true; }       // the emulator pretends it has Easy Connect
 void net_restart(void) { esp_restart(); }
 
 /* ---------- updates: none in the browser (the settings page's channel picker is remembered) ---------- */

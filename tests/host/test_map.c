@@ -416,8 +416,60 @@ static void test_render(void)
           "a URL too long: not requested (%d)", fake_http.requests);
 }
 
+/* ---------------- the path overlay (map_path.c) ---------------- */
+
+static void test_path(void)
+{
+    enum { PW = 64, PH = 48 };
+    static uint16_t px[PW * PH], orig[PW * PH];
+    static uint8_t mask[(PW * PH + 7) / 8];
+    static fmap_undo_t undo[PW * PH];
+    for (int i = 0; i < PW * PH; i++) px[i] = orig[i] = (uint16_t)(0x1000 + i);
+    // A window at zoom 10 around Quebec City; two places on a diagonal through it
+    int z = 10;
+    double ox, oy, ax, ay, bx, by;
+    geo_origin(46.81, -71.21, z, PW, PH, &ox, &oy);
+    fmap_place_t pts[2] = { { 46.81, -71.21 }, { 46.81, -71.21 } };
+    geo_to_view(pts[0].lat, pts[0].lon, z, ox, oy, &ax, &ay);    // the centre
+    CHECK(fabs(ax - PW / 2) < 1.5 && fabs(ay - PH / 2) < 1.5, "the centre lands mid-window (%.1f, %.1f)", ax, ay);
+    // The second place 20 px east and 10 px north of it: found by stepping the longitude / latitude
+    pts[1].lon = pts[0].lon + 20.0 * 360.0 / (256.0 * (1 << z));
+    pts[1].lat = pts[0].lat + 10.0 * 360.0 / (256.0 * (1 << z)) * 0.68;   // ~cos(lat) correction, near enough
+    geo_to_view(pts[1].lat, pts[1].lon, z, ox, oy, &bx, &by);
+    CHECK(bx > ax + 15 && by < ay - 5, "the second place is east and north (%.1f, %.1f)", bx, by);
+    bool full = true;
+    int changed = fmap_path_draw(px, PW, PH, z, ox, oy, pts, 2, 0xF800, 4, 255, mask, undo, PW * PH, &full);
+    double len = hypot(bx - ax, by - ay);
+    CHECK(changed > len * 3 && changed < len * 6 + 40, "a 4 px line %.0f px long changed %d pixels", len, changed);
+    CHECK(!full, "the undo list had room");
+    int at_mid = (int)lround((ay + by) / 2) * PW + (int)lround((ax + bx) / 2);
+    CHECK(px[at_mid] == 0xF800, "the middle of the line is the path's colour at full opacity (0x%04x)", px[at_mid]);
+    CHECK(px[2 * PW + 2] == orig[2 * PW + 2] && px[(PH - 2) * PW + PW - 2] == orig[(PH - 2) * PW + PW - 2],
+          "far corners untouched");
+    int outside = 0;
+    for (int y = 0; y < PH; y++)
+        for (int x = 0; x < PW; x++) {
+            // distance from the segment
+            double t = ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / (len * len);
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            double d = hypot(x - (ax + t * (bx - ax)), y - (ay + t * (by - ay)));
+            if (px[y * PW + x] != orig[y * PW + x] && d > 3.5) outside++;
+        }
+    CHECK(outside == 0, "%d changed pixels lie further than the line's half width + 1.5", outside);
+    fmap_path_undo(px, undo, changed);
+    CHECK(!memcmp(px, orig, sizeof(px)), "undo puts every pixel back");
+    // Half opacity blends; a one-point path is a dot; a tiny undo cap reports full
+    CHECK(fmap_blend565(0x0000, 0xFFFF, 128) != 0 && fmap_blend565(0x0000, 0xFFFF, 128) != 0xFFFF, "a half blend is between");
+    CHECK(fmap_blend565(0x1234, 0xFFFF, 0) == 0x1234 && fmap_blend565(0x1234, 0xABCD, 255) == 0xABCD, "opa 0 / 255");
+    changed = fmap_path_draw(px, PW, PH, z, ox, oy, pts, 1, 0x07E0, 3, 255, mask, undo, 2, &full);
+    CHECK(changed >= 5 && changed <= 13 && full, "a dot of 3 px: %d pixels, the undo cap of 2 reported full", changed);
+    fmap_path_undo(px, undo, 2);
+    CHECK(fmap_path_draw(NULL, PW, PH, z, ox, oy, pts, 2, 0, 1, 255, mask, NULL, 0, NULL) == 0, "no picture: nothing");
+}
+
 int main(void)
 {
+    test_path();
     test_geo();
     test_url();
     test_dim();

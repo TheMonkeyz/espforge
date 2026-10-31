@@ -232,6 +232,27 @@ def page_swipes(ctx):
     go_home(ctx)
 
 
+@test('perf')
+def settings_scroll(ctx):
+    """The Settings list scrolled by a finger, drawn as pictures from the screen's shadow (v0.6.0, weather_amoled's
+    slide_scroll): rows moved within the picture, the rows coming in rendered, only the list's rectangle sent. LVGL's own
+    scrolling of it ran at ~25 fps. Fails on the old firmware: no "slide: scroll" line."""
+    b = ctx.board
+    go_home(ctx)
+    b.press()
+    b.wait_screen('settings', 6)
+    time.sleep(1.0)
+    w, h = CFG['screen']['w'], CFG['screen']['h']
+    at = len(ctx.log.lines())
+    try:
+        measure(ctx, 'settings_scroll', [f'drag {w // 2} {h * 3 // 4} {w // 2} {h // 4} 400'], settle=1.5)
+        m = ctx.log.wait(r'slide: scroll: (\d+) frames in (\d+) ms', 3, 'the list scrolled as pictures', start=at)
+        ctx.note(f'settings scrolled as pictures: {m.group(1)} frames in {m.group(2)} ms')
+    finally:
+        b.tap(SCREEN_C[0], 42)                               # Done
+        b.wait_screen(HOME, 6)
+
+
 # ---------------------------------------------------------------- presence (forge_presence: screen dimming)
 
 def presence_state(b):

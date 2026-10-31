@@ -70,6 +70,7 @@ static const forge_panel_t panel = {
     .touch_get = touch_get,
     .touch_fresh = touch_fresh,
     .touch_forget = touch_forget,
+    .raw_area = display_raw_area,
 };
 
 void board_init(void)

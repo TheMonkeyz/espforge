@@ -8,6 +8,10 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.6.0-rc.5 - unreleased
+- The Settings list follows your finger smoothly (drawn as pictures, like the page swipes).
+- For app developers: forge_lvgl's list scrolls as pictures (the board's display_raw_area, the panel's raw_area hook); forge_map draws a path (a route) into its pictures with the pixels under it kept (fmap_set_path, no second canvas) and keeps the home place's pictures in a mapcache flash partition across boots (fmap_set_home, opts.flash_cache); the partition table has that partition: a board on the old table needs one USB install.
+
 ## v0.6.0-rc.4 - unreleased
 - A finger that moves while held is a swipe, not a long press: Settings and Wi-Fi setup no longer open from a slow swipe.
 - For app developers: forge_lvgl allocates the neighbour pictures when needed instead of all four at start (1.7 MB less PSRAM for an app with two pages) with MeteoBus's rules for which picture gives way (host-tested), slide_release_unneeded() for a memory-hungry screen, slide_held_still(); forge_settings' settings_set_slider() for an app with its own slide.c.

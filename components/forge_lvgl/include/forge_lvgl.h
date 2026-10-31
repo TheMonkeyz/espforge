@@ -31,6 +31,9 @@ typedef struct {
     int (*touch_get)(int *x, int *y);      // 1 down, 0 up, -1 bus error; the chip read at most every 10 ms
     bool (*touch_fresh)(void);
     void (*touch_forget)(void);
+    // A part of the screen without LVGL (slide.c's list scrolls; board.h display_raw_area). NULL: lists stay LVGL's.
+    void (*raw_area)(int x0, int y0, int x1, int y1, bool bottom_up,
+                     void (*fill)(int x0, int w, int y0, int n, void *dst, void *user), void *user);
 } forge_panel_t;
 void forge_lvgl_set_panel(const forge_panel_t *panel);   // board_init, after forge_lvgl_init
 
