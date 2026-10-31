@@ -8,9 +8,28 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
-## v0.6.0-rc.1 - unreleased
+## v0.6.0-rc.6 - unreleased
 - For app developers: the browser emulator runs screen dimming's real code (forge_presence's presence.c: its task, its saved settings, its /api/presence), with the board's microphones and motion sensor answering "not there"; its NVS stand-in gains the i16 keys.
 - For app developers: CI builds the browser emulator from a pull request's own commit and runs its smoke test, so a change to the emulator or the screens is checked before merging; main and tags still build the latest stable release for the site's "Try it".
+
+## v0.6.0-rc.5 - 2026-10-31
+- The Settings list follows your finger smoothly (drawn as pictures, like the page swipes).
+- For app developers: console shot (a screen over USB as a picture, for a session without HTTPS to the board; tools/devloop/shot.py) and netstat (lwIP's counters); the flash helpers pick the board's port by chip when several boards are plugged in.
+- For app developers: forge_lvgl's list scrolls as pictures (the board's display_raw_area, the panel's raw_area hook); forge_map draws a path (a route) into its pictures with the pixels under it kept (fmap_set_path, no second canvas) and keeps the home place's pictures in a mapcache flash partition across boots (fmap_set_home, opts.flash_cache); the partition table has that partition: a board on the old table needs one USB install.
+
+## v0.6.0-rc.4 - 2026-10-31
+- A finger that moves while held is a swipe, not a long press: Settings and Wi-Fi setup no longer open from a slow swipe.
+- For app developers: forge_lvgl allocates the neighbour pictures when needed instead of all four at start (1.7 MB less PSRAM for an app with two pages) with MeteoBus's rules for which picture gives way (host-tested), slide_release_unneeded() for a memory-hungry screen, slide_held_still(); forge_settings' settings_set_slider() for an app with its own slide.c.
+
+## v0.6.0-rc.3 - 2026-10-31
+- For app developers: forge_net has net_low_latency() (Wi-Fi power save off while a screen downloads much: ~100 ms less per request), one TLS download at a time (net_dl_begin/end, taken by the update check and install, the map tiles and the service probes) and a background worker for small network jobs (net_bg_post; the service probes run there instead of a task of their own). wifi status reports ps, lowlat, dl and bg; the console takes wifi lowlat on|off. From MeteoBus v0.2.0-v0.2.1.
+
+## v0.6.0-rc.2 - 2026-10-31
+- Screen off is a real off: the panel goes to sleep once the screen has faded out, and the processor slows down while it waits; a touch or a sound brings both back, with the screen redrawn before it shows. From MeteoBus v0.2.1.
+- For app developers: forge_presence's screen_off hook; the board's display_sleep with a "screen" power lock, CONFIG_PM_ENABLE (80..240 MHz, no light sleep) and the console's power command; forge_audio, a board-free audio component (the Waveshare layout and MeteoBus's single-ES8311 one); 64-byte data cache lines.
+
+## v0.6.0-rc.1 - 2026-10-31
+- For app developers: from MeteoBus's ESP32-P4 port. forge_core's diag has Kconfig switches for the two statistics that hold interrupts off (the per-task lines, PSRAM's largest block) and times them once at start; its crash summary reads a RISC-V core dump too. forge_net builds without Easy Connect where the Wi-Fi is a co-processor (net_dpp_supported, the starter hides that page), serves the settings page on CONFIG_FORGE_HTTPS_PORT and writes the port in every address (web_port), and checks the User-Agent's length at compile time (256 bytes).
 
 ## v0.5.0 - 2026-10-09
 - Touch and hold opens a Settings screen on the display: screen dimming and its timing, wake on pick-up, brightness (the arc along the bottom), language, the phone's settings page as a QR code, Wi-Fi, updates, restart, and an About section. Done or a swipe right closes it.

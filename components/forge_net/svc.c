@@ -110,7 +110,12 @@ void svc_get(int id, svc_info_t *out)
 
 const char *svc_user_agent(void)
 {
-    EXT_RAM_BSS_ATTR static char ua[128];      // filled once; two tasks racing write the same bytes
+    EXT_RAM_BSS_ATTR static char ua[256];      // filled once; two tasks racing write the same bytes
+    // "<product>/<version> (<comment>; +https://github.com/<repo>)": the fixed text is 26 bytes, the version (git
+    // describe) under 32, the project name (used when FORGE_PRODUCT is empty) at most 32. -Werror=format-truncation
+    // failed MeteoBus's build at 128 bytes once its three Kconfig strings grew; this says why at compile time.
+    _Static_assert(sizeof(CONFIG_FORGE_PRODUCT) + sizeof(CONFIG_FORGE_UA_COMMENT) + sizeof(CONFIG_FORGE_REPO) + 96
+                   <= sizeof(ua), "FORGE_PRODUCT/REPO/UA_COMMENT too long for the User-Agent (svc.c)");
     if (!ua[0]) {
         const char *v = esp_app_get_description()->version;
         snprintf(ua, sizeof(ua), "%s/%s (%s%s+https://github.com/%s)",
@@ -122,7 +127,8 @@ const char *svc_user_agent(void)
     return ua;
 }
 
-static void probe_task(void *arg)
+// One job on forge_net's background worker (inside the download slot): every stale service, in turn
+static void probe_job(void *arg)
 {
     char url[200];
     for (int i = 0; i < nsvc; i++) {
@@ -144,7 +150,6 @@ static void probe_task(void *arg)
                  (int)((esp_timer_get_time() - t0) / 1000));
     }
     probe_running = false;
-    vTaskDelete(NULL);
 }
 
 void svc_probe_stale(void)
@@ -160,8 +165,8 @@ void svc_probe_stale(void)
     taskEXIT_CRITICAL(&mux);
     if (!n) return;
     probe_running = true;
-    if (xTaskCreate(probe_task, "svc_probe", 8192, NULL, 2, NULL) != pdPASS) {
-        ESP_LOGW(TAG, "probe task not started");
+    if (!net_bg_post(probe_job, NULL, "probe")) {
+        ESP_LOGW(TAG, "probe not queued");
         taskENTER_CRITICAL(&mux);
         for (int i = 0; i < nsvc; i++) svc[i].probing = false;
         taskEXIT_CRITICAL(&mux);

@@ -17,6 +17,7 @@ DEFAULTS = {
     'port': '',
     'baud': 460800,
     'monitor_baud': 115200,
+    'https_port': 443,
     'screen': {'w': 466, 'h': 466, 'shape': 'rect'},
     'screens': [],
     'screens_not_shown': [],
@@ -63,6 +64,12 @@ def devloop(cfg):
     d = path(cfg, '.devloop')
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def https_base(cfg, ip):
+    """'https://<ip>' or 'https://<ip>:<port>': forge.json https_port, the firmware's CONFIG_FORGE_HTTPS_PORT (443)."""
+    port = int(cfg.get('https_port', 443))
+    return f'https://{ip}' if port == 443 else f'https://{ip}:{port}'
 
 
 def read_cached(cfg, name):

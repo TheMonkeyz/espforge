@@ -34,10 +34,10 @@ Routes must be added before `web_start()`; console commands can be registered at
 
 ## forge_core (no LVGL, no Wi-Fi)
 
-| Header | What |
+| Header | What | Console `shot [SCREEN [DIV]]` (screens.c): a screen rendered off-display and sent over USB as base64 RGB565 rows, for a session without HTTPS to the board (`tools/devloop/shot.py`).
 |---|---|
 | `testcon.h` | Test console on USB Serial/JTAG. `testcon_register(name, usage, fn)`, `testcon_add_where(fn)`, `testcon_start()`. Built in: `ping help heap where memspeed reboot`. Replies `test: …` ([PROTOCOL.md](PROTOCOL.md) §2). The table is in `testcon_registry.c` (host-tested). |
-| `diag.h` | `diag_start(period_s)`, `diag_mark(stage)`, `diag_failed_allocs()`, `diag_add_hook(fn)` for an extra line per period. Boot info, last crash from the core dump (then erased), heap with worst largest block, per-task CPU and stack. |
+| `diag.h` | `diag_start(period_s)`, `diag_mark(stage)`, `diag_failed_allocs()`, `diag_add_hook(fn)` for an extra line per period. Boot info, last crash from the core dump (then erased; the Xtensa backtrace, or on RISC-V the PC, RA, mcause and mtval), heap with worst largest block, per-task CPU and stack. Kconfig ("espforge core"): `FORGE_DIAG_TASK_STATS` (the per-task lines) and `FORGE_DIAG_PSRAM_LARGEST` (PSRAM's largest block in the heap line) each hold interrupts off for milliseconds on an ESP32-P4 with 32 MB, which its per-frame display interrupt cannot take (L201); `diag: stats cost` at start times both here. |
 | `forge_i18n.h` | Language core: `i18n_init(texts, count, langs, nlangs)` with the app's language list (`i18n_en`, `i18n_fr`, or its own `i18n_lang_t`: code, name, weekdays, months, date style EN or FR) and its `LANG_` enum in that order; `i18n_text(id)` (the first language's when missing or empty), `i18n_count`, `i18n_set/lang/code/name/from_code`, optional `i18n_load/save` (NVS `i18n/lang`), `tr_weekday`, `tr_date_long` ("Mercredi 1er octobre"), `tr_date_ymd`. |
 | `nvs_util.h` | `nvs_check(err, what)` (logs, returns success), `nvs_init()`. Don't grow a struct saved as a blob: add keys. |
 | `version.h` | `parse_ver`, `cmp_ver`: `vX.Y.Z-anything < -rc.N < vX.Y.Z < vX.Y.Z-N-gHASH`. Host-tested; CI mirrors it. |
@@ -50,13 +50,15 @@ Routes must be added before `web_start()`; console commands can be registered at
 
 | Header | What |
 |---|---|
-| `net.h` | Station with retries forever (1 s → 3 s → 30 s, paused while setup is open), saved credentials (NVS `wifi`), setup access point `CONFIG_FORGE_SETUP_SSID` with a per-device password (NVS `setup/pass`) and captive portal (DNS answers everything), first-time portal, Wi-Fi Easy Connect (DPP: listens on the router's channel, the setup AP held on it so the phone's confirmation is received, LESSONS L174), `net_set_restart()` / `net_restart()`, test hooks (`net_test_offline…`). |
-| `web.h` | HTTPS (per-device cert) + HTTP portal. `web_add_routes()`, `web_set_page()`, `web_set_snapshot()`, `web_set_info()`, `web_start()`, `web_key()`, `web_url()` (for the settings QR code), `web_send_json/read_json`, `web_from_setup_ap`. Built in: `/`, `/api/info`, `/api/scan`, `POST /api/wifi`, `/api/snapshot`. Guard: Host 421, JSON 415, constant-time `X-Key` 401, HTTPS only on the home network. Console: `key`, `portal windows-quiet`. |
+| `net.h` | Station with retries forever (1 s → 3 s → 30 s, paused while setup is open), saved credentials (NVS `wifi`), setup access point `CONFIG_FORGE_SETUP_SSID` with a per-device password (NVS `setup/pass`) and captive portal (DNS answers everything), first-time portal, Wi-Fi Easy Connect (DPP: listens on the router's channel, the setup AP held on it so the phone's confirmation is received, LESSONS L174; `net_dpp_supported()` is false with esp_wifi_remote, Wi-Fi through a co-processor, and the starter then shows the setup-network page alone), `net_set_restart()` / `net_restart()`, test hooks (`net_test_offline…`). `net_low_latency(on)`: Wi-Fi power save off while a screen downloads much (counted; ESP-IDF's default waits for the router's beacon, ~100 ms a request, L204). `net_dl_begin(who, timeout_ms)` / `net_dl_end(who)`: one TLS download at a time (each holds 10-15 KB of internal RAM; svc's probes, forge_ota and forge_map take it; `net_dl_busy()`, `net_dl_holder()`; the bookkeeping `dl_gate.c` is host-tested). `net_bg_post(fn, arg, who)`: a background worker, one short-lived task (internal 8 KB, gone after 30 s idle) running small network jobs one at a time inside the slot; svc's probes run there. `wifi status` reports `ps lowlat dl bg`; console `netstat` prints lwIP's counters (L208). |
+| `web.h` | HTTPS (per-device cert) + HTTP portal. `web_add_routes()`, `web_set_page()`, `web_set_snapshot()`, `web_set_info()`, `web_start()`, `web_key()`, `web_url()` (for the settings QR code), `web_port()` (`""`, or `":<port>"` when `CONFIG_FORGE_HTTPS_PORT` isn't 443: every address the component writes carries it), `web_send_json/read_json`, `web_from_setup_ap`. Built in: `/`, `/api/info`, `/api/scan`, `POST /api/wifi`, `/api/snapshot`. Guard: Host 421, JSON 415, constant-time `X-Key` 401, HTTPS only on the home network. Console: `key`, `portal windows-quiet`. |
 | `tlscert.h` | `tlscert_get()`: EC P-256 self-signed certificate made at first use, kept in NVS `tls`. CN = `CONFIG_FORGE_TLS_NAME` + MAC. |
-| `svc.h` | Health of external services: `svc_add(name, api, probe_url_fn)` (in the order to list them), `svc_find(name)` (`SVC_NAME_NTP`, `SVC_NAME_UPDATES`), `svc_http/ok/get`, `svc_fail_why(id, code)` / `svc_fail(id, text)`, reasons as `svc_why_t` codes with an optional `svc_set_why_text(fn)` for the display language, `svc_user_agent()`, `svc_probe_stale()`. Logs changes only. |
+| `svc.h` | Health of external services: `svc_add(name, api, probe_url_fn)` (in the order to list them), `svc_find(name)` (`SVC_NAME_NTP`, `SVC_NAME_UPDATES`), `svc_http/ok/get`, `svc_fail_why(id, code)` / `svc_fail(id, text)`, reasons as `svc_why_t` codes with an optional `svc_set_why_text(fn)` for the display language, `svc_user_agent()` (256 bytes; the three Kconfig strings are length-checked at compile time), `svc_probe_stale()`. Logs changes only. |
 
-Kconfig ("espforge"): `FORGE_SETUP_SSID`, `FORGE_TLS_NAME`, `FORGE_REPO`, `FORGE_PRODUCT` (User-Agent and certificate
-O=; empty: the project name), `FORGE_UA_COMMENT`, `FORGE_PORTAL_NAME` (the sign-in page's "<name> setup" link).
+Kconfig ("espforge"): `FORGE_HTTPS_PORT` (443; a board whose Wi-Fi co-processor doesn't hand it 443 sets another, and
+the PC tools read `forge.json` `https_port`), `FORGE_SETUP_SSID`, `FORGE_TLS_NAME`, `FORGE_REPO`, `FORGE_PRODUCT`
+(User-Agent and certificate O=; empty: the project name), `FORGE_UA_COMMENT`, `FORGE_PORTAL_NAME` (the sign-in page's
+"<name> setup" link).
 
 ## forge_ota
 
@@ -76,15 +78,16 @@ Kconfig: `FORGE_OTA_SITE` (the Pages URL, ending with `/`).
 | `forge_lvgl.h` | `forge_lvgl_init(lock, unlock)` (called by the board), `ui_lock/ui_unlock`, the simulated finger (`finger_inject`, `finger_injected` for the board's touch driver) and the console's `tap press swipe drag`. `lvgl_mem.c` puts LVGL's heap in PSRAM (small blocks fall back to internal RAM, counted; out of memory = restart). |
 | `screens.h` | Named screens: `screens_register(defs, n)` with `get / show / prepare / shown`; console `screen [name]`; `screens_snapshot` for `/api/snapshot`. Names = `forge.json` `screens`. |
 | `pager.h` | Full-screen pager: pages side by side (or stacked), `pager_switch` / `pager_go`; its drags are `slide.h`'s. `pager_set_count(pager, n)` shows only the first n of the pages created (the others are hidden, out of reach of swipes; `pager_page()` still gives them): build every page once, show as many as there is data for. `pager_set_order(pager, pages, n)` shows those pages in that order, the others hidden after them (a summary page that stays last after a varying list; keep page objects, not numbers: `pager_index()`). `pager_shown(pager, i)`: page i only if it is shown (slide.c's neighbours). A pager can sit on a page of another, across it (esp32-s3-rtcquebec: the stops in a column, in the middle of a row alerts | stops | map): `pager_on_view(pager)` says whether every pager page above it is the one shown. Host test: `tests/host/test_pager.c`. |
-| `slide.h` | Moves drawn as pictures copied to the panel (~66 fps, LVGL's own scrolling ~24): `slide_pager(pager)` takes over its drags (follow the finger, bounce at the ends, flick), `slide_change()` / `slide_to()` slide an in-place change or a screen load. `slide_tap_ok()`: false during a move and 600 ms after it (a quick swipe's next press can reach LVGL as a tap); a click handler on a pager page asks it first. With a pager on a page of another, a drag moves the pager on view along its axis (none that way: LVGL's, a list or a gesture). A shadow of the panel (every flush copied) plus the neighbours of the pagers on view kept ready (rendered when idle, refreshed every 2 s; `slide_stale()` when the app changed what they show): 6 pictures, 2.6 MB of PSRAM at 466x466. Log: `slide: drag: first frame after N ms, ... gap max, held reads, finger still max, renders`. Needs the board's panel hooks (`forge_lvgl_set_panel`). |
+| `slide.h` | Moves drawn as pictures copied to the panel (~66 fps, LVGL's own scrolling ~24): `slide_pager(pager)` takes over its drags (follow the finger, bounce at the ends, flick), `slide_change()` / `slide_to()` slide an in-place change or a screen load. `slide_tap_ok()`: false during a move and 600 ms after it (a quick swipe's next press can reach LVGL as a tap); a click handler on a pager page asks it first. With a pager on a page of another, a drag moves the pager on view along its axis (none that way: LVGL's, a list or a gesture). A shadow of the panel (every flush copied) plus the neighbours of the pagers on view kept ready (rendered when idle, refreshed every 2 s; `slide_stale()` when the app changed what they show): two fixed pictures (shadow, other) and up to four neighbours whose 434 KB buffers are allocated when a picture needs one and PSRAM has room (`SLIDE_PSRAM_RESERVE_KB` stays for the app): the starter's two pages take 1.7 MB in all. Which slot a picture takes follows MeteoBus's rules (`slide_slots.c`, host-tested: empty first, then an unwanted page, a wanted one only when worth less, a drag forces); `slide_release_unneeded()` frees the pictures of pages not wanted now, for a memory-hungry screen on top. `slide_held_still(px)`: the finger held is where it came down (a long-press handler asks it: LVGL fires LONG_PRESSED however far the finger moved when no scroll took over, L200; `SLIDE_HOLD_PX` 24). A vertical drag on a scrollable list with no pager that way (Settings) is drawn as pictures too (weather_amoled's `slide_scroll`): the rows moved within the shadow, the rows coming in rendered as a strip, only the list's rectangle sent through the panel's `raw_area` hook (LVGL's own scrolling: ~25 fps); `slide_screen_busy()` for long flash writes to wait on. Log: `slide: drag: first frame after N ms, ... gap max, held reads, finger still max, renders`. Needs the board's panel hooks (`forge_lvgl_set_panel`). |
 
 ## forge_presence (screen dimming)
 
 `presence.h`: the screen dims, then turns off, when the room stays quiet; sustained noise, a movement or a touch
 wakes it (weather_amoled's presence.c, through esp32-s3-rtcquebec v0.3.0). No board code: `presence_start(hooks)`
 takes the microphones (`mic_open`, `mic_read`: 100 ms windows of 16 kHz samples), the motion sensor, the touch's
-`touch_idle_ms` and `set_brightness` (with the display lock) as `presence_hooks_t`; a NULL hook = that part missing
-(no microphones: always on). `presence_web_routes()` adds `GET/POST /api/presence` and `POST /api/calibrate`
+`touch_idle_ms`, `set_brightness` (with the display lock) and an optional `screen_off(bool)` (a real off once the fade
+down reached 0, the panel awake again before the fade up: the starter gives it the board's `display_sleep`) as
+`presence_hooks_t`; a NULL hook = that part missing (no microphones: always on; no `screen_off`: brightness 0 is "off"). `presence_web_routes()` adds `GET/POST /api/presence` and `POST /api/calibrate`
 (PROTOCOL.md §4); console `presence [calibrate N]`, `wake`. Give `presence_touch` to the board as its press filter:
 the touch that wakes a dark screen does nothing else.
 
@@ -99,14 +102,15 @@ the touch that wakes a dark screen does nothing else.
   percentile, and speech set it 30 dB too high: the screen would never have dimmed.
 - Pure half (`presence_sm.c`: the state machine, the limits, the calibration statistic; `presence_json.c`): host
   test `tests/host/test_presence.c`. The settings page's "Screen" section: `tools/webtest/tests/screen.spec.js`.
-  On the board: harness suite `presence` (`dim_off_wake`: dim, off, a long-press on the dark screen only wakes it).
+  On the board: harness suite `presence` (`dim_off_wake`: dim, off with the panel asleep and the "screen" lock released
+  (console `power`), a long-press on the dark screen only wakes it).
   In the browser: the real `presence.c` runs, the board's microphones and motion sensor answering "not there"
   (`web/emu/forge/emu_stubs.c`): the screen stays on, the settings page shows "No microphone"; the emulator's smoke
   test checks that `/api/presence` answers.
 
 ## forge_settings (the Settings screen)
 
-`forge_settings.h`: the screen a long press opens (weather_amoled's, shared since espforge v0.5.0). Done at the top,
+`forge_settings.h`: the screen a long press opens (weather_amoled's, shared since espforge v0.5.0). Done at the top, `settings_set_slider(fn)`: how the screen and its phone page slide in and out (forge_lvgl's `slide_to` by default; an app with its own slide.c gives its own).
 rows in sections that scroll, a brightness arc along the bottom (the finger's x on the band under it: previewed live,
 saved on release). It slides up from below; Done or a swipe right slides back to the screen it came from. Refreshed
 every second while shown, so a change made on the phone's page shows up.
@@ -126,7 +130,7 @@ every second while shown, so a change made on the phone's page shows up.
 
 ## forge_map (street map pictures)
 
-`forge_map.h`: a w x h RGB565 picture of the map around a place at a zoom, built from 256 px PNG tiles
+`forge_map.h`: a w x h RGB565 picture of the map around a place at a zoom, built from 256 px PNG tiles `fmap_set_path(pts, n, c565, width, opa)`: a path (a route) drawn after the tiles into the picture itself, the pixels under it kept so it can be changed or removed (no second canvas; `map_path.c`, host-tested). `fmap_set_home(lat, lon)` and `fmap_opts_t.flash_cache`: the home place's pictures kept in a `mapcache` partition (one 512 KB slot per zoom, header last, sectors one at a time with `opts.busy` pausing them; `map_cache.c` over an I/O table, host-tested with a RAM-backed one; the starter's `partitions.csv` has the partition at 0x620000, 8.75 MB, as weather_amoled's and MeteoBus's).
 (OpenStreetMap's by default), desaturated and dimmed for the AMOLED (esp32-s3-rtcquebec's map.c and weather_amoled's
 radar.c, which each had a copy). No LVGL: the app shows `px` as an image. Options in `fmap_opts_t`
 (`fmap_opts_default(&o, w, h)`: OSM, zoom 0..19, 1 retry, half-way to grey then 55 %, 4 slots): the tile URL template
@@ -154,19 +158,35 @@ zoom range, retries, dimming, the empty colour, the PSRAM pictures kept, an `upd
   tile at a negative offset, 404, retries, a body too big, cancel, the world's edge at zoom 4). Not in the browser
   emulator yet (nothing there uses it).
 
+## forge_audio
+
+`forge_audio.h`: audio for a board with one I2S port shared by its codecs, board-free: the board (or an app with its
+own board code, weather_amoled) gives `forge_audio_cfg_t` (the codecs' I2C bus, the I2S port and pins, 16 kHz, the
+microphones' address and channels) to `forge_audio_init(cfg, speaker)`, then `forge_audio_mic_open(gain_db)` /
+`forge_audio_mic_read` (forge_presence's hooks) and `forge_audio_data_if()` for an app's own speaker device. Two
+layouts: `FORGE_AUDIO_ES7210_ES8311` (the Waveshare AMOLED: ES7210 microphones in, an ES8311 speaker the app opens and
+closes around each sound; the speaker's direction only when asked, ~5 KB of internal DMA RAM each way) and
+`FORGE_AUDIO_ES8311_BOTH` (MeteoBus's Guition ESP32-P4 board: one ES8311 is microphone and speaker, one IN_OUT device
+kept open under a lock since `es8311_open()` rewrites the chip, L212; the app writes to `forge_audio_speaker_dev()`
+and switches the amplifier itself). esp_codec_dev 1.5.11. Proven here on the Waveshare layout (harness `presence`);
+the single-ES8311 layout is MeteoBus's working code, to be proven on the P4 board when it joins `boards/`.
+
 ## board (boards/ws_amoled175/board)
 
-`board.h`: `BOARD_NAME`, `DISP_W`, `DISP_H`, `BOARD_ROUND`, `board_init()`, `display_lock/unlock` (recursive; records
-the longest hold and who held it), `display_brightness()`, `display_get_stats()`, `display_set_flush_hook()`,
+`board.h`: `BOARD_NAME`, `DISP_W`, `DISP_H`, `BOARD_ROUND`, `board_init()` (also `esp_pm_configure` 80..240 MHz, no
+light sleep, with `CONFIG_PM_ENABLE`), `display_lock/unlock` (recursive; records the longest hold and who held it),
+`display_brightness()`, `display_sleep(off)` / `display_asleep()` / `display_cpu_full_speed()` (the panel asleep while
+the screen is off: DISPOFF + SLPIN from the caller; the wake split, SLPOUT from the caller then the LVGL task's whole
+frame and DISPON 120 ms later, L81; a "screen" `ESP_PM_CPU_FREQ_MAX` lock held while the panel is awake, so the CPU
+idles at 240 MHz with the screen on and may drop to 80 MHz with it off; console `power cpu_mhz= panel= screen_lock=`,
+where only `screen_lock` says anything, L202), `display_get_stats()`, `display_set_flush_hook()`, `display_raw_area()` (a part of the screen without LVGL, bottom up when asked: slide.c's list scrolls),
 `board_i2c_bus()`, `touch_idle_ms()`, `touch_set_read_hook()`, `touch_set_press_filter()` (asked when a finger comes
 down: true = LVGL and the read hook see no finger until it lifts; "a touch on a dark screen only wakes it"), and for slide.c `display_raw_frame()` (a frame without
 LVGL, bands filled while the previous one is sent), `touch_get()` / `touch_fresh()` (the chip read at most every
 10 ms) and `touch_forget()`, handed over with `forge_lvgl_set_panel()`. Also `imu.h` (QMI8658 accelerometer) and
-`board_audio.h`: I2S0 (`board_audio_init(speaker)`), the ES7210 microphones (`board_mic_open(gain_db)`,
-`board_mic_read`), and the shared data interface for an app's own ES8311 speaker device (`board_audio_data_if`). The
-speaker's direction is opened only when asked (`board_audio_init(true)` before the microphones): each direction's DMA
-buffers are ~5 KB of internal RAM (measured: the microphones cost 11 KB with both directions, 6 KB without).
-esp_codec_dev 1.5.11 (the board's `idf_component.yml`).
+`board_audio.h`: thin wrappers over forge_audio with this board's pins and bus (`board_audio_init(speaker)`,
+`board_mic_open(gain_db)`, `board_mic_read`, `board_audio_data_if`; the speaker's direction only when asked,
+`board_audio_init(true)` before the microphones).
 
 Rules kept in the code (see [LESSONS.md](LESSONS.md), Display and Touch): the SPI interrupt runs on the LVGL core;
 no esp_lcd call from outside LVGL while its last band is in flight (`display_brightness` waits); every touch report

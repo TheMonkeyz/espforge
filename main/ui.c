@@ -95,6 +95,7 @@ static lv_obj_t *make_qr(lv_obj_t *parent, int size)
 // A long press: Settings (forge_settings); offline, Wi-Fi setup is what's needed (as weather_amoled)
 static void long_pressed(lv_event_t *e)
 {
+    if (!slide_held_still(SLIDE_HOLD_PX)) { ESP_LOGI(TAG, "long-press from a moving finger: a swipe, ignored (L200)"); return; }
     if (net_is_connected()) {
         ESP_LOGI(TAG, "long-press: settings");
         settings_open();
@@ -106,6 +107,7 @@ static void long_pressed(lv_event_t *e)
 
 static void msg_long_pressed(lv_event_t *e)          // the start-up message: Wi-Fi setup
 {
+    if (!slide_held_still(SLIDE_HOLD_PX)) { ESP_LOGI(TAG, "long-press from a moving finger: a swipe, ignored (L200)"); return; }
     ESP_LOGI(TAG, "long-press: Wi-Fi setup");
     ui_wifi_setup(NULL);
 }
@@ -455,6 +457,9 @@ static void setup_create(void)
     scr_setup = base_screen();
     lv_obj_add_flag(scr_setup, LV_OBJ_FLAG_CLICKABLE);
     su_pager = pager_create(scr_setup, false, 2, NULL, su_settled, NULL);
+    // No Easy Connect on this board (Wi-Fi through a co-processor: forge_net's net_dpp_supported): the setup-network
+    // page alone, the Easy Connect page hidden and out of the drags
+    if (!net_dpp_supported()) pager_set_count(su_pager, 1);
     for (int p = 0; p < 2; p++) {
         lv_obj_t *pg = pager_page(su_pager, p);
         su[p].title = label(pg, f_mid, C_ACCENT, 40, 300);
@@ -578,6 +583,7 @@ static lv_obj_t *get_system(void) { return pager_page(pager, 1); }
 static lv_obj_t *get_setup(void) { return pager_page(su_pager, 0); }
 static lv_obj_t *get_setup1(void) { return pager_page(su_pager, 1); }
 static lv_obj_t *get_msg(void) { return scr_msg; }
+static void show_msg(void) { su_leave(); lv_screen_load(scr_msg); }   // (tests: a screen without a pager)
 static void show_hello(void) { su_leave(); pager_go(pager, 0, false); lv_screen_load(scr_main); }
 static void show_system(void) { su_leave(); system_refresh(); pager_go(pager, 1, false); lv_screen_load(scr_main); }
 static void show_setup(void) { ui_wifi_setup(NULL); }
@@ -612,7 +618,7 @@ static const screen_def_t screens[] = {
     // The list scrolled down a box height
     { "settings1", get_settings, show_settings1, prep_settings1, shown_never },
     { "settings2", get_settings, show_settings2, prep_settings2, shown_never },   // ...and further (About)
-    { "message", get_msg,    NULL,        NULL,           shown_msg },
+    { "message", get_msg,    show_msg,    NULL,           shown_msg },
 };
 
 void ui_init(void)

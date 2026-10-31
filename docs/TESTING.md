@@ -98,6 +98,9 @@ python tools/snapshot.py setup --key <key>      # else $FORGE_KEY (forge.json ke
 - A snapshot shows state, not interaction: for gestures, scrolling and animations ask the user to act during a log
   window. It can't show touch-target problems either (L49).
 - Cost on weather_amoled: ~434 KB of PSRAM while rendering, ~650 KB sent, 2-3 s.
+- Without HTTPS to the board (the cloud's shell, a board behind a co-processor): the console's `shot <screen> [DIV]`
+  sends the screen over USB (every DIV-th pixel, default 2), and `python tools/devloop/shot.py .devloop/serial_log.txt`
+  makes PNGs from the log.
 
 ## 5. Harness (`tools/harness/`): everything, without a person
 
@@ -131,7 +134,7 @@ Suites. Generic ones live in `tools/harness/core_suites.py` and test the framewo
 | Suite | What it proves |
 |---|---|
 | `boot` | the start-up: no `E (` line, `ota: Running` / `App version` / the console agree, boot stage times; a crash kept from before is noted |
-| `console` | `help` lists the commands; an unknown command is refused |
+| `console` | `help` lists the commands; an unknown command is refused; `wifi lowlat on\|off` switches Wi-Fi power save (`ps=`, `lowlat=`); `shot` sends a screen over USB that decodes to a picture |
 | `memory` | internal RAM and PSRAM free and low points, failed allocations, against `baseline.json` |
 | `screens` | each screen in `forge.json` `screens` snapshotted (size, not blank); `screens_not_shown` are prepared off-display |
 | `web` | the Playwright suite (`tools/webtest`), `GET /api/info`, the page whole; 403 for a POST over plain HTTP, 302 to the device itself, 401 without or with a wrong key, 415 for non-JSON, 421 for another Host |
@@ -140,7 +143,7 @@ Suites. Generic ones live in `tools/harness/core_suites.py` and test the framewo
 | `wifi_runtime` | network lost while running: retries go on; setup pauses them; back online |
 | `wifi_setup` | the PC joins the setup network like a phone (DNS answers every name, the captive-portal redirect, the page loads, `/api/info` without the home network's name or address), Easy Connect on its channel with the setup network held there; `--phone` for a real scan |
 | `ota` | (on request) the installed release is confirmed and nothing was rolled back |
-| `navigation`, `perf` | the starter app's: swipes between pages (quick ones too; `pages()` lists them, read from the device in an app whose page count varies), long-press to setup, setup pages, fps against the baseline |
+| `navigation`, `perf` | the starter app's: swipes between pages (quick ones too; `pages()` lists them, read from the device in an app whose page count varies), long-press to Settings, a moving press is no long press (the message screen), setup pages, fps and the drag's first frame against the baseline, the Settings list scrolled as pictures |
 | *app suites* | whatever `app_suites.py` registers |
 
 Reports: `tools/harness/reports/<date>/report.md` (git-ignored) with `results.json`, screenshots and the log of each
@@ -178,7 +181,9 @@ function per request, from its URL, with a body that may hold NULs, and counts o
 `test_map.c` serves map tiles that way; `osm_tile.h` is a real OSM tile for such tests), with
 AddressSanitizer and UBSan. forge_lvgl's `pager.c` builds against a fake of the LVGL calls it makes
 (`tests/host/lvfake/lvgl.h`, implemented in `test_pager.c`: objects, flags, a scroll range that skips hidden
-children); a new LVGL call in pager.c needs a line there.
+children); a new LVGL call in pager.c needs a line there. forge_net's download-slot bookkeeping (`dl_gate.c`) has
+`test_dlgate.c`; slide.c's slot choice (`slide_slots.c`) has `test_slide_slots.c`; forge_map's path overlay is in
+`test_map.c` and its flash cache (`map_cache.c` over a RAM-backed I/O table) in `test_map_cache.c`.
 
 ```bash
 wsl make -C tests/host      # IDF_PATH defaults to /mnt/c/Espressif/esp-idf (for cJSON)

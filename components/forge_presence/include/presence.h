@@ -52,6 +52,11 @@ typedef struct {
     uint32_t (*touch_idle_ms)(void);
     // Sets the screen's brightness (0..100 %), taking the display lock itself
     void (*set_brightness)(int pct);
+    // Optional (NULL: brightness 0 is "off"): a real off. Called once the fade down has reached 0 with the state OFF
+    // (off = true), and before the fade up starts (off = false): the board sleeps and wakes its panel there, and the
+    // CPU may idle slower meanwhile (the starter's main.c gives it board.h's display_sleep). The brightness slider's
+    // preview never reaches 0, so a finger on it can't put the panel to sleep.
+    void (*screen_off)(bool off);
     // The settings changed through the page (POST /api/presence): an app that shows them on a screen redraws it
     void (*settings_changed)(void);
 } presence_hooks_t;

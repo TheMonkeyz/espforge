@@ -1079,7 +1079,9 @@ Check: log the URL length next to the request; a request that fails without any 
 
 **L194. A label sized to its content in `LV_LABEL_LONG_DOT` mode shows only "...".**
 Why: LVGL 9 measures a `LV_SIZE_CONTENT` label with nothing to cut against, so the dots replace the text.
-Fix: give the label a width: the text's own from `lv_text_get_size()`, capped at the room there is.
+Fix: give the label a width **and a height**: the text's own from `lv_text_get_size()`, the width capped at the room
+there is, the height one line. With a fixed width but a content height LVGL 9.2 wrapped the text and ran into the line
+below ("Terminus Chute-Montmorency", MeteoBus v0.2.0-rc).
 Check: a snapshot with the longest text in every language (French is longer).
 
 **L195. Never pass a piece that holds `%` (an encoded query) as `snprintf`'s format.**
@@ -1128,5 +1130,97 @@ Why: LVGL reads the touch between frames; esp32-s3-rtcquebec's map page (a 466 p
 of a 388 -> 78 swipe) or not at all: no drag, and LVGL fired a long press (Settings opened), since it fires one for a
 press held 400 ms however far it moved.
 Fix: draw what doesn't change into one picture (a canvas: the map and the path, composed once per change), don't
-redraw a busy page while a finger is down, and accept a long press only from a finger that stayed within ~24 px.
+redraw a busy page while a finger is down, and accept a long press only from a finger that stayed within ~24 px
+(forge_lvgl's `slide_held_still()` since v0.6.0).
 Check: the `fps` console command on that page (`render_avg_ms`), and a harness swipe on it right after it opens.
+
+## Alignment with MeteoBus v0.2.1-v0.3.1 and its ESP32-P4 port (espforge v0.6.0, October 30-31)
+
+**L201. Time each statistic: on a board fed by a per-frame interrupt, nothing periodic may hold interrupts off past the
+frame gap.**
+Why: ESP-IDF's MIPI-DSI DPI driver restarts the frame DMA from an interrupt after every frame (~0.9 ms between frames on
+the ESP32-P4). diag's per-task lines (`uxTaskGetSystemState()`: every task's stack measured in a critical section) took
+6.1 ms with 25 tasks, and `heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)` (a walk of the whole heap) 2.3 ms with
+32 MB: a full-screen white flash every few minutes, matched to the diag period in the log (MeteoBus's P4 port).
+Fix: `CONFIG_FORGE_DIAG_TASK_STATS` and `CONFIG_FORGE_DIAG_PSRAM_LARGEST` (forge_core), off on such a board; the free
+size instead of the largest block wherever it will do (slide.c's room check reads the free size first). `diag: stats
+cost` at start times both on the board at hand (an S3 with 8 MB: 1.5 and 0.8 ms).
+Check: match each flash's time to the log, then time the suspects (`esp_timer_get_time()` around each).
+
+**L202. A console command that reads `esp_clk_cpu_freq()` always sees the maximum: it runs.**
+Why: with dynamic frequency scaling a running task holds ESP-IDF's own "rtos" lock, so the clock is 240 MHz whenever
+anything measures it. "CPU at 80 MHz while off" failed in MeteoBus's harness because the command that asked ran at 240.
+Fix: check the lock that lets the CPU idle slower (the board's `power` reports `screen_lock`), or profile the time spent
+in each mode (`CONFIG_PM_PROFILING`, `esp_pm_dump_locks`), never the frequency at an instant.
+Check: harness `presence.dim_off_wake` checks `screen_lock=0` with the screen off, `1` awake.
+
+**L203. Measure the split before guessing, again.**
+Why: three plausible speed-ups of MeteoBus's zoom measured nothing (a column table in internal RAM and an unrolled loop:
+fill 185 vs 188 ms; the other core's TLS and tile decoding held back: 54 fps both ways; 64-bit divisions out of the
+per-frame tables: none), while a cycle counter around the overlay blend found 40 % of the fill at once (42-43 -> 54-58
+fps). And a harness check can be wrong in the test, not the firmware (L202).
+Fix: a cycle-counter split in the loop's log line before any change; change one thing; measure again.
+Check: the log line carries the split; a change that doesn't move its numbers is reverted.
+
+**L204. Slow requests: compare the board with the PC on the same URLs, and try `WIFI_PS_NONE`.**
+Why: ESP-IDF's default station power save (`WIFI_PS_MIN_MODEM`) makes each reply wait for the router's next beacon,
+~100 ms a request. MeteoBus's radar (28 small requests on one kept-alive connection) took 4.9-6.6 s, 3.1-3.7 s with power
+save off; the PC took ~90 ms a request. The server and the parsing were blamed first.
+Fix: `net_low_latency(true)` while a screen that downloads much is open (forge_net), `false` when it closes.
+Check: time the same requests from the PC (`curl -w`) and from the board (`svc: probe ... N ms`); the gap is the
+beacon interval.
+
+**L205. A flaky UI test may be a real race: hold the reply back to make it deterministic.**
+Why: MeteoBus's settings page removed the wrong stop when a tap landed between a save the display accepted and the page's
+redraw (its rows acted on the list they were drawn from). It showed as a flaky Playwright test on the Mac runner, and
+reproduced every time once the display's answer was held back 1.5 s (`page.route` + `route.fetch`, a delay, then
+`route.fulfill`).
+Fix: disable the rows during a save and show the saved list at once; in the test, hold the reply back.
+Check: the Playwright case with the delayed reply (MeteoBus `stops.spec.js`; esp32-s3-rtcquebec's PR #11 has both).
+
+**L206. Identify a new board from its product page or a photo before porting.**
+Why: MeteoBus's P4 port started from a guessed evaluation board and the V1 panel's init table; the real board (Guition
+JC1060P470C, a V2 panel) showed a white streaked band until it was identified. Hours.
+Fix: the product page, a photo of the board's markings, then the vendor's BSP for exactly that revision.
+Check: the first picture on the panel is the vendor's test pattern, not the app.
+
+**L207. Take pins from a working setup for the same board and an I2C scan, not its schematic.**
+Why: the JC1060P470C's schematic showed the amplifier on GPIO 20 and an ES7210; the board has the amplifier on GPIO 11,
+no ES7210, and its one ES8311 does both ways (an ESPHome setup for the same board had the pins right).
+Fix: an I2C scan at boot during a port; pins from a setup proven on that very board.
+Check: every address the scan finds has a driver, and no driver waits for an address the scan didn't find.
+
+**L208. "Unreachable" over the network: count packets on the board first.**
+Why: the P4's settings page was unreachable twice for two different reasons: the C6 co-processor's esp-hosted "network
+split" kept port 443 for itself, then the router isolated its Wi-Fi clients. Guessing at the firmware cost a day; lwIP's
+counters showed at once whether anything arrived.
+Fix: a `netstat` console command (lwIP stats, `CONFIG_LWIP_STATS`) before touching the server code;
+`CONFIG_FORGE_HTTPS_PORT` for a co-processor that keeps 443.
+Check: the counters move when the PC sends; if not, the problem is below the firmware.
+
+**L209. LVGL sends DRAW_POST only when the band meets the object itself, not its ext draw size.**
+Why: a badge drawn past its object's edge in a DRAW_POST handler was cut at the band that no longer met the object
+(7 rows missing, found by `pictest`; a `shot` of the frame looked right because the panel kept the old rows).
+Fix: `LV_OBJ_FLAG_OVERFLOW_VISIBLE` on the object (with its ext draw size), or draw the badge as a child object.
+Check: `pictest` (the picture against a fresh rendering), not a screenshot of the panel.
+
+**L210. esp_hosted's SDIO pools are allocated before the scheduler and can starve the idle task.**
+Why: the P4's esp_hosted (SDIO to the ESP32-C6) allocates its queues (12 + 12) before FreeRTOS runs; with large pools
+the idle task had no RAM to start: a boot loop with no useful line.
+Fix: smaller queues in esp_hosted's Kconfig; read the first `heap` line after boot on a new co-processor set-up.
+Check: `diag: boot` shows a normal internal free size on the first boot.
+
+**L211. On an ESP32-P4, move frames with the 2D-DMA.**
+Why: a 1024x600 RGB565 frame copied by the CPU took 26-28 ms, by the PPA scaler 26.5 ms, by the 2D-DMA
+(`esp_async_fbcpy`) ~8 ms; and the DSI's DMA needs the bus first (`axi_icm_ll_set_dw_gdma_qos_arbiter_prio`) or it
+underruns.
+Fix: `esp_async_fbcpy` for frame moves on the P4, the panel's DMA given bus priority; MeteoBus's `blitbench` console
+command measures the three.
+Check: `blitbench` before choosing a path on a new chip.
+
+**L212. One codec, one device.**
+Why: esp_codec_dev's `es8311_open()` rewrites the chip's set-up: a second device for the speaker, opened at each chime
+while the first one read the microphone, stopped the microphone (the P4 board's single ES8311).
+Fix: one `ESP_CODEC_DEV_TYPE_IN_OUT` device kept open, created under a lock (the presence and sound tasks start
+together); the app writes its sound to it and switches the amplifier itself (forge_audio's `FORGE_AUDIO_ES8311_BOTH`).
+Check: the microphone's level line (`presence: level`) keeps moving across a chime.

@@ -7,7 +7,8 @@
 // its clocks (MCLK 42, BCLK 9, WS 45): DIN 10 from the ES7210 (two microphones, I2C 0x40), DOUT 8 to the ES8311
 // (speaker, I2C 0x18, amplifier enable GPIO 46). The speaker side is opened only when asked: each direction's DMA
 // buffers take ~5 KB of internal RAM.
-// From esp32-s3-rtcquebec's / weather_amoled's presence.c. After board_init() (it shares the board's I2C bus).
+// From esp32-s3-rtcquebec's / weather_amoled's presence.c; since v0.6.0 thin wrappers over forge_audio (an app with
+// its own board code calls forge_audio directly with its bus and pins). After board_init() (the board's I2C bus).
 
 // The I2S port: the microphones' direction, and the speaker's too when `speaker` (silent until something plays).
 // board_mic_open() opens it without the speaker: an app that plays sound calls board_audio_init(true) before it.

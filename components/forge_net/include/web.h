@@ -4,8 +4,8 @@
 #include "esp_http_server.h"
 #include "cJSON.h"
 
-// The settings page and its API (docs/PROTOCOL.md §4). HTTPS on 443 with this device's own certificate (tlscert) on
-// the home network; plain HTTP on 80 is the captive portal on the setup network and only redirects to HTTPS on the
+// The settings page and its API (docs/PROTOCOL.md §4). HTTPS on 443 (CONFIG_FORGE_HTTPS_PORT) with this device's own
+// certificate (tlscert) on the home network; plain HTTP on 80 is the captive portal on the setup network and only redirects to HTTPS on the
 // home network. Every change (POST) and every snapshot carries the device's key in X-Key (see "Who may change
 // things" in web.c). Built in: GET / (the app's main/web/index.html), /api/info, /api/scan, POST /api/wifi,
 // /api/snapshot. Components and the app add routes with web_add_routes() before web_start().
@@ -32,6 +32,7 @@ void web_set_info(web_info_fn fn);
 //   extern const uint8_t page_start[] asm("_binary_index_html_start"), page_end[] asm("_binary_index_html_end");
 void web_set_page(const uint8_t *start, const uint8_t *end);
 void web_start(void);
+const char *web_port(void);            // "" on 443, else ":<port>" (CONFIG_FORGE_HTTPS_PORT): after the host in URLs
 const char *web_key(void);             // the key a change must carry (X-Key); goes in the settings QR code (#k=)
 bool web_url(char *out, int n);        // "https://<ip>/#k=<key>" for the settings QR code; false without an address
 

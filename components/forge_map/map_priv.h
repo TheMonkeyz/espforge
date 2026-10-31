@@ -18,6 +18,9 @@ bool fmap_draw(const fmap_opts_t *o, int svc_id, int z, double ox, double oy, ui
                fmap_body_t *body, bool (*cancel)(void *), void *cancel_user, fmap_progress_t progress, void *puser,
                int *ok_tiles, int *total);
 
+// The flash cache's I/O over the "mapcache" partition (map_cache_flash.c, firmware only; weak NULL in map.c)
+const fmap_cache_io_t *fmap_cache_flash_io(void (*pause)(void *ctx));
+
 // The kept pictures' bookkeeping (map_slots.c, pure C; map.c holds it under its mutex, the pixels beside it)
 typedef struct {
     int zoom;

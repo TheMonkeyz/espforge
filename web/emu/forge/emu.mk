@@ -39,7 +39,7 @@ endif
 # The framework's files every app needs, plus the ones the app's Makefile lists before the include
 # (FORGE_CORE += png_rows.c ...): with `?=` an app's `+=` replaced the list instead of adding to it
 FORGE_CORE := i18n.c i18n_nvs.c textfit.c testcon_registry.c $(filter-out i18n.c i18n_nvs.c textfit.c testcon_registry.c,$(FORGE_CORE))
-FORGE_LVGL := forge_lvgl.c pager.c slide.c screens.c $(filter-out forge_lvgl.c pager.c slide.c screens.c,$(FORGE_LVGL))
+FORGE_LVGL := forge_lvgl.c pager.c slide.c screens.c $(filter-out forge_lvgl.c pager.c slide.c screens.c,$(FORGE_LVGL)) slide_slots.c
 FORGE_NET := svc.c $(filter-out svc.c,$(FORGE_NET))
 FORGE_OTA := ota_web.c $(filter-out ota_web.c,$(FORGE_OTA))
 # forge_presence: the real presence.c (its task, its settings in NVS, its console commands) with its pure half and its
@@ -49,7 +49,7 @@ FORGE_PRESENCE := presence.c presence_sm.c presence_json.c presence_web.c \
 # forge_map, for an app with a street map (USE_MAP := 1 before the include): all of it (its task, downloads as fetch()),
 # with png_rows.c and miniz
 ifneq ($(USE_MAP),)
-FORGE_MAP := geo.c map.c map_draw.c map_slots.c
+FORGE_MAP := geo.c map.c map_draw.c map_slots.c map_path.c map_cache.c
 FORGE_CORE += $(if $(filter png_rows.c,$(FORGE_CORE)),,png_rows.c)
 endif
 # forge_settings, for an app with the Settings screen (USE_SETTINGS := 1 before the include)

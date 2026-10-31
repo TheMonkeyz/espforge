@@ -26,6 +26,7 @@ window on the PC that owns the port and talks through plain files in `.devloop/`
 | `harness.ask` | harness → person | A step only a person can do (scan a QR code, tap the screen). |
 | `stage/` | agent | Staged parts, each copied under a **unique name** and checked by md5 before `flash.request`. |
 | `ip`, `key` | tools | Cached display IP and settings key. **Reset after every flash or install.** |
+| `port` | helpers | The board's COM port once found among several boards (the chip that answered esptool's `chip_id`); asked again when it is gone. |
 
 ## 2. Test console (USB Serial/JTAG, `forge_core/testcon`)
 
@@ -43,7 +44,7 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `memspeed` | `test: memspeed …_ms=…` | forge_core |
 | `reboot` | `test: ok restarting` | forge_core |
 | `key` | `test: key <16 hex>` | forge_net (web) |
-| `wifi status\|offline\|online\|offline-boot\|offline-boot-short` | `test: wifi connected=0/1 sta_ssid=… portal=0/1 ap=0/1 ap_clients=N dpp=0/1 retries=N channel=N ap_pass=<8 chars>` (same keys as weather_amoled) | forge_net |
+| `wifi status\|offline\|online\|offline-boot\|offline-boot-short\|lowlat on\|off` | `test: wifi connected=0/1 sta_ssid=… portal=0/1 ap=0/1 ap_clients=N dpp=0/1 retries=N channel=N ap_pass=<8 chars> ps=none\|min\|max lowlat=N dl=<holder\|none> bg=N` (the first keys as weather_amoled; `ps`: Wi-Fi power save, `lowlat`: `net_low_latency()` users, `dl`: who holds the download slot, `bg`: background jobs waiting or running; `lowlat on\|off` adds or removes a user) | forge_net |
 | `portal windows-quiet` | `test: ok portal windows-quiet` | forge_net |
 | `fps [reset]` | `test: fps frames=… render_avg_ms=… render_max_ms=… anim_frames=… anim_fps=… gap_max_ms=… gap_max_at_ms=… gap_max_kind=lvgl>move… mpx=…` (the gap from an LVGL redraw to a move's first frame is not counted; `gap_max_kind` is text) | board display |
 | `tap X Y`, `press X Y [ms]`, `swipe left\|right\|up\|down`, `drag X1 Y1 X2 Y2 [ms]` | `test: ok tap` … | forge_lvgl (touch inject) |
@@ -53,6 +54,9 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `presence` | `test: presence state=0\|1\|2 brightness=% quiet_s=S mic=0/1 imu=0/1 level=dB threshold=dB calibrating=0/1 cal=0\|1\|2 spread=dB` (state: active, dim, off; cal: none, ok, noisy) | forge_presence |
 | `presence calibrate N` | `test: ok presence calibrate N` (then `presence: calibrated: ok\|too noisy, baseline kept, …`) | forge_presence |
 | `wake` | `test: ok wake` | forge_presence |
+| `power` | `test: power cpu_mhz=N panel=asleep\|awake screen_lock=0\|1` (cpu_mhz is always the maximum: the command itself runs; `screen_lock` says whether the CPU is held at 240 MHz while idle) | board |
+| `shot [SCREEN [DIV]]` | `SHOT name w h`, one `S:<base64 RGB565 row>` line per row, `SHOTEND` (raw, straight to USB), then `test: ok shot name wxh`: the screen rendered off-display, every DIV-th pixel (1..4, default 2). `tools/devloop/shot.py` makes PNGs from a log. For a session without HTTPS to the board. | forge_lvgl |
+| `netstat` | `test: netstat link_rx=N link_drop=N ip_rx=N ip_drop=N tcp_rx=N tcp_drop=N tcp_err=N tcp_proterr=N tcp_rterr=N udp_rx=N` (lwIP's counters, `CONFIG_LWIP_STATS`): does anything from outside reach the chip? (L208) | forge_net |
 
 ## 3. Log lines the tools read
 
@@ -62,13 +66,15 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `ota: Update installed, restarting` | OTA download written. |
 | `ota: New firmware ran N s…: marked valid (no rollback)` | The new image is confirmed; a restart before this line rolls it back. |
 | `net: Connected, IP a.b.c.d` | Station up (`forge.json` `ip_line`). |
-| `web: Settings page: https://a.b.c.d/` | Web server up. |
+| `web: Settings page: https://a.b.c.d/` | Web server up (`https://a.b.c.d:port/` when `CONFIG_FORGE_HTTPS_PORT` isn't 443; `forge.json` `https_port` tells the tools). |
 | `diag: mark <stage>` | Boot stages; `diag: mark app ready` = `forge.json` `ready_line`. |
 | `slide: drag: first frame after N ms, F frames in T ms (X fps), to next/to prev/back \| gap max N ms, held reads E err U up (longest N ms), finger still max N ms, samples N, renders N, V px/ms` | Each drag drawn as pictures (forge_lvgl). |
 | `slide: change: picture N ms, F frames in T ms (X fps)` | An in-place change or screen load slid as pictures. |
 | `diag: mark <stage> internal N KB free (largest N), DMA N KB, PSRAM N KB` | A boot stage. |
-| `diag: heap: internal N KB free (min ever N, largest block now N / worst N) \| DMA N KB (largest now N / worst N) \| PSRAM N KB free (min ever N, largest N) \| failed allocs N, LVGL in internal RAM N` | Every period (`tools/diag_summary.py`). |
-| `diag: tasks: name(cC pP) X.X% NB \| …`, `diag: cpu: core0 N% busy, core1 N% busy (window N s)` | Per task: core, priority, CPU, stack bytes never used. |
+| `diag: heap: internal N KB free (min ever N, largest block now N / worst N) \| DMA N KB (largest now N / worst N) \| PSRAM N KB free (min ever N, largest N) \| failed allocs N, LVGL in internal RAM N` | Every period (`tools/diag_summary.py`). PSRAM's `largest` is `-` when `FORGE_DIAG_PSRAM_LARGEST` is off. |
+| `diag: tasks: name(cC pP) X.X% NB \| …`, `diag: cpu: core0 N% busy, core1 N% busy (window N s)` | Per task: core, priority, CPU, stack bytes never used. Absent when `FORGE_DIAG_TASK_STATS` is off. |
+| `diag: stats cost: task list N us, PSRAM largest block N us (-1: off by Kconfig)` | Once at start: how long each statistic holds interrupts off on this board (L201). |
+| `display: panel asleep`, `display: panel awake` | The panel put to sleep once the fade down reached 0 (forge_presence's `screen_off` hook, the board's `display_sleep`); awake again, a whole frame sent, on the first step of the fade up. |
 | `diag: display: N frames, render avg N ms max N ms, … \| animation N fps … \| LVGL lock wait max N ms, longest hold N ms by <task>` | From the board (diag hook). |
 | `App version: <ver>` | ESP-IDF's own boot line. |
 | `diag: boot reset=<reason> …`, `diag: coredump …` | Boot info; the last crash, then erased. |
@@ -77,7 +83,8 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 
 ## 4. HTTP API (`forge_net/web`)
 
-HTTPS on :443 with a per-device self-signed certificate; HTTP on :80 serves the captive portal on the setup network
+HTTPS on :443 (`CONFIG_FORGE_HTTPS_PORT`; the tools read `forge.json` `https_port`) with a per-device self-signed
+certificate; HTTP on :80 serves the captive portal on the setup network
 (192.168.4.x) and redirects to HTTPS otherwise. **Every POST and `/api/snapshot` carries `X-Key: <key>`**; POST bodies
 are JSON (`415` otherwise); a Host header that isn't the display's address gets `421`.
 

@@ -239,6 +239,22 @@ class Board:
         """connected, sta_ssid, portal, ap, ap_clients, dpp, retries, channel, ap_pass (PROTOCOL.md §2)."""
         return kv(self.cmd('wifi status', r'test: wifi (.*)').group(1))
 
+    def wait_online(self, timeout=60, step=1.0):
+        """Wait until the station is back on the home network (`wifi status` connected=1); the seconds it took.
+        A setup page takes the radio off the network (Easy Connect), and the first measurement after it landed while
+        Wi-Fi rejoined: 46 fps and a 146 ms gap once, a console reply lost once (v0.3.0-rc.1's run, 2026-10-07).
+        (A reconnection starts no update check of its own; the one a minute after boot is dodged by measure().)"""
+        t0 = time.time()
+        while self.wifi().get('connected') != '1':
+            if time.time() - t0 > timeout:
+                raise Fail(f'Wi-Fi not back within {timeout} s (wifi status)')
+            time.sleep(step)
+        return round(time.time() - t0, 1)
+
+    def power(self):
+        """cpu_mhz, panel (asleep|awake), screen_lock (0|1): the board's "power" command (PROTOCOL.md §2)."""
+        return kv(self.cmd('power', r'test: power (.*)').group(1))
+
     def heap(self):
         line = self.cmd('heap', r'test: heap (.*)').group(1)
         return {k: int(v) for k, v in kv(line).items() if v.lstrip('-').isdigit()}
@@ -281,7 +297,7 @@ class Board:
         return h
 
     def api(self, path, data=None, timeout=10):
-        req = urllib.request.Request(f'https://{self.ip}{path}', method='POST' if data is not None else 'GET',
+        req = urllib.request.Request(forgecfg.https_base(CFG, self.ip) + path, method='POST' if data is not None else 'GET',
                                      data=json.dumps(data).encode() if data is not None else None,
                                      headers=self.headers({'Content-Type': 'application/json'}))
         with urllib.request.urlopen(req, context=self.ctx, timeout=timeout) as r:
@@ -289,7 +305,7 @@ class Board:
 
     def request(self, method, path, body=None, headers=None, tls=True, host=None):
         """(status, Location header) of one raw request: for the "who may change things" rules."""
-        c = (http.client.HTTPSConnection(self.ip, 443, context=self.ctx, timeout=10) if tls
+        c = (http.client.HTTPSConnection(self.ip, int(CFG['https_port']), context=self.ctx, timeout=10) if tls
              else http.client.HTTPConnection(self.ip, 80, timeout=10))
         h = {'Host': host or self.ip}
         h.update(headers or {})
@@ -334,7 +350,7 @@ class Board:
     def snap(self, screen, out=None):
         """(milliseconds, BMP bytes) of GET /api/snapshot; saves a PNG to `out` (masked on a round panel)."""
         t0 = time.time()
-        req = urllib.request.Request(f'https://{self.ip}/api/snapshot?screen={screen}', headers=self.headers())
+        req = urllib.request.Request(forgecfg.https_base(CFG, self.ip) + f'/api/snapshot?screen={screen}', headers=self.headers())
         with urllib.request.urlopen(req, context=self.ctx, timeout=30) as r:
             bmp = r.read()
         ms = (time.time() - t0) * 1000
