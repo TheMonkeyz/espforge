@@ -11,6 +11,31 @@ reason it stays in the app.
 
 ## Framework code
 
+- [ ] 2026-10-30, esp32-s3-meteobus port/esp32-p4 (3fb5c2d): diag's statistics hold interrupts off long enough to
+  break an ESP32-P4 MIPI-DSI display: ESP-IDF's DPI driver restarts the frame DMA from an interrupt after every frame
+  (~0.9 ms gap), and `uxTaskGetSystemState()` (diag's per-task lines: it measures every task's stack in a critical
+  section) took 6.1 ms, `heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)` (the heap line; also slide.c's
+  `room_for()`) 2.3 ms. A full-screen white flash every few minutes. MeteoBus's patch adds `CONFIG_FORGE_DIAG_TASK_STATS`
+  (forge_core Kconfig, default y) and the P4 turns it off; it also stops walking PSRAM (a `--wrap` returning the free
+  size) and sets the panel up on core 1. For espforge: the Kconfig, PSRAM's largest block in diag optional or
+  cheaper, forge_lvgl's slide.c `room_for()` without the walk, and a LESSONS entry (time each statistic; on a board fed
+  by a per-frame interrupt, nothing periodic may hold interrupts off past the frame gap).
+
+- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4 (0177715): a second chip family. `p4/espforge-p4.patch` (against
+  v0.3.0) holds what MeteoBus needed for an ESP32-P4 board (Guition JC1060P470C, Wi-Fi through an ESP32-C6 with
+  esp-hosted / esp_wifi_remote): forge_core `diag.c`'s crash summary for RISC-V (it used the Xtensa backtrace struct);
+  forge_net without Easy Connect where DPP isn't there (`FORGE_DPP` guard, `net_dpp_supported()` for the app's setup
+  screen: esp_wifi_remote has no DPP); `CONFIG_FORGE_HTTPS_PORT` (443 by default) with `web_port()` for the addresses
+  forge_net writes (the C6's esp-hosted 2.3 "network split" kept 443; no longer needed once the C6 was updated, kept
+  for co-processors that need it). Port the three, then a board in `boards/` for this one (MeteoBus's docs/P4-PORT.md).
+- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4: forge_net's settings page says "Could not reach the display" when a
+  change is refused for a missing key (401): the page keeps the key per origin, so after the display's address or port
+  changes the page has none. Say "scan the display's QR code again" on 401 (the user met it after a port change).
+- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4: the ES8311 as speaker and microphone at once (`main/audio_p4.c`):
+  one `esp_codec_dev` IN_OUT device kept open, created under a lock, the amplifier switched by the app around each
+  sound. esp_codec_dev's `es8311_open()` rewrites the chip, so a second device opened at each chime stops the
+  microphone. For forge_presence's board hooks (a board with one codec for both).
+
 - [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power (not committed yet): forge_presence's "off" is only brightness 0; the
   panel kept refreshing and the CPU stayed at 240 MHz for the hours the screen was dark. MeteoBus makes it a real off
   in its `set_brightness` hook (`main/main.c`) and `display_sleep()` (`main/display.c`): DISPOFF + SLPIN from the
@@ -146,6 +171,14 @@ reason it stays in the app.
 
 ## Tools and tests
 
+- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4: console commands for a board the PC's HTTPS can't reach yet:
+  `shot SCREEN [DIV]` (a screenshot over USB as base64 RGB565, `tools/shot.py` makes PNGs; `shot panel` sends the frame
+  buffer as shown), `netstat` (lwIP counters: does anything from outside reach the board?), `blitbench` (frame copy
+  timings: CPU, PPA, async memcpy, 2D-DMA), `c6update SIZE` (an ESP32-C6 co-processor's esp-hosted firmware streamed
+  from the P4's spare app slot through `esp_hosted_slave_ota_*`; the image padded 4 KB so esptool writes it). And the
+  P4 flash helper (`p4/flash_helper_p4.ps1`: `--chip esp32p4`, bootloader at 0x2000, finds the P4's port among
+  several boards). Candidates for forge_core's console and tools/devloop.
+
 - [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power: `CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y` (32 by default, same 32 KB
   cache): every PSRAM-bound frame got faster, none slower in the harness (zoom fill -5 %, bus map drawn 1725 -> 1663 ms,
   snapshots ~4 % faster). A board default for any app that copies pictures out of PSRAM.
@@ -241,6 +274,15 @@ reason it stays in the app.
   (and keep publishing the stable one).
 
 ## Lessons (docs/LESSONS.md)
+
+- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4 (docs/P4-PORT.md "Lessons"): identify a new board from its product
+  page or a photo before porting (a guessed EV board and V1 panel table cost hours); take pins from a working setup for
+  the same board and an I2C scan, not its schematic (amplifier GPIO 11 not 20, no ES7210); "unreachable" over the
+  network: count packets on the board first (`netstat`: a co-processor's network split, then a router isolating Wi-Fi
+  clients); LVGL sends DRAW_POST only when the band meets the object itself, not its ext draw size, so a badge past
+  its object's edge needs `LV_OBJ_FLAG_OVERFLOW_VISIBLE` (pictest found 7 rows missing); esp_hosted's SDIO pools are
+  allocated before the scheduler and can starve the idle task (boot loop: queues 12 + 12); on the P4 move frames with
+  the 2D-DMA (~8 ms a 1024x600 frame; CPU 26-28 ms, PPA scaler 26.5 ms).
 
 - [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power: measure the split before guessing, again (L54/LESSONS 29): three
   plausible zoom speed-ups measured nothing (the column table in internal RAM and an unrolled loop: fill 185 vs
