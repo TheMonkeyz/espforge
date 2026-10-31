@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "forge_lvgl.c" "screens.c" "pager.c" "lvgl_mem.c" "slide.c"
+    SRCS "forge_lvgl.c" "screens.c" "pager.c" "lvgl_mem.c" "slide.c" "slide_slots.c"
     INCLUDE_DIRS "include"
     REQUIRES lvgl forge_core forge_net
     PRIV_REQUIRES esp_psram)

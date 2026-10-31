@@ -5,6 +5,11 @@
   "note": "v0.1.0-rc.0, measured",
   "ref": 4.8
  },
+ "drag_first_frame_ms": {
+  "max": 60,
+  "ref": 15,
+  "note": "the first frame of a swipe after the 10 px that make it a drag: ~15 ms with the neighbour's picture ready (rendered when idle), 35-45 when it had to be rendered then (v0.6.0: buffers on demand must not change this)"
+ },
  "easy_connect_qr_s": {
   "max": 4.0,
   "ref": 2.55,
