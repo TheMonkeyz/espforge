@@ -85,6 +85,20 @@ int main(void)
     sm = (presence_sm_t){ .state = PRESENCE_ACTIVE, .quiet_s = 599 };
     CHECK(run(&sm, 1, false, false, true) == PRESENCE_ACTIVE && sm.quiet_s == 0, "touch is activity");
 
+    // The press filter's verdict (presence_sm_take_dark_touch): a finger on an OFF screen is a dark-screen touch; so
+    // is one the task's own poll saw first (it set dark_touch_s), for PRESENCE_DARK_TOUCH_S after that wake (L213)
+    sm = (presence_sm_t){ .state = PRESENCE_OFF };
+    CHECK(presence_sm_take_dark_touch(&sm) && sm.dark_touch_s == 0, "off: the touch only wakes");
+    sm = (presence_sm_t){ .state = PRESENCE_ACTIVE };
+    CHECK(!presence_sm_take_dark_touch(&sm), "lit: the touch acts");
+    sm = (presence_sm_t){ .state = PRESENCE_ACTIVE, .dark_touch_s = PRESENCE_DARK_TOUCH_S };
+    run(&sm, 3, false, false, true);                        // the filter runs 0.3 s after the poll's wake
+    CHECK(presence_sm_take_dark_touch(&sm), "woken by the poll: the filter's late touch still only wakes");
+    CHECK(!presence_sm_take_dark_touch(&sm), "taken once");
+    sm = (presence_sm_t){ .state = PRESENCE_ACTIVE, .dark_touch_s = PRESENCE_DARK_TOUCH_S };
+    run(&sm, SECONDS(1), false, false, false);
+    CHECK(!presence_sm_take_dark_touch(&sm), "a second after the poll's wake: a new touch acts");
+
     // Turned off (or no microphone): always active, wherever it was
     sm = (presence_sm_t){ .state = PRESENCE_OFF, .quiet_s = 4000 };
     CHECK(presence_sm_step(&sm, &normal, false, false, false, false, DT) == PRESENCE_ACTIVE && sm.quiet_s == 0,

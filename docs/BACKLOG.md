@@ -324,6 +324,13 @@ reason it stays in the app.
   heap for a while. `heap_settled()` only waits for the free size to settle: in an `--ota` run also wait past the
   first minute (as `first_minute_wait_s()` does for perf) or for the largest block to settle, and find out which
   allocation it is.
+- [ ] 2026-10-31, espforge v0.6.0-rc.6 to rc.7 (harness on COM5, `presence.dim_off_wake` about 25 times): while the
+  panel sleeps (CPU at 80 MHz, the "screen" lock released) a test-console command was lost twice (`power`, `presence`:
+  no reply within 15 s; the next command answered), and once the HTTPS PUT restoring the settings right after the
+  wake ended in `TimeoutError: The read operation timed out` although the device applied them (`presence: config`).
+  All three sit on power management's frequency changes (Group B, rc.2). Find out whether the USB console or lwIP
+  loses a packet across a DFS switch (an `esp_pm_lock` for the console while a command is pending?); meanwhile the
+  harness could resend a console command once when no reply comes, and retry an idempotent PUT once.
 
 ## Emulator (web/emu)
 

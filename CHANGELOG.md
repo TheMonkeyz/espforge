@@ -8,6 +8,9 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.6.0-rc.7 - 2026-10-31
+- A touch on a dark screen only wakes it, every time: about one in ten also acted as a long press (the screen's own watcher saw the finger first and lit the screen before the touch filter looked).
+
 ## v0.6.0-rc.6 - 2026-10-31
 - For app developers: the browser emulator runs screen dimming's real code (forge_presence's presence.c: its task, its saved settings, its /api/presence), with the board's microphones and motion sensor answering "not there"; its NVS stand-in gains the i16 keys.
 - For app developers: CI builds the browser emulator from a pull request's own commit and runs its smoke test, so a change to the emulator or the screens is checked before merging; main and tags still build the latest stable release for the site's "Try it".

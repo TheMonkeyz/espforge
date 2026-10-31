@@ -22,6 +22,8 @@ static const char *TAG = "presence";
 #define MOTION_G      0.10f                      // default pick-up threshold: change from the resting position (g)
 #define TOUCH_RECENT_MS (TICK_MS + 50)           // a finger down within this counts as this tick's activity
 
+static presence_sm_t sm = { .state = PRESENCE_ACTIVE };   // the task steps it; the press filter asks it (dark_touch_s)
+
 static presence_hooks_t hk;
 static presence_cfg_t cfg = {
     .enabled = true, .margin_db = 10, .wake_s = 3, .dim_s = 600, .off_s = 3000,   // "Normal": dim 10 min, off at 60 min
@@ -220,7 +222,9 @@ void presence_wake(void)
 // whether the screen was off, so that press is swallowed (no tap, no swipe, no long-press)
 bool presence_touch(void)
 {
-    bool was_off = state == PRESENCE_OFF;
+    // The task's poll (touch_idle_ms) may have seen this finger first and woken the screen already: while the panel
+    // sleeps LVGL reads touch only every 100 ms. The state machine remembers such a wake for a moment (L213).
+    bool was_off = presence_sm_take_dark_touch(&sm);
     presence_wake();
     if (was_off) ESP_LOGI(TAG, "touch on a dark screen: wake (this touch does nothing else)");
     return was_off;
@@ -284,7 +288,6 @@ static void presence_task(void *arg)
              imu_ok ? "ready" : "none", cfg.baseline_db);
     const float dt = TICK_MS / 1000.0f;
     uint32_t log_tick = 0;
-    presence_sm_t sm = { .state = PRESENCE_ACTIVE };
     presence_state_t last_state = sm.state;
     float rest[3] = {0}, motion_peak = 0;                     // resting acceleration, follows in ~2 s
     int imu_skip = 10;                                        // the first second of samples is junk (3.7 g seen)
@@ -327,7 +330,10 @@ static void presence_task(void *arg)
         }
 
         // A finger: presence_touch() (the press filter, at once) or one still down / just lifted (touch_idle_ms)
-        bool touched = touch_woke || (hk.touch_idle_ms && hk.touch_idle_ms() < TOUCH_RECENT_MS);
+        bool poll_touch = hk.touch_idle_ms && hk.touch_idle_ms() < TOUCH_RECENT_MS;
+        bool touched = touch_woke || poll_touch;
+        if (poll_touch && !touch_woke && sm.state == PRESENCE_OFF)   // the poll saw the finger before the press filter
+            sm.dark_touch_s = PRESENCE_DARK_TOUCH_S;                 // did: that touch must still only wake (L213)
         touch_woke = false;
 
         presence_cfg_t c;

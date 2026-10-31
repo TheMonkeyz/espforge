@@ -1224,3 +1224,13 @@ while the first one read the microphone, stopped the microphone (the P4 board's 
 Fix: one `ESP_CODEC_DEV_TYPE_IN_OUT` device kept open, created under a lock (the presence and sound tasks start
 together); the app writes its sound to it and switches the amplifier itself (forge_audio's `FORGE_AUDIO_ES8311_BOTH`).
 Check: the microphone's level line (`presence: level`) keeps moving across a chime.
+
+**L213. Two watchers of one touch: the slow one must still get its say.**
+Why: the touch that wakes a dark screen must do nothing else. The press filter (in the LVGL task) decides that from
+the presence state; but the presence task also polls the touch controller every 100 ms, and while the panel sleeps
+LVGL reads touch only every 100 ms too (v0.6.0-rc.2). About one wake in ten, the poll won: the state was ACTIVE when
+the filter looked, the press was not swallowed, and a long press opened the setup page (harness `dim_off_wake`,
+rc.6: "no log line presence: touch on a dark screen").
+Fix: the state machine remembers a wake made by the poll from OFF for `PRESENCE_DARK_TOUCH_S` (0.6 s);
+`presence_sm_take_dark_touch()` answers the filter from the state or that grace, and clears it.
+Check: `tests/host/test_presence.c` (the grace, taken once, expired); on the board `presence.dim_off_wake` ten times.

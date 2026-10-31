@@ -33,6 +33,7 @@ presence_state_t presence_sm_step(presence_sm_t *sm, const presence_cfg_t *c, bo
     float s = sm->score + (loud ? dt : -dt * 0.5f);
     sm->score = s < 0 ? 0 : (s > c->wake_s ? c->wake_s : s);
     bool woken = moved || touched;
+    if (sm->dark_touch_s > 0) sm->dark_touch_s = sm->dark_touch_s > dt ? sm->dark_touch_s - dt : 0;
 
     if (!running) {
         sm->state = PRESENCE_ACTIVE;
@@ -54,6 +55,13 @@ presence_state_t presence_sm_step(presence_sm_t *sm, const presence_cfg_t *c, bo
         break;
     }
     return sm->state;
+}
+
+bool presence_sm_take_dark_touch(presence_sm_t *sm)
+{
+    bool dark = sm->state == PRESENCE_OFF || sm->dark_touch_s > 0;
+    sm->dark_touch_s = 0;
+    return dark;
 }
 
 static int cmp_float(const void *a, const void *b)

@@ -86,10 +86,16 @@ typedef struct {
     presence_state_t state;
     float score;          // sustained-noise score (s): rises while loud, falls at half speed while quiet
     float quiet_s;        // quiet time so far (dim_s and more once dimmed)
+    float dark_touch_s;   // seconds left in which the press filter still counts the finger as the touch that woke a
+                          // dark screen: set by the task when its own poll saw the finger before the filter did
 } presence_sm_t;
+#define PRESENCE_DARK_TOUCH_S 0.6f   // the filter runs within ~0.2 s of the wake (LVGL reads touch every 100 ms asleep)
 presence_state_t presence_sm_step(presence_sm_t *sm, const presence_cfg_t *c, bool running, bool loud, bool moved,
                                   bool touched, float dt);
 void presence_clamp_cfg(presence_cfg_t *c);         // the limits every setting is held to (page, NVS)
+// The press filter's verdict for a finger that just came down: true when the screen was off, or when the task's poll
+// woke it from off less than PRESENCE_DARK_TOUCH_S ago (that touch does nothing else). Clears the grace.
+bool presence_sm_take_dark_touch(presence_sm_t *sm);
 
 // The background noise from a calibration's levels (dBFS, one per window; sorted in place): their median. NOISY
 // when the 90th and 10th percentiles are more than PRESENCE_CAL_SPREAD_DB apart (someone spoke during it: the 90th
