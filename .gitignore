@@ -34,3 +34,6 @@ snapshot_*.png
 _site/
 dist/
 version.txt
+
+# espforge at the pinned tag, in an app that takes the framework at a tag (tools/fetch_forge.py)
+.espforge/

@@ -8,6 +8,9 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.6.0-rc.1 - unreleased
+- For app developers: three PC-side tools in the template. `tools/fetch_forge.py` clones espforge at the tag the app's manifest pins (for the host tests and the display in the browser); `tools/forge_local.py` builds the app against a local espforge checkout before a tag, every espforge entry of the manifest and the board included, and puts the manifest back; `tools/setup_github.py` copies a repository's GitHub settings (rulesets, Pages, the github-pages environment's branch and tag policy, Actions permissions) to a new one and checks them.
+
 ## v0.5.0 - 2026-10-09
 - Touch and hold opens a Settings screen on the display: screen dimming and its timing, wake on pick-up, brightness (the arc along the bottom), language, the phone's settings page as a QR code, Wi-Fi, updates, restart, and an About section. Done or a swipe right closes it.
 - For app developers: the Settings screen as a component (forge_settings) with ready-made rows and room for the app's own; a pager can sit on a page of another one across it (a column of pages in the middle of a row), each direction dragging its own (pager_on_view, slide_stale).

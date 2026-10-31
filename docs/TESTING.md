@@ -163,8 +163,12 @@ How the gate works (L21-L35):
 - **After an update** the harness waits for `marked valid` before any restart (L23).
 - **Outside outages** (a cloud API down) are waited out and noted, not failed (L34).
 - The harness's own logic has unit tests: `python tools/harness/test_harness.py`. With the flash helper's
-  (`test_flash_helper.py`: loopback port, fake board; they need pyserial, so run them from an ESP-IDF shell):
-  `python -m unittest discover -s tools/harness -p "test_*.py"`.
+  (`test_flash_helper.py`: loopback port, fake board; they need pyserial, so run them from an ESP-IDF shell) and the
+  PC-side tools' (`test_forge_local.py`: `tools/forge_local.py` overrides a sample manifest for a fake idf.py run and
+  puts it back, `tools/fetch_forge.py` reads the pinned tag, both say "nothing to do" in espforge itself;
+  `test_setup_github.py`: `tools/setup_github.py`'s comparison of two repositories' GitHub settings on saved `gh api`
+  answers, and its `--check` writing nothing): `python -m unittest discover -s tools/harness -p "test_*.py"`. CI runs
+  them all (`host-tests`).
 
 Pitfalls (Windows): Microsoft Store Python hides `%LOCALAPPDATA%` from child processes, so Playwright's browsers go in
 `tools/webtest/.browsers` (L146); `netsh` must answer in English for the PC-as-phone tests (L147); before joining the

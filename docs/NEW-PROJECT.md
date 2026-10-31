@@ -60,10 +60,19 @@ Pick the names once; they are hard to change later:
 
 ## 3. GitHub settings (the owner)
 
-- [ ] **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-- [ ] **Settings → Environments → github-pages → Deployment branches and tags → Tag rule `v*`.**
-- [ ] **Settings → Rules → Rulesets → New tag ruleset** on `v*`, only the owner may create, update or delete.
-- [ ] `gh auth status` on the PC shows an account with `repo` and `workflow` scopes.
+- [ ] `gh auth status` on the PC shows an account with `repo` and `workflow` scopes. On this PC `gh` is not on the
+      PATH of older shells: Git Bash `"/c/Program Files/GitHub CLI/gh.exe"`, PowerShell
+      `& "C:\Program Files\GitHub CLI\gh.exe"`; the tool below looks there by itself (or `--gh <path>`).
+- [ ] **Copy the settings from a repository that has them, then check:**
+      `python tools/setup_github.py --from TheMonkeyz/espforge --to <owner>/<repo>` adds what the new repository
+      lacks through `gh api`, printing each call; with `--check` it changes nothing, lists every setting as same or
+      different and exits 1 when one differs. It handles the repository rulesets ("protect main", "release tags"),
+      Pages built by a workflow, the `github-pages` environment's deployment branch and tag policy (`main`, `v*`) and
+      Actions' default workflow permissions (`read`). `--from` is never changed; a setting the reference lacks is not
+      copied, so read the `--check` lines.
+- [ ] The same by hand, when needed: **Settings → Pages → Build and deployment → Source: GitHub Actions**;
+      **Settings → Environments → github-pages → Deployment branches and tags → Tag rule `v*`**;
+      **Settings → Rules → Rulesets → New tag ruleset** on `v*`, only the owner may create, update or delete.
 
 ## 4. First build, first release
 
@@ -81,6 +90,51 @@ Pick the names once; they are hard to change later:
 4. Tag `v0.1.0-rc.1`: a pre-release and a Beta-only site (docs/RELEASING.md "First release"). With the board on a
    test build labelled `v0.1.0-rc.0` and the Beta channel: `harness.py --ota v0.1.0-rc.1`.
 5. With the owner's OK, tag `v0.1.0`: Stable is offered too.
+
+## Later: the framework at a tag
+
+The copy starts with espforge's components and board in its own tree. Once the app is a project of its own, it can
+take them from espforge at a release tag instead, as weather_amoled, esp32-s3-rtcquebec and esp32-s3-meteobus do: the
+app only gets espforge versions that passed their own tests, and a framework fix reaches it by bumping one tag.
+
+1. **`main/idf_component.yml`**: one entry per espforge component the app uses, and the board, all at the same tag.
+   ESP-IDF's component manager fetches them into `managed_components/` (git-ignored); delete `dependencies.lock`
+   when bumping the tag.
+   ```yaml
+     forge_core:
+       git: https://github.com/TheMonkeyz/espforge.git
+       path: components/forge_core
+       version: v0.5.0
+     board:
+       git: https://github.com/TheMonkeyz/espforge.git
+       path: boards/ws_amoled175/board
+       version: v0.5.0
+   ```
+   Then delete the copies (`components/forge_*`, `boards/`, `web/emu/forge/`) and the `EXTRA_COMPONENT_DIRS` line of
+   the root `CMakeLists.txt`.
+2. **`tools/fetch_forge.py`** (in the template): clones espforge at that tag into `.espforge/` (git-ignored), for
+   the builds outside idf.py, and prints the components folder. While the app still has copies (no espforge entry
+   in the manifest) it says there is nothing to do.
+3. **`tests/host/Makefile`**: the framework files the tests compile come from `managed_components` after an idf.py
+   build, else from the clone:
+   ```make
+   FORGE ?= $(if $(wildcard ../../managed_components/forge_core/CMakeLists.txt),../../managed_components,../../.espforge/components)
+   CORE := $(FORGE)/forge_core
+   ```
+4. **`web/emu/Makefile`**: the emulator's framework part, components and board from the clone, before the include:
+   ```make
+   ESPFORGE ?= ../../.espforge
+   FORGE_EMU := $(ESPFORGE)/web/emu/forge
+   COMP := $(ESPFORGE)/components
+   BOARD := $(ESPFORGE)/boards/ws_amoled175/board/include
+   include $(FORGE_EMU)/emu.mk
+   ```
+   Then `python3 ../../tools/fetch_forge.py && make -j8` (WSL, after `source ~/emsdk/emsdk_env.sh`).
+5. **Before an espforge tag**, build the app against the local espforge checkout: `python tools/forge_local.py`
+   (`--forge <path>`, default `../espforge`). For the length of the build every espforge entry of the manifest points
+   into the checkout (`override_path`), the build goes to `build/forge`, then the manifest is put back exactly as it
+   was; nothing is committed. Flash it with the harness (`python tools/harness/harness.py --flash build/forge`), run
+   the suites, then tag espforge and bump the tags.
 
 ## A new board
 
