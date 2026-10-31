@@ -167,6 +167,53 @@ void display_raw_frame(display_fill_cb_t fill, void *user)
     last_raw = true;
 }
 
+// A part of the screen (board.h): bands sized for the area's width, bottom up when asked (rows moved down in place
+// need the lower rows first). From weather_amoled's display.c (its list scrolls, v1.14).
+void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_area_fill_cb_t fill, void *user)
+{
+    x0 &= ~1; y0 &= ~1; x1 |= 1; y1 |= 1;                 // the CO5300's even start / odd end (as the rounder)
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > DISP_W - 1) x1 = DISP_W - 1;
+    if (y1 > DISP_H - 1) y1 = DISP_H - 1;
+    const int w = x1 - x0 + 1, rows = (DISP_W * BUF_LINES / w) & ~1;   // a narrow area: more rows per band
+    disp_phase = 1;
+    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
+    while (xSemaphoreTake(raw_done, 0) == pdTRUE) {}                     // no stale tokens
+    raw_mode = true;
+    void *bufs[2] = {buf1, buf2};
+    int inflight = 0;
+    const int last = y0 + (y1 - y0) / rows * rows;       // first row of the last band
+    for (int y = bottom_up ? last : y0, k = 0; bottom_up ? y >= y0 : y <= y1; y += bottom_up ? -rows : rows, k ^= 1) {
+        int n = y1 + 1 - y < rows ? y1 + 1 - y : rows;
+        raw_band = y;
+        disp_phase = 2;
+        fill(x0, w, y, n, bufs[k], user);                 // while the previous band is still going out
+        disp_phase = 3;
+        if (inflight) { if (!raw_wait()) break; inflight--; }   // no esp_lcd call with a transfer in flight
+        int cx1 = x0 + X_GAP, cx2 = x1 + X_GAP, y2 = y + n - 1;
+        uint8_t col[4] = {cx1 >> 8, cx1 & 0xFF, cx2 >> 8, cx2 & 0xFF};
+        uint8_t row[4] = {y >> 8, y & 0xFF, y2 >> 8, y2 & 0xFF};
+        lcd_cmd(0x2A, col, 4);
+        lcd_cmd(0x2B, row, 4);
+        disp_phase = 4;
+        esp_lcd_panel_io_tx_color(io, PIXELS, bufs[k], w * n * 2);
+        disp_phase = 5;
+        inflight++;
+        st.pixels += w * n;
+        tst.pixels += w * n;
+    }
+    disp_phase = 6;
+    while (inflight-- > 0) if (!raw_wait()) break;
+    disp_phase = 0;
+    raw_mode = false;
+    count_frame(0);                                       // counted like LVGL frames (fps in the test console)
+    int64_t now = esp_timer_get_time();
+    if (last_render && now - last_render < 250000) count_anim(now - last_render, last_raw, true);
+    last_render = now;
+    last_raw = true;
+}
+
 static display_flush_hook_t flush_hook;
 void display_set_flush_hook(display_flush_hook_t hook) { flush_hook = hook; }
 

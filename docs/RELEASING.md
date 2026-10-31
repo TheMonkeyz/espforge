@@ -131,6 +131,10 @@ release needs one.
 
 ## Restoring a board
 
+v0.6.0 changed the partition table (a `mapcache` partition for forge_map's flash cache at 0x620000, the crash dump
+moved to 0xEE0000): a board on an older table needs one USB or web-flasher install (`harness.py --flash`); an update
+over Wi-Fi keeps the old table, and the firmware then finds no `mapcache` and caches nothing (it says so in the log).
+
 - **Bad update:** a new image that restarts (or never reaches Wi-Fi) within its confirm window rolls back by itself
   (L126); the device reports it once.
 - **A board on the wrong image:** flash a known build over USB with the helper (`stage.py`, `devloop.py flash`); the
