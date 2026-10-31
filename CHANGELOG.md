@@ -8,6 +8,10 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.6.0-rc.1 - unreleased
+- For app developers: the browser emulator runs screen dimming's real code (forge_presence's presence.c: its task, its saved settings, its /api/presence), with the board's microphones and motion sensor answering "not there"; its NVS stand-in gains the i16 keys.
+- For app developers: CI builds the browser emulator from a pull request's own commit and runs its smoke test, so a change to the emulator or the screens is checked before merging; main and tags still build the latest stable release for the site's "Try it".
+
 ## v0.5.0 - 2026-10-09
 - Touch and hold opens a Settings screen on the display: screen dimming and its timing, wake on pick-up, brightness (the arc along the bottom), language, the phone's settings page as a QR code, Wi-Fi, updates, restart, and an About section. Done or a swipe right closes it.
 - For app developers: the Settings screen as a component (forge_settings) with ready-made rows and room for the app's own; a pager can sit on a page of another one across it (a column of pages in the middle of a row), each direction dragging its own (pager_on_view, slide_stale).

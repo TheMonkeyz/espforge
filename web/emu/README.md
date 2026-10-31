@@ -37,7 +37,7 @@ web/emu/forge/            the framework's: the same in every app
 | `emu_tasks.c` | FreeRTOS tasks, queues, binary semaphores: each task an Emscripten fiber, run by the main loop between LVGL frames; a wait inside a task goes back to the main loop |
 | `emu_time.c` | `localtime_r` following `TZ` as the firmware sets it (Emscripten's uses the browser's zone) |
 | `emu_web.c` | the web server: the settings page's `/api/` requests, queued by the page and served between LVGL frames by the app's and forge_ota's handlers; `/api/info` as forge_net's; Wi-Fi scan and save answer that they need the real display |
-| `emu_stubs.c` | Wi-Fi (a saved network, joined at once: `main.c` goes straight to what it does once Wi-Fi is up), the setup network and Easy Connect (never start), updates (none; Restart reloads the page), diagnostics and the test console (none: the log is the browser's console), the NTP service (the browser's clock) |
+| `emu_stubs.c` | Wi-Fi (a saved network, joined at once: `main.c` goes straight to what it does once Wi-Fi is up), the setup network and Easy Connect (never start), updates (none; Restart reloads the page), diagnostics and the test console (none: the log is the browser's console), the NTP service (the browser's clock), the board's microphones and motion sensor (not there: Notes) |
 | `emu_loop.c` | the LVGL task and the scheduler: `app_main()` as a task, then tasks, settings page requests, `lv_timer_handler()`, `emscripten_sleep()`, forever |
 | `shim/` | the ESP-IDF and FreeRTOS headers the firmware includes; `vTaskDelay` hands control back to the browser |
 
@@ -71,8 +71,9 @@ another one, or the page shows the other checkout's build.
 - `make try F=../../main/ui.c`: compile one file, show its first errors.
 - `node web/emu/forge/smoke.js` (Playwright from `tools/webtest`, `npm ci` there): serves `build/` and checks in
   headless Chromium, with real mouse events, that the screen draws, a drag to the left shows another page, a press and
-  hold changes the screen, the settings page reads `/api/info`, choosing its second language changes the screen, and
-  that nothing logs an error. Screenshots of each step in `build/smoke/`: look at them. CI runs it after the build.
+  hold changes the screen, the settings page reads `/api/info`, screen dimming's `/api/presence` answers with a state
+  (forge_presence's real code runs), choosing its second language changes the screen, and that nothing logs an error.
+  Screenshots of each step in `build/smoke/`: look at them. CI runs it after the build.
 - From a git worktree without `managed_components` of its own: `make LVGL=<main checkout>/managed_components/lvgl__lvgl`.
 
 ## What an app provides
@@ -103,11 +104,13 @@ app would need it, in `forge/`.
 your browser"). `index.html` uses the site's font from `../fonts/` (the build copies it to `build/fonts/` for local
 use).
 
-CI (`.github/workflows/firmware.yml`, job `emulator`) builds it on every push, from the latest stable release (the tag
-itself when a stable tag is pushed; a release older than the emulator has no `web/emu`, and then the pushed commit is
-built, said in the log), with LVGL from GitHub at `main/idf_component.yml`'s version, cJSON 1.7.19 (ESP-IDF 5.5.4's)
-and Emscripten 6.0.11, then runs the smoke test (screenshots: artifact `emulator-smoke`). The `pages` job adds it to
-the site; if the emulator build or its smoke test fails, the site is published without it.
+CI (`.github/workflows/firmware.yml`, job `emulator`) builds it with LVGL from GitHub at `main/idf_component.yml`'s
+version, cJSON 1.7.19 (ESP-IDF 5.5.4's) and Emscripten 6.0.11, then runs the smoke test (screenshots: artifact
+`emulator-smoke`). A pull request (or a push to a branch other than `main`) builds its own commit, so a change to the
+emulator or the screens is checked before it is merged. A push to `main` or a tag builds the latest stable release
+(the tag itself when a stable tag is pushed; a release older than the emulator has no `web/emu`, and then the pushed
+commit is built, said in the log): the `pages` job adds that one to the site, and if its build or its smoke test
+fails, the site is published without it.
 
 ## Notes
 
@@ -134,5 +137,15 @@ the site; if the emulator build or its smoke test fails, the site is published w
 - forge_map (a street map): `USE_MAP := 1` in the app's Makefile builds the whole component (its task, the tiles
   as `fetch()`: tile servers like OSM's answer cross-origin requests) with `png_rows.c` and miniz.
 - The board's `touch_set_press_filter()` works here too (`emu_touch.c`): a press the app refuses is no press.
+- Screen dimming (forge_presence) is the real `presence.c`, as on the board: its task ticks every 100 ms, its settings
+  are saved in the emulated NVS (namespace `presence`, one typed key each; the baseline is an `i16`, which `emu_nvs.c`
+  has with the other sizes), its console commands register (nowhere to type them) and `/api/presence` answers the
+  settings page. The hooks come from the app's `main.c` through `app_main()`, as on the board: the starter passes
+  `board_mic_open`, `imu_init`, `touch_idle_ms` and `display_brightness`, and `emu_stubs.c` answers for the
+  microphones and the motion sensor that they are not there, so the state machine never runs, the screen stays on and
+  the page shows "No microphone". An app whose `main()` doesn't run `main.c` (weather_amoled) passes its own
+  `presence_hooks_t` to `presence_start()` in its `emu_main.c` (`mic_open` and `accel_open` returning false,
+  `mic_read` and `accel_read` unused, `touch_idle_ms` from `emu_touch.c`, `set_brightness` on `display_brightness()`,
+  `settings_changed` NULL or its own) and calls `presence_web_routes()`.
 - A hidden tab pauses `requestAnimationFrame` (the canvas updates only when shown) and slows timers.
 - `?lang=fr` in the address starts the starter app in French (`emu_main.c`), as if chosen on the settings page.

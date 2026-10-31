@@ -16,6 +16,8 @@ esp_err_t nvs_get_str(nvs_handle_t h, const char *key, char *out, size_t *len);
 esp_err_t nvs_set_str(nvs_handle_t h, const char *key, const char *v);
 esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *v);
 esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t v);
+esp_err_t nvs_get_i16(nvs_handle_t h, const char *key, int16_t *v);
+esp_err_t nvs_set_i16(nvs_handle_t h, const char *key, int16_t v);
 esp_err_t nvs_get_i32(nvs_handle_t h, const char *key, int32_t *v);
 esp_err_t nvs_set_i32(nvs_handle_t h, const char *key, int32_t v);
 esp_err_t nvs_get_u32(nvs_handle_t h, const char *key, uint32_t *v);

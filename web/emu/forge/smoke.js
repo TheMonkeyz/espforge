@@ -1,6 +1,7 @@
 // Smoke test of the display in the browser (README.md): serves web/emu/build, opens it in headless Chromium and
-// checks, with real mouse events, that it starts, draws, follows a drag and a press and hold, and that its settings
-// page talks to it (a language change on the page changes the screen). Any page or console error fails it.
+// checks, with real mouse events, that it starts, draws, follows a drag and a press and hold, that its settings
+// page talks to it (a language change on the page changes the screen) and that screen dimming's /api/presence answers
+// (forge_presence's real presence.c runs here). Any page or console error fails it.
 //   node web/emu/forge/smoke.js [build dir] [screenshots dir]      (Playwright from tools/webtest: npm ci there;
 //   from an app's .espforge copy: cd tools/webtest && node ../../.espforge/web/emu/forge/smoke.js ../../web/emu/build)
 // Screenshots of the screen at each step: web/emu/build/smoke/ by default. Exit code 0 = passed.
@@ -34,7 +35,8 @@ function serve() {                                 // build/ as the site's root 
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   const errors = [];
   page.on('pageerror', e => errors.push('page error: ' + e.message));
-  page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  const logs = [];                                 // the firmware's log lines (ESP_LOGx goes to the console)
+  page.on('console', m => { logs.push(m.text()); if (m.type() === 'error') errors.push('console: ' + m.text()); });
   let failed = 0;
   const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) failed++; };
   // The screen as the page shows it: a hash of the canvas, and a screenshot
@@ -75,6 +77,13 @@ function serve() {                                 // build/ as the site's root 
     const langs = frame.locator('#lang option');
     await langs.nth(1).waitFor({ state: 'attached', timeout: 15000 });
     check(await langs.count() > 1, 'the settings page reads /api/info (the languages)');
+    // Screen dimming's route, served by forge_presence's real presence.c (its task runs here, without microphones)
+    const pres = await page.evaluate(() => window.emuApi('GET', '/api/presence', ''));
+    let pj = null;
+    try { pj = JSON.parse(pres.body); } catch (e) { /* not JSON: said below */ }
+    check(pj && typeof pj.state === 'string',
+      `/api/presence answers with "state" (${pres.status}: ${String(pres.body).slice(0, 60)})`);
+    check(logs.some(t => /presence: microphones/.test(t)), "forge_presence's task started (its microphones line in the log)");
     await page.reload();                           // back to the first screen, then change the language there
     await page.waitForFunction(() => document.getElementById('status').textContent === '', null, { timeout: 30000 });
     const before = await look('4-before-language');

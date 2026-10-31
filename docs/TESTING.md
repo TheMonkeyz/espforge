@@ -224,11 +224,12 @@ wsl bash -lc 'source ~/emsdk/emsdk_env.sh && make -C /mnt/c/Users/<you>/ESPDEV/<
 
 Then `node web/emu/forge/smoke.js` (Playwright from `tools/webtest`): in headless Chromium, with real mouse events,
 the screen draws, a drag moves between the pages, a press and hold changes the screen, the settings page beside it
-answers (its second language: the screen follows), and nothing logs an error; screenshots in `web/emu/build/smoke/`.
-CI runs it too. To try it by hand, serve `web/emu/build` (`.claude/launch.json` "emulator", port 8767) and open it in
-the built-in browser; a hidden browser pane doesn't paint the canvas (`requestAnimationFrame` pauses). After a change to
-`main/` that adds a file or a framework function, the emulator may stop linking: CI's `emulator` job says so, and
-the site then goes out without *Try it*.
+answers (its second language: the screen follows; `/api/presence`: screen dimming's real code runs), and nothing logs
+an error; screenshots in `web/emu/build/smoke/`. CI runs it too, on a pull request's own commit (job `emulator`,
+docs/RELEASING.md). To try it by hand, serve `web/emu/build` (`.claude/launch.json` "emulator", port 8767) and open
+it in the built-in browser; a hidden browser pane doesn't paint the canvas (`requestAnimationFrame` pauses). After a
+change to `main/` that adds a file or a framework function, the emulator may stop linking: CI's `emulator` job says
+so on the pull request (it builds the pull request's own commit); on `main`, the site then goes out without *Try it*.
 
 ## 8. Diagnostics
 
