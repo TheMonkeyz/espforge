@@ -310,6 +310,13 @@ reason it stays in the app.
   `swipe_gap_max_ms.hello_to_system` 222 and `drag_slow` 99 in two of five runs, 35-41 in the others, "lvgl>lvgl". The
   `fps` counters should stop counting a move's animation at its end (slide.c knows it), or the harness read the
   `slide: drag:` line's own gap max for the move and keep the frame stats for the landing separately.
+- [ ] 2026-10-31, espforge v0.6.0-rc.2 to rc.4 (harness `--ota` on COM5): `memory.heap_numbers`, read right after an
+  OTA install, reports the largest free internal block at 32-39 KB (baseline min 40). Every run on a flashed build
+  and a re-run of the suite a few minutes later read 43-44 KB, on rc.2, rc.3 and rc.4 alike; v0.3.0-rc.1's `--ota`
+  run showed 36. Something the install leaves behind (the updater's buffers, the first-minute check) fragments the
+  heap for a while. `heap_settled()` only waits for the free size to settle: in an `--ota` run also wait past the
+  first minute (as `first_minute_wait_s()` does for perf) or for the largest block to settle, and find out which
+  allocation it is.
 
 ## Emulator (web/emu)
 
