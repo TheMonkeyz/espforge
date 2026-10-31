@@ -73,13 +73,15 @@ reason it stays in the app.
   bus ~11 ms, overlapping in two 32-row buffers). forge_lvgl's slide.c has the same zoom: port `zoom_fill()`, the
   overlay runs and the split log.
 
-- [ ] 2026-10-10, esp32-s3-meteobus v0.2.1 (fix/radar-wifi-power-save): forge_net leaves the station in ESP-IDF's
+- [x] v0.6.0-rc.3, 2026-10-10, esp32-s3-meteobus v0.2.1 (fix/radar-wifi-power-save): forge_net leaves the station in ESP-IDF's
   default power save (`WIFI_PS_MIN_MODEM`, and `net_dpp_stop()` sets it back): each reply then waits for the router's
   next beacon, ~100 ms a request. The radar's 14 past frames (28 small GeoMet requests on one kept-alive connection)
   took 4.9-6.6 s, 3.1-3.7 s with power save off (the PC: ~90 ms a request). MeteoBus turns it off while a map screen
   is open (`netq_awake()` in `main/netq.c`) and leaves forge_net alone. For espforge: a `net_low_latency(bool)` (a
   count of users, kept off while Easy Connect holds the radio) and a LESSONS entry: before blaming a server or the
   parsing for slow requests, compare the board with the PC on the same URLs, and try `WIFI_PS_NONE`.
+  **→** PR #39: `net_low_latency(on)` (counted; Easy Connect puts it back when it stops), `wifi status ps= lowlat=`, console
+  `wifi lowlat on|off`, harness `console.wifi_low_latency`. The lesson: L204 (Group G).
 - [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc (dbd61f2): slide.c's `get()` with `force` (a slide that needs a picture
   now) allocated a new 434 KB buffer even when `room_for(1)` said no: PSRAM's low point fell from ~450 to 268 KB the
   first time a screen not kept as a neighbour (the radar, opened on top since MeteoBus) slid in. Now it takes the
@@ -94,13 +96,16 @@ reason it stays in the app.
 - [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: `slide_cache_release_unneeded()`: frees the pictures not in the keep
   list, for a screen that needs PSRAM for a while (MeteoBus's bus map: its 434 KB picture and its tiles exist only
   while it is open). A small addition to forge_lvgl's slide.c for any app with a memory-hungry screen on top.
-- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: `netq.c`: who is downloading now (flags set around the weather loop's,
+- [x] v0.6.0-rc.3, 2026-10-09, esp32-s3-meteobus v0.2.0-rc: `netq.c`: who is downloading now (flags set around the weather loop's,
   the radar's and the bus map's downloads), so a lower-priority poller (departures.c) waits before each request: each
   TLS download holds 10-15 KB of internal RAM, and two at once took a place switch's low point from ~40 to 29 KB.
   A forge_net-level "download slot" would let every app (and svc probes, OTA checks) take turns. MeteoBus went
   further (rc.13): no task for the poller at all, its requests run in the radar task's idle time
   (`radar_set_side_work`), after a PSRAM-stack TLS task stopped for good once and an internal one cost 6 KB. A
   framework "background download worker" with a queue would serve every app's pollers the same way.
+  **→** PR #39: `net_dl_begin/end` (one TLS download at a time; the update check and install, the map tiles and the
+  probes take it; `net_dl_busy()` for a poller), `net_bg_post` (one short-lived worker task, jobs one at a time in the
+  slot; svc's probes run there). `wifi status dl= bg=`.
 
 - [x] v0.6.0-rc.1, 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0 (3bbe34a): forge_net `svc_user_agent()` builds the User-Agent in a
   128-byte buffer, and `-Werror=format-truncation` fails the build once `CONFIG_FORGE_PRODUCT`, `CONFIG_FORGE_REPO` and

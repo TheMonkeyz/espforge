@@ -106,9 +106,11 @@ static cJSON *get_json(const char *url, int cap)
         .url = url, .event_handler = http_evt, .user_data = &rx,
         .crt_bundle_attach = esp_crt_bundle_attach, .timeout_ms = 15000,
     };
+    if (!net_dl_begin("update check", 30000)) { free(rx.buf); return NULL; }   // one TLS download at a time
     int64_t t0 = esp_timer_get_time();
     int status;
     esp_err_t err = http_once(&cfg, &status);
+    net_dl_end("update check");
     cJSON *j = err == ESP_OK && status == 200 ? cJSON_Parse(rx.buf) : NULL;
     if (err == ESP_OK && status == 200 && !j) svc_fail_why(svc_updates, SVC_WHY_BAD_REPLY, t0);
     else svc_http(svc_updates, err, status, t0);
@@ -233,7 +235,17 @@ static void check(void)
 
 /* ---------- install ---------- */
 
+static void install_in_slot(void);
+
 static void install(void)
+{
+    // One TLS download at a time (net.h): the whole image, minutes; a map or a probe waits or skips a round meanwhile
+    if (!net_dl_begin("update", 60000)) { set_state(OTA_FAILED, OTA_E_NO_START); return; }
+    install_in_slot();
+    net_dl_end("update");                                 // (a success restarted the board before this line)
+}
+
+static void install_in_slot(void)
 {
     char url[256];
     xSemaphoreTake(mux, portMAX_DELAY);

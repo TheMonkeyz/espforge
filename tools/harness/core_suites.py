@@ -10,7 +10,7 @@ import subprocess
 import time
 import urllib.request
 
-from board import CFG, ROOT, SETUP_IP, Fail, check, dns_query, http_get, test
+from board import CFG, ROOT, SETUP_IP, Fail, check, dns_query, http_get, kv, test
 import forgecfg
 import snapshot
 
@@ -99,6 +99,23 @@ def commands(ctx):
         refused = str(e)
     check('unknown command' in refused, f'an unknown command was not refused as unknown ({refused[:120]})')
     ctx.note(f'{v}: {len(have)} console commands; where: {w[:100]}')
+
+
+@test('console')
+def wifi_low_latency(ctx):
+    """net_low_latency() (v0.6.0): Wi-Fi power save off while a screen wants fast requests (ESP-IDF's default costs
+    ~100 ms a request, MeteoBus's radar), counted; `wifi status` shows ps, lowlat, the download slot and queued jobs."""
+    b = ctx.board
+    w = b.wifi()
+    check('ps' in w and 'lowlat' in w and 'dl' in w and 'bg' in w, f'wifi status lacks ps/lowlat/dl/bg: {w}')
+    check(w['ps'] == 'min' and w['lowlat'] == '0', f'at rest: ps={w["ps"]} lowlat={w["lowlat"]}, expected min / 0')
+    try:
+        w = kv(b.cmd('wifi lowlat on', r'test: wifi (.*)').group(1))
+        check(w['ps'] == 'none' and w['lowlat'] == '1', f'lowlat on: ps={w["ps"]} lowlat={w["lowlat"]}, expected none / 1')
+    finally:
+        w = kv(b.cmd('wifi lowlat off', r'test: wifi (.*)').group(1))
+    check(w['ps'] == 'min' and w['lowlat'] == '0', f'lowlat off: ps={w["ps"]} lowlat={w["lowlat"]}, expected min / 0')
+    ctx.note(f'wifi lowlat on|off: power save none|min; download slot {w["dl"]}, background jobs {w["bg"]}')
 
 
 # ---------------------------------------------------------------- memory

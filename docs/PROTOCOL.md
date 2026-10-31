@@ -43,7 +43,7 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `memspeed` | `test: memspeed …_ms=…` | forge_core |
 | `reboot` | `test: ok restarting` | forge_core |
 | `key` | `test: key <16 hex>` | forge_net (web) |
-| `wifi status\|offline\|online\|offline-boot\|offline-boot-short` | `test: wifi connected=0/1 sta_ssid=… portal=0/1 ap=0/1 ap_clients=N dpp=0/1 retries=N channel=N ap_pass=<8 chars>` (same keys as weather_amoled) | forge_net |
+| `wifi status\|offline\|online\|offline-boot\|offline-boot-short\|lowlat on\|off` | `test: wifi connected=0/1 sta_ssid=… portal=0/1 ap=0/1 ap_clients=N dpp=0/1 retries=N channel=N ap_pass=<8 chars> ps=none\|min\|max lowlat=N dl=<holder\|none> bg=N` (the first keys as weather_amoled; `ps`: Wi-Fi power save, `lowlat`: `net_low_latency()` users, `dl`: who holds the download slot, `bg`: background jobs waiting or running; `lowlat on\|off` adds or removes a user) | forge_net |
 | `portal windows-quiet` | `test: ok portal windows-quiet` | forge_net |
 | `fps [reset]` | `test: fps frames=… render_avg_ms=… render_max_ms=… anim_frames=… anim_fps=… gap_max_ms=… gap_max_at_ms=… gap_max_kind=lvgl>move… mpx=…` (the gap from an LVGL redraw to a move's first frame is not counted; `gap_max_kind` is text) | board display |
 | `tap X Y`, `press X Y [ms]`, `swipe left\|right\|up\|down`, `drag X1 Y1 X2 Y2 [ms]` | `test: ok tap` … | forge_lvgl (touch inject) |

@@ -54,6 +54,6 @@ void svc_get(int id, svc_info_t *out);
 // The User-Agent of the firmware's own requests (public APIs ask apps to identify themselves):
 // "<CONFIG_FORGE_PRODUCT or project>/<version> ([<CONFIG_FORGE_UA_COMMENT>; ]+https://github.com/<CONFIG_FORGE_REPO>)"
 const char *svc_user_agent(void);
-// A status page opened: in a short-lived task, send a small request to each service not contacted for 5 min
+// A status page opened: on forge_net's background worker, send a small request to each service not contacted for 5 min
 void svc_probe_stale(void);
 #define SVC_MAX 12

@@ -127,7 +127,8 @@ const char *svc_user_agent(void)
     return ua;
 }
 
-static void probe_task(void *arg)
+// One job on forge_net's background worker (inside the download slot): every stale service, in turn
+static void probe_job(void *arg)
 {
     char url[200];
     for (int i = 0; i < nsvc; i++) {
@@ -149,7 +150,6 @@ static void probe_task(void *arg)
                  (int)((esp_timer_get_time() - t0) / 1000));
     }
     probe_running = false;
-    vTaskDelete(NULL);
 }
 
 void svc_probe_stale(void)
@@ -165,8 +165,8 @@ void svc_probe_stale(void)
     taskEXIT_CRITICAL(&mux);
     if (!n) return;
     probe_running = true;
-    if (xTaskCreate(probe_task, "svc_probe", 8192, NULL, 2, NULL) != pdPASS) {
-        ESP_LOGW(TAG, "probe task not started");
+    if (!net_bg_post(probe_job, NULL, "probe")) {
+        ESP_LOGW(TAG, "probe not queued");
         taskENTER_CRITICAL(&mux);
         for (int i = 0; i < nsvc; i++) svc[i].probing = false;
         taskEXIT_CRITICAL(&mux);
