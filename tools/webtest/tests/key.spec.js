@@ -46,3 +46,16 @@ test('on the setup network no key is needed', async ({ page, request }) => {
   await expect.poll(async () => (await state(request)).wifi).toEqual({ ssid: 'HomeNet', pass: 'home-pass-1' });
   expect((await posts(request, '/api/wifi')).length).toBe(1);
 });
+
+// MeteoBus's page said "Could not reach the display" when the display refused the key (after its address or port
+// changed, the page's key was for another origin): the message must say what to do, scan the QR code again.
+test('a refused key says to scan the QR code again, not that the display is unreachable', async ({ page, request }) => {
+  await open(page, 'not-the-displays-key');
+  await expect(page.locator('#version')).toContainText('v0.1.0-test');
+  await page.locator('#lang').selectOption('fr');
+  await expect.poll(async () => (await state(request)).log.some(e => e.refused === 401)).toBe(true);
+  const text = (await page.locator('#msg').textContent()).trim();
+  expect(text, `"${text}" doesn't say to scan the QR code`).toMatch(/QR/);
+  expect(text).not.toMatch(/reach|didn't work|échec/i);
+  expect((await state(request)).info.lang).toBe('en');
+});

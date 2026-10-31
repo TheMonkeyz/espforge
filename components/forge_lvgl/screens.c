@@ -1,7 +1,12 @@
 // Named screens: test console and snapshots (see screens.h)
 #include "screens.h"
+#include <stdlib.h>
 #include <string.h>
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/usb_serial_jtag.h"
 #include "testcon.h"
 #include "forge_lvgl.h"
 
@@ -56,7 +61,83 @@ static void cmd_screen(int argc, char **argv)
     else ESP_LOGW(TAG, "error screen: no screen '%s'", argv[1]);
 }
 
-void screens_testcon(void) { testcon_register("screen", "screen [name]", cmd_screen); }
+/* "shot [SCREEN [DIV]]": a screen (a registered name, "current" by default) rendered off-display and sent over the USB
+ * console as base64 RGB565, every DIV-th pixel of every DIV-th row (DIV 1..4, default 2): "SHOT name w h", one "S:" line
+ * per row, "SHOTEND". tools/devloop/shot.py turns a log into PNGs. For a session that can't reach the board's HTTPS
+ * /api/snapshot (the cloud's, a board behind a co-processor not yet reachable), and for screens before Wi-Fi. Straight
+ * to the USB driver (testcon's): a UART console would take ~40 s. From MeteoBus's P4 port (L208). "panel" (the frame
+ * buffer as shown) exists on MeteoBus's P4 only: this board renders in bands. */
+static void usb_line(const char *s, size_t n)
+{
+    for (size_t o = 0; o < n;) {
+        size_t k = n - o > 128 ? 128 : n - o;             // the driver's ring buffer refuses bigger writes
+        int w = usb_serial_jtag_write_bytes(s + o, k, pdMS_TO_TICKS(500));
+        if (w <= 0) return;                               // no host reading: drop the rest
+        o += w;
+    }
+}
+
+static char shot_name[24];
+static int shot_div;
+
+static void shot_task(void *arg)                          // its own task: rendering a screen needs a big stack
+{
+    static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    web_image_t img = {0};
+    if (!screens_snapshot(shot_name, &img)) { ESP_LOGW(TAG, "error shot %s: no such screen", shot_name); vTaskDelete(NULL); return; }
+    int div = shot_div, w = img.w / div, h = img.h / div;
+    uint16_t *row = heap_caps_malloc(w * 2, MALLOC_CAP_SPIRAM);
+    char *line = heap_caps_malloc(w * 2 * 4 / 3 + 16, MALLOC_CAP_SPIRAM);
+    if (row && line) {
+        char hd[64];
+        int n = snprintf(hd, sizeof(hd), "\nSHOT %s %d %d\n", shot_name, w, h);
+        usb_line(hd, n);
+        for (int y = 0; y < h; y++) {
+            const uint16_t *src = (const uint16_t *)(img.data + (size_t)y * div * img.stride);
+            for (int x = 0; x < w; x++) row[x] = src[x * div];
+            const uint8_t *b = (const uint8_t *)row;
+            int len = w * 2, o = 0;
+            line[o++] = 'S'; line[o++] = ':';
+            for (int i = 0; i < len; i += 3) {
+                uint32_t v = b[i] << 16 | (i + 1 < len ? b[i + 1] << 8 : 0) | (i + 2 < len ? b[i + 2] : 0);
+                line[o++] = b64[v >> 18 & 63];
+                line[o++] = b64[v >> 12 & 63];
+                line[o++] = i + 1 < len ? b64[v >> 6 & 63] : '=';
+                line[o++] = i + 2 < len ? b64[v & 63] : '=';
+            }
+            line[o++] = '\n';
+            usb_line(line, o);
+        }
+        usb_line("SHOTEND\n", 8);
+    }
+    free(row);
+    free(line);
+    screens_snapshot_free(&img);
+    // The rows filled the USB driver's ring: let it drain before the log line, which the console dropped otherwise
+    // (the harness waited 30 s for "ok shot" after a complete picture)
+    vTaskDelay(pdMS_TO_TICKS(150));
+    ESP_LOGI(TAG, "ok shot %s %dx%d", shot_name, w, h);
+    vTaskDelete(NULL);
+}
+
+static void cmd_shot(int argc, char **argv)
+{
+    if (argc > 1 && !strcmp(argv[1], "panel")) {
+        ESP_LOGW(TAG, "error shot panel: this board renders in bands (no frame buffer); name a screen");
+        return;
+    }
+    strlcpy(shot_name, argc > 1 ? argv[1] : "current", sizeof(shot_name));
+    shot_div = argc > 2 ? atoi(argv[2]) : 2;
+    if (shot_div < 1 || shot_div > 4) shot_div = 2;
+    if (xTaskCreatePinnedToCore(shot_task, "shot", 12288, NULL, 2, NULL, 0) != pdPASS)
+        ESP_LOGW(TAG, "error shot %s: no task", shot_name);
+}
+
+void screens_testcon(void)
+{
+    testcon_register("screen", "screen [name]", cmd_screen);
+    testcon_register("shot", "shot [SCREEN [DIV]]", cmd_shot);
+}
 
 // lv_snapshot_take renders into LVGL's heap (PSRAM): works for screens not shown, without touching the panel
 bool screens_snapshot(const char *name, web_image_t *out)

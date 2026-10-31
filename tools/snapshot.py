@@ -97,7 +97,8 @@ def main() -> None:
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE                              # per-device self-signed certificate
-    req = urllib.request.Request(f"https://{ip}/api/snapshot?screen={a.screen}", headers={"X-Key": key} if key else {})
+    req = urllib.request.Request(forgecfg.https_base(cfg, ip) + f"/api/snapshot?screen={a.screen}",
+                                 headers={"X-Key": key} if key else {})
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
             bmp = r.read()

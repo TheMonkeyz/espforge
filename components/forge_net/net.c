@@ -20,7 +20,19 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "dns_server.h"
+#include "dl_gate.h"
+#include "sdkconfig.h"
+// Easy Connect needs the supplicant's DPP, which only exists with the Wi-Fi radio on this chip: not with esp_wifi_remote
+// (an ESP32-P4 reaching Wi-Fi through a co-processor). Then net_dpp_supported() is false and net_dpp_start() fails.
+// (0 or 1, not "!CONFIG_...": the symbol is undefined on a chip with its own radio, and C code reads it too)
+#ifdef CONFIG_ESP_WIFI_REMOTE_ENABLED
+#define FORGE_DPP 0
+#else
+#define FORGE_DPP 1
+#endif
+#if FORGE_DPP
 #include "esp_dpp.h"
+#endif
 #include "esp_idf_version.h"
 #include "esp_attr.h"
 #include "esp_random.h"
@@ -36,6 +48,7 @@ static esp_netif_t *sta_netif;
 static esp_timer_handle_t retry_timer;
 static volatile bool ap_active;
 static volatile bool dpp_active;
+static int lowlat;                        // net_low_latency() users: power save off while > 0 (Easy Connect aside)
 
 int net_ap_clients(void)
 {
@@ -154,6 +167,9 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 }
 
 static void cmd_wifi(int argc, char **argv);
+#if CONFIG_LWIP_STATS
+static void cmd_netstat(int argc, char **argv);
+#endif
 
 void net_init(void)
 {
@@ -163,7 +179,10 @@ void net_init(void)
     // build also needs CONFIG_LOG_MAXIMUM_LEVEL_DEBUG. (ESP-IDF 5.5 renamed CONFIG_WPA_DEBUG_PRINT to this.)
     esp_log_level_set("wpa", ESP_LOG_DEBUG);
 #endif
-    testcon_register("wifi", "wifi status|offline|online|offline-boot|offline-boot-short", cmd_wifi);
+    testcon_register("wifi", "wifi status|offline|online|offline-boot|offline-boot-short|lowlat on|off", cmd_wifi);
+#if CONFIG_LWIP_STATS
+    testcon_register("netstat", "netstat", cmd_netstat);
+#endif
     svc_ntp = svc_add(SVC_NAME_NTP, "SNTP", NULL);
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -247,9 +266,13 @@ void net_test_info(char *out, size_t n)
     esp_wifi_get_channel(&ch, &sc);
     char ssid[NET_SSID_MAX + 1];
     get_field(ssid, sizeof(ssid), wc.sta.ssid, sizeof(wc.sta.ssid));
-    snprintf(out, n, "connected=%d sta_ssid=%s portal=%d ap=%d ap_clients=%d dpp=%d retries=%d channel=%u ap_pass=%s",
+    wifi_ps_type_t ps = WIFI_PS_MIN_MODEM;
+    esp_wifi_get_ps(&ps);
+    snprintf(out, n, "connected=%d sta_ssid=%s portal=%d ap=%d ap_clients=%d dpp=%d retries=%d channel=%u ap_pass=%s "
+             "ps=%s lowlat=%d dl=%s bg=%d",
              net_is_connected(), ssid, portal_mode, ap_active, net_ap_clients(), dpp_active, retries, ch,
-             net_setup_ap_pass());
+             net_setup_ap_pass(), ps == WIFI_PS_NONE ? "none" : ps == WIFI_PS_MIN_MODEM ? "min" : "max", lowlat,
+             net_dl_holder(), net_bg_queued());
 }
 
 void net_begin(const char *ssid, const char *pass)
@@ -387,6 +410,73 @@ void net_setup_ap_stop(void)
 
 void net_setup_ap_stop_any(void) { ap_down(); }
 
+#if CONFIG_LWIP_STATS
+#include "lwip/stats.h"
+// "netstat": lwIP's receive counters, as k=v: does anything from outside reach this chip at all? (L208: the P4 behind
+// its C6 co-processor's "network split", then a router isolating its Wi-Fi clients: both looked like firmware bugs)
+static void cmd_netstat(int argc, char **argv)
+{
+    ESP_LOGI("test", "netstat link_rx=%u link_drop=%u ip_rx=%u ip_drop=%u tcp_rx=%u tcp_drop=%u tcp_err=%u "
+                     "tcp_proterr=%u tcp_rterr=%u udp_rx=%u",
+             (unsigned)lwip_stats.link.recv, (unsigned)lwip_stats.link.drop, (unsigned)lwip_stats.ip.recv,
+             (unsigned)lwip_stats.ip.drop, (unsigned)lwip_stats.tcp.recv, (unsigned)lwip_stats.tcp.drop,
+             (unsigned)lwip_stats.tcp.err, (unsigned)lwip_stats.tcp.proterr, (unsigned)lwip_stats.tcp.rterr,
+             (unsigned)lwip_stats.udp.recv);
+}
+#endif
+
+/* ---------------- power save, the download slot (net.h) ---------------- */
+
+static void apply_power_save(void)        // not during Easy Connect: it holds the radio awake itself
+{
+    esp_wifi_set_ps(lowlat > 0 ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM);
+}
+
+void net_low_latency(bool on)
+{
+    int n = __atomic_add_fetch(&lowlat, on ? 1 : -1, __ATOMIC_ACQ_REL);
+    if (n < 0) {
+        ESP_LOGW(TAG, "net_low_latency(false) without a matching on");
+        __atomic_store_n(&lowlat, 0, __ATOMIC_RELEASE);
+        n = 0;
+    }
+    if (!dpp_active) apply_power_save();
+    ESP_LOGI(TAG, "low latency %s (%d users): power save %s", on ? "on" : "off", n, n > 0 ? "off" : "on");
+}
+
+int net_low_latency_users(void) { return lowlat; }
+
+static dl_gate_t dl;                      // the bookkeeping (dl_gate.c, host-tested); dl_mux guards it
+static portMUX_TYPE dl_mux = portMUX_INITIALIZER_UNLOCKED;
+
+bool net_dl_begin(const char *who, int timeout_ms)
+{
+    int64_t t0 = esp_timer_get_time();
+    for (;;) {
+        int64_t now = esp_timer_get_time();
+        taskENTER_CRITICAL(&dl_mux);
+        bool got = dl_gate_take(&dl, who, now);
+        taskEXIT_CRITICAL(&dl_mux);
+        if (got) return true;
+        if (now - t0 >= (int64_t)timeout_ms * 1000) {
+            ESP_LOGW(TAG, "download slot: %s gave up after %d ms, held by %s for %lld ms", who, timeout_ms,
+                     dl_gate_holder(&dl), (long long)((now - dl.since_us) / 1000));
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+void net_dl_end(const char *who)
+{
+    taskENTER_CRITICAL(&dl_mux);
+    dl_gate_give(&dl, who);
+    taskEXIT_CRITICAL(&dl_mux);
+}
+
+bool net_dl_busy(void) { return dl_gate_busy(&dl); }
+const char *net_dl_holder(void) { return dl_gate_holder(&dl); }
+
 /* ---------------- Wi-Fi Easy Connect (DPP enrollee) ----------------
  * The display shows a DPP QR code; an Android phone (10+) scans it (camera or any QR scanner) and sends
  * the network it's connected to (SSID + password). No connection attempts while it listens (they made the radio hop
@@ -468,6 +558,7 @@ void net_set_restart(void (*fn)(void)) { restart_fn = fn ? fn : esp_restart; }
 void net_restart(void) { restart_fn(); }
 static void restart_cb(void *arg) { restart_fn(); }   // forge_ota: not in an update's first minute
 
+#if FORGE_DPP
 static void dpp_event(esp_supp_dpp_event_t evt, void *data)
 {
     switch (evt) {
@@ -564,21 +655,35 @@ void net_dpp_stop(void)
     dpp_active = false;
     dpp_uri_cb = NULL;
     dpp_done_cb = NULL;
-    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);                    // ESP-IDF's default for a station
+    apply_power_save();                                    // ESP-IDF's default for a station, or none for an app's low latency
     ESP_LOGI(TAG, "Easy Connect stopped");
     resume_saved();
 }
 
+#else
+bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done)
+{
+    (void)on_uri; (void)on_done; (void)dpp_pick_channel; (void)dpp_hold_channel; (void)restart_cb;
+    ESP_LOGW(TAG, "Easy Connect: not available on this board (Wi-Fi through a co-processor)");
+    return false;
+}
+void net_dpp_stop(void) {}
+#endif
+bool net_dpp_supported(void) { return FORGE_DPP; }
 bool net_dpp_active(void) { return dpp_active; }
 
 bool net_setup_ap_active(void) { return ap_active; }
 
-// Test console: "wifi status|offline|online|offline-boot[-short]" (docs/PROTOCOL.md §2, harness wifi suites)
+// Test console: "wifi status|offline|online|offline-boot[-short]|lowlat on|off" (docs/PROTOCOL.md §2, harness)
 static void cmd_wifi(int argc, char **argv)
 {
-    EXT_RAM_BSS_ATTR static char info[200];              // (PSRAM: L185)
-    const char *a = argc == 2 ? argv[1] : "";
-    if (!strcmp(a, "offline")) net_test_offline();
+    EXT_RAM_BSS_ATTR static char info[240];              // (PSRAM: L185)
+    const char *a = argc >= 2 ? argv[1] : "";
+    bool lowlat_cmd = argc == 3 && !strcmp(a, "lowlat") && (!strcmp(argv[2], "on") || !strcmp(argv[2], "off"));
+    if (lowlat_cmd) net_low_latency(!strcmp(argv[2], "on"));
+    else if (argc != 2) a = "";
+    if (lowlat_cmd) {}
+    else if (!strcmp(a, "offline")) net_test_offline();
     else if (!strcmp(a, "online")) net_test_online();
     else if (!strcmp(a, "offline-boot") || !strcmp(a, "offline-boot-short")) {
         net_test_offline_next_boot(a[12] != 0);
@@ -586,7 +691,7 @@ static void cmd_wifi(int argc, char **argv)
         vTaskDelay(pdMS_TO_TICKS(200));
         esp_restart();
     } else if (strcmp(a, "status")) {
-        ESP_LOGW("test", "error wifi: status, offline, offline-boot[-short], online");
+        ESP_LOGW("test", "error wifi: status, offline, offline-boot[-short], online, lowlat on|off");
         return;
     }
     net_test_info(info, sizeof(info));

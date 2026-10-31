@@ -22,6 +22,14 @@ void board_init(void);
 bool display_lock(int timeout_ms);   // -1 = forever
 void display_unlock(void);
 void display_brightness(uint8_t level);   // 0..255, with the lock held, from any task
+// The panel asleep while the screen is off (forge_presence's screen_off hook, through the app): DISPOFF and SLPIN from
+// any task with the lock held; waking sends SLPOUT, and the LVGL task finishes 120 ms later with a whole frame and
+// DISPON (L81: a whole refresh from core 0 would race the transfer-done interrupt on core 1). While the panel is awake
+// a "screen" power-management lock keeps the CPU at 240 MHz even idle; asleep, an idle core may drop to 80 MHz
+// (CONFIG_PM_ENABLE; board_init configures 80..240 MHz, no light sleep). The console's "power" shows both.
+void display_sleep(bool off);
+bool display_asleep(void);
+bool display_cpu_full_speed(void);        // the "screen" lock is held
 
 // Frame statistics since the last reset (diag line every period; "fps" in the test console has its own counters)
 typedef struct {
@@ -41,6 +49,11 @@ void display_get_stats(display_stats_t *out, bool reset);
 // afterwards LVGL must redraw before it flushes again (lv_obj_invalidate).
 typedef void (*display_fill_cb_t)(int y0, int n, void *dst, void *user);
 void display_raw_frame(display_fill_cb_t fill, void *user);
+// A part of the screen (x0..x1, y0..y1) without LVGL (slide.c's list scrolls): fill() writes rows y0..y0+n-1 of
+// columns x0..x0+w-1 (RGB565 byte-swapped) into dst; bottom_up sends the bands from the bottom (rows moved down in
+// place need the lower rows first). Even start / odd end as the panel wants. Display lock held.
+typedef void (*display_area_fill_cb_t)(int x0, int w, int y0, int n, void *dst, void *user);
+void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_area_fill_cb_t fill, void *user);
 
 // Called with every area LVGL sends to the panel, before the byte swap (RGB565 as LVGL draws it), in the LVGL task.
 // For a picture of the screen kept in step with the panel (drags drawn outside LVGL).

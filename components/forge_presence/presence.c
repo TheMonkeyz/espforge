@@ -230,9 +230,19 @@ bool presence_screen_off(void) { return state == PRESENCE_OFF; }
 
 /* ---------------- the task ---------------- */
 
+static bool panel_off;                        // hk.screen_off(true) was called: the panel sleeps until the fade up
+
 static void apply_brightness(int target)
 {
-    if (target == cur_pct || !hk.set_brightness) return;
+    if (target == cur_pct || !hk.set_brightness) {
+        // The fade reached 0 and the state is OFF (a slider never goes below 5): a real off, if the app has one
+        if (target == 0 && cur_pct == 0 && state == PRESENCE_OFF && hk.screen_off && !panel_off) {
+            hk.screen_off(true);
+            panel_off = true;
+        }
+        return;
+    }
+    if (panel_off && target > 0) { hk.screen_off(false); panel_off = false; }   // the panel first, then the fade up
     // Fade: ~1 s from full to off
     int step = 10;
     int next = cur_pct < 0 ? target : (target > cur_pct ? (cur_pct + step > target ? target : cur_pct + step)

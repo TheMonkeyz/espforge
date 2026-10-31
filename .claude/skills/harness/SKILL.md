@@ -11,9 +11,10 @@ Details: docs/TESTING.md §5. Rules: docs/LESSONS.md L21-L38.
    the board, the firmware has the test console.
 2. **Note to the user** with the expected time (all suites: ~10-15 min; one suite: 1-3 min).
 3. **Run**, one of:
-   - a fresh build: `python tools/harness/harness.py --flash build/v55/<app>.bin`
+   - a fresh build: `python tools/harness/harness.py --flash` (forge.json's build_dir; `--flash build/other` for another)
    - what is on the board: `python tools/harness/harness.py`
-   - some suites: `python tools/harness/harness.py smoke web` (or `--suite smoke --suite web`)
+   - some suites: `python tools/harness/harness.py memory web` (or `--suite memory --suite web`; the names are
+     TESTING.md §5's table)
    - a release: `--expect vX.Y.Z-rc.N` (or `--ota vX.Y.Z-rc.N`, see the `release-rc` skill)
    - Easy Connect with a phone: `wifi_setup --phone`
    Run it in the background for long runs and watch its output.

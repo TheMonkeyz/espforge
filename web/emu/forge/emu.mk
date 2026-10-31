@@ -39,24 +39,24 @@ endif
 # The framework's files every app needs, plus the ones the app's Makefile lists before the include
 # (FORGE_CORE += png_rows.c ...): with `?=` an app's `+=` replaced the list instead of adding to it
 FORGE_CORE := i18n.c i18n_nvs.c textfit.c testcon_registry.c $(filter-out i18n.c i18n_nvs.c textfit.c testcon_registry.c,$(FORGE_CORE))
-FORGE_LVGL := forge_lvgl.c pager.c slide.c screens.c $(filter-out forge_lvgl.c pager.c slide.c screens.c,$(FORGE_LVGL))
+FORGE_LVGL := forge_lvgl.c pager.c slide.c screens.c $(filter-out forge_lvgl.c pager.c slide.c screens.c,$(FORGE_LVGL)) slide_slots.c
 FORGE_NET := svc.c $(filter-out svc.c,$(FORGE_NET))
 FORGE_OTA := ota_web.c $(filter-out ota_web.c,$(FORGE_OTA))
-# forge_presence: its pure half and its routes; emu_presence.c stands in for presence.c (no microphones here)
-FORGE_PRESENCE := presence_sm.c presence_json.c presence_web.c \
-                  $(filter-out presence_sm.c presence_json.c presence_web.c,$(FORGE_PRESENCE))
+# forge_presence: the real presence.c (its task, its settings in NVS, its console commands) with its pure half and its
+# routes; the board's microphones and motion sensor answer "not there" (emu_stubs.c), so the screen stays on
+FORGE_PRESENCE := presence.c presence_sm.c presence_json.c presence_web.c \
+                  $(filter-out presence.c presence_sm.c presence_json.c presence_web.c,$(FORGE_PRESENCE))
 # forge_map, for an app with a street map (USE_MAP := 1 before the include): all of it (its task, downloads as fetch()),
 # with png_rows.c and miniz
 ifneq ($(USE_MAP),)
-FORGE_MAP := geo.c map.c map_draw.c map_slots.c
+FORGE_MAP := geo.c map.c map_draw.c map_slots.c map_path.c map_cache.c
 FORGE_CORE += $(if $(filter png_rows.c,$(FORGE_CORE)),,png_rows.c)
 endif
 # forge_settings, for an app with the Settings screen (USE_SETTINGS := 1 before the include)
 ifneq ($(USE_SETTINGS),)
 FORGE_SETTINGS := settings.c settings_std.c
 endif
-EMU := emu_loop.c emu_display.c emu_touch.c emu_http.c emu_nvs.c emu_stubs.c emu_tasks.c emu_web.c emu_time.c \
-       emu_presence.c
+EMU := emu_loop.c emu_display.c emu_touch.c emu_http.c emu_nvs.c emu_stubs.c emu_tasks.c emu_web.c emu_time.c
 LV_SRC := $(shell find $(LVGL)/src -name '*.c' 2>/dev/null)
 # png_rows.c inflates with tinfl, in the ESP32-S3's ROM: here miniz 3.0.2's (MIT, as tests/host), downloaded once, only
 # when the app builds png_rows.c (FORGE_CORE += png_rows.c: map tiles, pictures)

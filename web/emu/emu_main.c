@@ -1,7 +1,10 @@
 // The starter app in the browser: main.c's app_main() runs unchanged as a task (forge/emu_loop.c). The "Wi-Fi" is up
 // at once (forge/emu_stubs.c), so it goes from its start-up straight to the hello page, as a display that joined its
-// network. This file is the place for what only the browser needs: demo data a new visitor sees, a link's
-// ?parameters (emu_param), stand-ins for the app's own hardware.
+// network. Screen dimming (forge_presence) starts from app_main too, with main.c's own hooks: the board's microphones
+// and motion sensor answer "not there" (forge/emu_stubs.c), the finger and the brightness are the emulator's. An app
+// whose main() doesn't run main.c passes its own presence_hooks_t to presence_start() here (README.md, Notes).
+// This file is the place for what only the browser needs: demo data a new visitor sees, a link's ?parameters
+// (emu_param), stand-ins for the app's own hardware.
 #include <ctype.h>
 #include "nvs.h"
 #include "emu.h"

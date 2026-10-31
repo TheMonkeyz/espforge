@@ -10,7 +10,8 @@ import subprocess
 import time
 import urllib.request
 
-from board import CFG, ROOT, SETUP_IP, Fail, check, dns_query, http_get, test
+from board import CFG, ROOT, SETUP_IP, Fail, check, dns_query, http_get, kv, test
+import forgecfg
 import snapshot
 
 # Suites that only run when asked for (or with their flag): ota needs --ota
@@ -100,11 +101,66 @@ def commands(ctx):
     ctx.note(f'{v}: {len(have)} console commands; where: {w[:100]}')
 
 
+@test('console')
+def shot_over_usb(ctx):
+    """`shot SCREEN [DIV]` (v0.6.0): a screen rendered off-display and sent over the USB console as base64 RGB565 rows,
+    for a session that can't reach the board's HTTPS (tools/snapshot.py) and for screens before Wi-Fi;
+    tools/devloop/shot.py turns a log into PNGs. Fails on the old firmware: no such command."""
+    import shot
+    b = ctx.board
+    at = len(ctx.log.lines())
+    name = (CFG['screens'] or ['current'])[0]
+    m = b.cmd(f'shot {name} 4', r'test: ok shot (\S+) (\d+)x(\d+)', timeout=30)
+    ctx.log.wait(r'^SHOTEND', 5, 'the end of the shot', start=at)
+    got = list(shot.blocks(ctx.log.lines()[at:]))
+    check(got and got[-1][0] == name, f'no SHOT block for {name} decoded from the log ({len(got)} blocks)')
+    _, w, h, rgb, rows = got[-1]
+    check((w, h) == (int(m.group(2)), int(m.group(3))) and w == CFG['screen']['w'] // 4,
+          f'{w}x{h} decoded, the console said {m.group(2)}x{m.group(3)}, a quarter of the screen expected')
+    lit = sum(1 for i in range(0, len(rgb), 3) if rgb[i] + rgb[i + 1] + rgb[i + 2] > 60)
+    check(rows == h and lit > w * h // 100, f'{rows} of {h} rows, {lit} lit pixels of {w * h}: a broken or blank picture')  # hello: text on black, ~4 %
+    shot.png(ctx.out(f'shot_{name}.png'), w, h, rgb)
+    ctx.note(f'shot {name} 4: {w}x{h} over USB, {rows} rows, {lit} lit pixels (shot_{name}.png)')
+
+
+@test('console')
+def wifi_low_latency(ctx):
+    """net_low_latency() (v0.6.0): Wi-Fi power save off while a screen wants fast requests (ESP-IDF's default costs
+    ~100 ms a request, MeteoBus's radar), counted; `wifi status` shows ps, lowlat, the download slot and queued jobs."""
+    b = ctx.board
+    w = b.wifi()
+    check('ps' in w and 'lowlat' in w and 'dl' in w and 'bg' in w, f'wifi status lacks ps/lowlat/dl/bg: {w}')
+    check(w['ps'] == 'min' and w['lowlat'] == '0', f'at rest: ps={w["ps"]} lowlat={w["lowlat"]}, expected min / 0')
+    try:
+        w = kv(b.cmd('wifi lowlat on', r'test: wifi (.*)').group(1))
+        check(w['ps'] == 'none' and w['lowlat'] == '1', f'lowlat on: ps={w["ps"]} lowlat={w["lowlat"]}, expected none / 1')
+    finally:
+        w = kv(b.cmd('wifi lowlat off', r'test: wifi (.*)').group(1))
+    check(w['ps'] == 'min' and w['lowlat'] == '0', f'lowlat off: ps={w["ps"]} lowlat={w["lowlat"]}, expected min / 0')
+    ctx.note(f'wifi lowlat on|off: power save none|min; download slot {w["dl"]}, background jobs {w["bg"]}')
+
+
 # ---------------------------------------------------------------- memory
+
+def heap_settled(read, settle, tries=15, step=2.0, within_kb=2):
+    """The heap numbers once they stop moving. Right after an OTA install the update's TLS connection may still hold
+    its buffers (~10 KB internal): an --ota run read internal_largest_kb 35 there and 46 at rest on the same firmware
+    (2026-10-08). With `settle`, read until two readings are within `within_kb` on internal and largest (`tries` at most)."""
+    h = read()
+    if not settle:
+        return h
+    for _ in range(tries):
+        time.sleep(step)
+        n = read()
+        if abs(n['internal'] - h['internal']) <= within_kb and abs(n['largest'] - h['largest']) <= within_kb:
+            return n
+        h = n
+    return h
+
 
 @test('memory')
 def heap_numbers(ctx):
-    h = ctx.board.heap()
+    h = heap_settled(ctx.board.heap, settle=bool(getattr(ctx.opts, 'ota', None)))   # an --ota run: after the install
     ctx.metric('internal_free_kb', h['internal'])
     ctx.metric('internal_min_kb', h['min'])
     ctx.metric('internal_largest_kb', h['largest'])
@@ -239,7 +295,7 @@ def settings_page_tests(ctx):
 def live_api(ctx):
     """The page arrives whole and /api/info has every field (PROTOCOL.md §4)."""
     b = ctx.board
-    with urllib.request.urlopen(f'https://{b.ip}/', context=b.ctx, timeout=15) as r:
+    with urllib.request.urlopen(forgecfg.https_base(CFG, b.ip) + '/', context=b.ctx, timeout=15) as r:
         page = r.read()
     check(b'</html>' in page[-200:], 'settings page arrived truncated (the hardware-AES / DMA memory bug class)')
     ctx.metric('page_kb', len(page) // 1024)
@@ -279,8 +335,9 @@ def who_may_change(ctx):
     st, _ = b.request('GET', '/api/snapshot?screen=' + (CFG['screens'] or ['current'])[0])
     check(st == 401, f'snapshot without the key: {st}, expected 401')
     st, loc = b.request('GET', '/', tls=False, host='evil.example')
-    check(st in (301, 302, 307, 308) and loc == f'https://{b.ip}/',
-          f'plain HTTP on the home network: {st} {loc}, expected a redirect to https://{b.ip}/ (not the Host header)')
+    home = forgecfg.https_base(CFG, b.ip) + '/'                  # with the port when it isn't 443 (web_port)
+    check(st in (301, 302, 307, 308) and loc == home,
+          f'plain HTTP on the home network: {st} {loc}, expected a redirect to {home} (not the Host header)')
     st, _ = b.request('POST', '/api/settings', body, {**js, **k})
     check(st == 200, f'POST with the key: {st}, expected 200')
     ctx.note('settings API: 401 without/with a wrong key, 415, 421, snapshot 401, HTTP redirect, 200 with the key')
