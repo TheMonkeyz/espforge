@@ -8,7 +8,7 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
-## v0.6.0-rc.3 - unreleased
+## v0.6.0-rc.3 - 2026-10-31
 - For app developers: forge_net has net_low_latency() (Wi-Fi power save off while a screen downloads much: ~100 ms less per request), one TLS download at a time (net_dl_begin/end, taken by the update check and install, the map tiles and the service probes) and a background worker for small network jobs (net_bg_post; the service probes run there instead of a task of their own). wifi status reports ps, lowlat, dl and bg; the console takes wifi lowlat on|off. From MeteoBus v0.2.0-v0.2.1.
 
 ## v0.6.0-rc.2 - 2026-10-31
