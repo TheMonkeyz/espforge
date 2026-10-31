@@ -42,7 +42,7 @@ the rules are in [LESSONS.md](LESSONS.md).
 
 - Behaviour: the harness's suites, or a probe script in the scratchpad that imports `Board` / `Log` from
   `tools/harness/board.py`.
-- Looks: `python tools/snapshot.py <ip> <screen>` for every screen the change touches, in every language.
+- Looks: `python tools/snapshot.py <screen> [out.png] --ip <ip>` for every screen the change touches, in every language.
 - Speed and memory: the harness's `perf` against `tools/harness/baseline.json`.
 - Every fix adds a check (harness test, Playwright test or host test) that fails on the old code.
 
@@ -101,6 +101,9 @@ The devloop flash helper owns the COM port while logging; the harness and `devlo
 (`run_in_background`: `powershell -NoProfile -ExecutionPolicy Bypass -File tools\devloop\flash_helper.ps1`): nothing opens on the
 user's screen. If the user prefers, Claude may also flash with `idf.py -p COM5 flash` while the
 helper isn't running; the helper is still the way to keep a log window open while acting on the board.
+Before `idf.py`, set `$env:IDF_COMPONENT_CACHE_PATH = "$env:USERPROFILE\.espressif\cm_cache"`: the desktop app's
+shell redirects `AppData\Local` for some child processes, and the component manager's git cache breaks there on the
+first build that fetches a new tag (L199).
 
 ### Claude desktop app / cloud (no USB)
 

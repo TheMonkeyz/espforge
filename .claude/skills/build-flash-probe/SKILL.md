@@ -11,7 +11,8 @@ Rules behind each step: docs/LESSONS.md L1-L10. Protocol: docs/PROTOCOL.md.
    `Set-Content version.txt "<label>" -NoNewline -Encoding ascii`, then touch `CMakeLists.txt`
    (`(Get-Item CMakeLists.txt).LastWriteTime = Get-Date`).
 2. **Note to the user** ("Building <label> (~2 min)"), then build:
-   `. C:\Espressif\esp-idf\export.ps1; idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build`.
+   `. C:\Espressif\esp-idf\export.ps1; $env:IDF_COMPONENT_CACHE_PATH="$env:USERPROFILE\.espressif\cm_cache"; idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build`
+   (the cache path: L199, the desktop app's shell).
    Changed `sdkconfig.defaults`? Delete `build\v55\sdkconfig` first and reconfigure.
 3. **Board free?** `python tools/devloop/devloop.py status` shows `idle` and `.devloop/serial_live.txt` isn't growing.
    If the helper isn't running, start it yourself in the background, windowless (Bash or PowerShell tool with
