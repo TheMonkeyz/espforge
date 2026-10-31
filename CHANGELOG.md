@@ -12,7 +12,7 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 - Screen off is a real off: the panel goes to sleep once the screen has faded out, and the processor slows down while it waits; a touch or a sound brings both back, with the screen redrawn before it shows. From MeteoBus v0.2.1.
 - For app developers: forge_presence's screen_off hook; the board's display_sleep with a "screen" power lock, CONFIG_PM_ENABLE (80..240 MHz, no light sleep) and the console's power command; forge_audio, a board-free audio component (the Waveshare layout and MeteoBus's single-ES8311 one); 64-byte data cache lines.
 
-## v0.6.0-rc.1 - unreleased
+## v0.6.0-rc.1 - 2026-10-31
 - For app developers: from MeteoBus's ESP32-P4 port. forge_core's diag has Kconfig switches for the two statistics that hold interrupts off (the per-task lines, PSRAM's largest block) and times them once at start; its crash summary reads a RISC-V core dump too. forge_net builds without Easy Connect where the Wi-Fi is a co-processor (net_dpp_supported, the starter hides that page), serves the settings page on CONFIG_FORGE_HTTPS_PORT and writes the port in every address (web_port), and checks the User-Agent's length at compile time (256 bytes).
 
 ## v0.5.0 - 2026-10-09
