@@ -265,13 +265,18 @@ reason it stays in the app.
 - [x] v0.3.0-rc.1, 2026-10-07, esp32-s3-rtcquebec v0.2.0: Emscripten's `strftime("%z")` ignores TZ too (it wrote local time as
   +00:00): the app computes the offset from the date (`rtc_iso_local`). A lesson for web/emu/README.md.
   **→** PR #12 (web/emu/README.md), PR #13 (LESSONS L196).
-- [ ] 2026-10-08, weather_amoled PR #28: its emulator builds forge_presence's real `presence.c` (not a stand-in like
+- [x] v0.6.0-rc.1, PR #36, 2026-10-08, weather_amoled PR #28: its emulator builds forge_presence's real `presence.c` (not a stand-in like
   `web/emu/forge/emu_presence.c`) with the app's hooks: it needed only a `testcon_register` / `testcon_add_where` stub
   and NVS `i16` in the emulator's NVS. espforge's emulator could do the same and drop `emu_presence.c`.
-- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: the CI emulator job builds the latest stable release (the site's
+  **→** PR #36: `emu.mk` builds `presence.c`, `emu_presence.c` is gone, the board's microphones and motion sensor answer
+  "not there" from `emu_stubs.c`, `emu_nvs.c` has `i16`; the smoke test checks `/api/presence` and the task's start
+  line. The starter's `main.c` already passes the hooks from `app_main()`, so `emu_main.c` passes none.
+- [x] v0.6.0-rc.1, PR #36, 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: the CI emulator job builds the latest stable release (the site's
   "Try it"), so a pull request that changes the emulator or the UI is never built for the browser in CI (rtcquebec's
   PR #8 passed "emulator" on v0.3.3 while its Makefile lacked USE_SETTINGS). Build the branch too on pull requests
   (and keep publishing the stable one).
+  **→** PR #36: a pull request builds its own commit and runs the smoke test on it (job `emulator`, `THIS_COMMIT`);
+  `main` and tags keep building the latest stable release for the site. The `push` trigger is still `main` only.
 
 ## Lessons (docs/LESSONS.md)
 
