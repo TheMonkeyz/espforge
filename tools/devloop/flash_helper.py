@@ -36,6 +36,7 @@ import forgecfg  # noqa: E402
 CFG = forgecfg.load(HERE)
 DEV = forgecfg.devloop(CFG)
 ESPRESSIF_VID = 0x303A
+SILABS_VID = 0x10C4                      # a board with a CP210x bridge (the Guition ESP32-P4)
 BOOTED = (b'ESP-ROM:', b'rst:0x')                 # the first lines of a boot (ROM banner, reset reason)
 
 
@@ -86,10 +87,37 @@ def md5(path):
 # ---------------------------------------------------------------------------------------------------- ports
 
 def board_ports():
-    """[(device, description)] of the ports with Espressif's USB vendor id, best first (macOS: cu.*, not tty.*)."""
+    """[(device, description)] of the ports with Espressif's or Silicon Labs' USB vendor id, best first (macOS: cu.*,
+    not tty.*)."""
     import serial.tools.list_ports
-    found = [(x.device, x.description) for x in serial.tools.list_ports.comports() if x.vid == ESPRESSIF_VID]
+    found = [(x.device, x.description) for x in serial.tools.list_ports.comports()
+             if x.vid in (ESPRESSIF_VID, SILABS_VID)]
     return sorted(found, key=lambda d: ('/tty.' in d[0], d[0]))
+
+
+def probe_chip(device, chip):
+    """esptool's chip_id on that port: true when the chip there is `chip` (it answers; another chip refuses)."""
+    try:
+        r = subprocess.run([sys.executable, '-m', 'esptool', '--chip', chip, '-p', device, '--before', 'default_reset',
+                            '--after', 'hard_reset', 'chip_id'], capture_output=True, timeout=30)
+        return r.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def pick_port(ports, chip, probe, cached=None):
+    """The board's port among `ports` [(device, description)]: the cached one if still connected, else the only one,
+    else the first whose chip answers probe(device, chip) (several boards on the PC: an ESP32-P4 beside the S3, as
+    MeteoBus's P4 helper did). None when none answers. Pure: test_flash_helper.py."""
+    devs = [d for d, _ in ports]
+    if cached and cached in devs:
+        return cached
+    if len(devs) == 1:
+        return devs[0]
+    for d in devs:
+        if probe(d, chip):
+            return d
+    return None
 
 
 def find_port(explicit=None):
@@ -99,8 +127,10 @@ def find_port(explicit=None):
         return os.environ['FORGE_PORT']
     if CFG.get('port'):
         return CFG['port']
-    ports = board_ports()
-    return ports[0][0] if ports else None
+    p = pick_port(board_ports(), CFG.get('chip', 'esp32s3'), probe_chip, forgecfg.read_cached(CFG, 'port'))
+    if p:
+        forgecfg.write_cached(CFG, 'port', p)         # (.devloop/port: asked again only when it is gone)
+    return p
 
 
 def list_ports():

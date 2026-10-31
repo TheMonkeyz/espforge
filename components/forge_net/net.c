@@ -167,6 +167,9 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 }
 
 static void cmd_wifi(int argc, char **argv);
+#if CONFIG_LWIP_STATS
+static void cmd_netstat(int argc, char **argv);
+#endif
 
 void net_init(void)
 {
@@ -177,6 +180,9 @@ void net_init(void)
     esp_log_level_set("wpa", ESP_LOG_DEBUG);
 #endif
     testcon_register("wifi", "wifi status|offline|online|offline-boot|offline-boot-short|lowlat on|off", cmd_wifi);
+#if CONFIG_LWIP_STATS
+    testcon_register("netstat", "netstat", cmd_netstat);
+#endif
     svc_ntp = svc_add(SVC_NAME_NTP, "SNTP", NULL);
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -403,6 +409,21 @@ void net_setup_ap_stop(void)
 }
 
 void net_setup_ap_stop_any(void) { ap_down(); }
+
+#if CONFIG_LWIP_STATS
+#include "lwip/stats.h"
+// "netstat": lwIP's receive counters, as k=v: does anything from outside reach this chip at all? (L208: the P4 behind
+// its C6 co-processor's "network split", then a router isolating its Wi-Fi clients: both looked like firmware bugs)
+static void cmd_netstat(int argc, char **argv)
+{
+    ESP_LOGI("test", "netstat link_rx=%u link_drop=%u ip_rx=%u ip_drop=%u tcp_rx=%u tcp_drop=%u tcp_err=%u "
+                     "tcp_proterr=%u tcp_rterr=%u udp_rx=%u",
+             (unsigned)lwip_stats.link.recv, (unsigned)lwip_stats.link.drop, (unsigned)lwip_stats.ip.recv,
+             (unsigned)lwip_stats.ip.drop, (unsigned)lwip_stats.tcp.recv, (unsigned)lwip_stats.tcp.drop,
+             (unsigned)lwip_stats.tcp.err, (unsigned)lwip_stats.tcp.proterr, (unsigned)lwip_stats.tcp.rterr,
+             (unsigned)lwip_stats.udp.recv);
+}
+#endif
 
 /* ---------------- power save, the download slot (net.h) ---------------- */
 

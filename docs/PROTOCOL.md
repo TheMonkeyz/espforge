@@ -26,6 +26,7 @@ window on the PC that owns the port and talks through plain files in `.devloop/`
 | `harness.ask` | harness → person | A step only a person can do (scan a QR code, tap the screen). |
 | `stage/` | agent | Staged parts, each copied under a **unique name** and checked by md5 before `flash.request`. |
 | `ip`, `key` | tools | Cached display IP and settings key. **Reset after every flash or install.** |
+| `port` | helpers | The board's COM port once found among several boards (the chip that answered esptool's `chip_id`); asked again when it is gone. |
 
 ## 2. Test console (USB Serial/JTAG, `forge_core/testcon`)
 
@@ -54,6 +55,8 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `presence calibrate N` | `test: ok presence calibrate N` (then `presence: calibrated: ok\|too noisy, baseline kept, …`) | forge_presence |
 | `wake` | `test: ok wake` | forge_presence |
 | `power` | `test: power cpu_mhz=N panel=asleep\|awake screen_lock=0\|1` (cpu_mhz is always the maximum: the command itself runs; `screen_lock` says whether the CPU is held at 240 MHz while idle) | board |
+| `shot [SCREEN [DIV]]` | `SHOT name w h`, one `S:<base64 RGB565 row>` line per row, `SHOTEND` (raw, straight to USB), then `test: ok shot name wxh`: the screen rendered off-display, every DIV-th pixel (1..4, default 2). `tools/devloop/shot.py` makes PNGs from a log. For a session without HTTPS to the board. | forge_lvgl |
+| `netstat` | `test: netstat link_rx=N link_drop=N ip_rx=N ip_drop=N tcp_rx=N tcp_drop=N tcp_err=N tcp_proterr=N tcp_rterr=N udp_rx=N` (lwIP's counters, `CONFIG_LWIP_STATS`): does anything from outside reach the chip? (L208) | forge_net |
 
 ## 3. Log lines the tools read
 

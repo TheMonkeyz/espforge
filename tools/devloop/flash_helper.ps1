@@ -54,12 +54,25 @@ if (Test-Path $exe) { $Esptool = @($exe) }
 elseif (Get-Command python -ErrorAction SilentlyContinue) { $Esptool = @("python", "-m", "esptool") }
 elseif (Get-Command py -ErrorAction SilentlyContinue) { $Esptool = @("py", "-3", "-m", "esptool") }
 
-# The board's COM port: forge.json's, else the ESP32-S3's own USB (VID 303A); $null lets esptool look
+# The board's COM port: forge.json's, else the one board on USB (Espressif's VID 303A, or a CP210x bridge, VID 10C4),
+# else among several the chip that answers esptool's chip_id as forge.json's chip (an ESP32-P4 beside the S3), kept
+# in .devloop\port until it is gone. $null lets esptool look.
 function Find-BoardPort {
   if ($CfgPort) { return $CfgPort }
-  $d = Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
-       Where-Object { $_.PNPDeviceID -match 'VID_303A' -and $_.Name -match '\((COM\d+)\)' } | Select-Object -First 1
-  if ($d -and $d.Name -match '\((COM\d+)\)') { return $Matches[1] }
+  $cands = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
+       Where-Object { ($_.PNPDeviceID -match 'VID_303A' -or $_.PNPDeviceID -match 'VID_10C4') -and $_.Name -match '\((COM\d+)\)' } |
+       ForEach-Object { $null = $_.Name -match '\((COM\d+)\)'; $Matches[1] })
+  if ($cands.Count -eq 0) { return $null }
+  $cache = Join-Path $Root ".devloop\port"
+  if (Test-Path $cache) { $p = (Get-Content $cache -Raw).Trim(); if ($cands -contains $p) { return $p } }
+  if ($cands.Count -eq 1) { Set-Content $cache $cands[0] -Encoding ASCII; return $cands[0] }
+  if ($Esptool.Count -eq 0) { return $cands[0] }
+  $pre = if ($Esptool.Count -gt 1) { $Esptool[1..($Esptool.Count - 1)] } else { @() }
+  foreach ($c in $cands) {
+    Say "Several boards: asking the chip on $c whether it is a $Chip ..."
+    $null = & $Esptool[0] @pre --chip $Chip -p $c --before default_reset --after hard_reset chip_id 2>&1
+    if ($LASTEXITCODE -eq 0) { Set-Content $cache $c -Encoding ASCII; Say "$Chip on $c (kept in .devloop\port)" "Green"; return $c }
+  }
   return $null
 }
 
@@ -158,7 +171,8 @@ while ($true) {
   if (-not $consoleReboot) {   # esptool: a flash, or a restart the console did not do (unindented)
 
   # ---- esptool arguments ----
-  $portArgs = if ($CfgPort) { @("-p", $CfgPort) } else { @() }
+  $found = Find-BoardPort
+  $portArgs = if ($found) { @("-p", $found) } else { @() }
   $why = $null
   if ($Esptool.Count -eq 0) { $why = "no esptool (tools\esptool.exe or python -m esptool)" }
   elseif ($reboot) {

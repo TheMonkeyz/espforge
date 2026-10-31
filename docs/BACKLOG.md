@@ -213,13 +213,16 @@ reason it stays in the app.
 
 ## Tools and tests
 
-- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4: console commands for a board the PC's HTTPS can't reach yet:
+- [x] v0.6.0-rc.5, 2026-10-29, esp32-s3-meteobus port/esp32-p4: console commands for a board the PC's HTTPS can't reach yet:
   `shot SCREEN [DIV]` (a screenshot over USB as base64 RGB565, `tools/shot.py` makes PNGs; `shot panel` sends the frame
   buffer as shown), `netstat` (lwIP counters: does anything from outside reach the board?), `blitbench` (frame copy
   timings: CPU, PPA, async memcpy, 2D-DMA), `c6update SIZE` (an ESP32-C6 co-processor's esp-hosted firmware streamed
   from the P4's spare app slot through `esp_hosted_slave_ota_*`; the image padded 4 KB so esptool writes it). And the
   P4 flash helper (`p4/flash_helper_p4.ps1`: `--chip esp32p4`, bootloader at 0x2000, finds the P4's port among
   several boards). Candidates for forge_core's console and tools/devloop.
+  **→** PR #43: `shot SCREEN [DIV]` (forge_lvgl's screens.c; `shot panel` only on a board with a frame buffer) and
+  `tools/devloop/shot.py`; `netstat` (forge_net, `CONFIG_LWIP_STATS`); the flash helpers (`.ps1`, `.py`) pick the
+  port by chip among several boards (`.devloop/port`). `blitbench` and `c6update` are the P4 board's: its session.
 
 - [x] v0.6.0-rc.2, 2026-10-11, esp32-s3-meteobus v0.2.1-power: `CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y` (32 by default, same 32 KB
   cache): every PSRAM-bound frame got faster, none slower in the harness (zoom fill -5 %, bus map drawn 1725 -> 1663 ms,
