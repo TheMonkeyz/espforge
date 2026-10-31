@@ -242,14 +242,14 @@ class Board:
     def wait_online(self, timeout=60, step=1.0):
         """Wait until the station is back on the home network (`wifi status` connected=1); the seconds it took.
         A setup page takes the radio off the network (Easy Connect), and the first measurement after it landed while
-        Wi-Fi rejoined: 46 fps and a 146 ms gap once, a console reply lost once (v0.3.0-rc.1's run, 2026-10-07)."""
+        Wi-Fi rejoined: 46 fps and a 146 ms gap once, a console reply lost once (v0.3.0-rc.1's run, 2026-10-07).
+        (A reconnection starts no update check of its own; the one a minute after boot is dodged by measure().)"""
         t0 = time.time()
-        while True:
-            if self.wifi().get('connected') == '1':
-                return round(time.time() - t0, 1)
+        while self.wifi().get('connected') != '1':
             if time.time() - t0 > timeout:
                 raise Fail(f'Wi-Fi not back within {timeout} s (wifi status)')
             time.sleep(step)
+        return round(time.time() - t0, 1)
 
     def heap(self):
         line = self.cmd('heap', r'test: heap (.*)').group(1)

@@ -198,6 +198,16 @@ class Helpers(unittest.TestCase):
         with self.assertRaises(Fail):
             board.Board.wait_online(never, timeout=0.05, step=0)
 
+    def test_measurements_dodge_the_first_minute_update_check(self):
+        # perf.page_swipes landed ~60 s after boot in two runs: forge_ota's first check ran inside the measurement
+        import app_suites
+        self.assertEqual(app_suites.first_minute_wait_s(30), 0)
+        self.assertEqual(app_suites.first_minute_wait_s(55), 16)
+        self.assertEqual(app_suites.first_minute_wait_s(64), 7)
+        self.assertEqual(app_suites.first_minute_wait_s(70), 1)
+        self.assertEqual(app_suites.first_minute_wait_s(71), 0)
+        self.assertEqual(app_suites.first_minute_wait_s(300), 0)
+
     def test_heap_numbers_settle_after_an_ota_install(self):
         # memory.heap_numbers in an --ota run read 35 KB largest right after the install, 46 at rest
         import core_suites

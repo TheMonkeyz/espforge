@@ -156,11 +156,22 @@ def log_ms(line):
 
 # ---------------------------------------------------------------- perf
 
+def first_minute_wait_s(uptime_s):
+    """Seconds to wait so a measurement doesn't fall in the device's first-minute window: forge_ota's update check
+    (a TLS handshake) and diag's first report both run ~60 s after boot. The harness's own order put perf.page_swipes
+    right there (v0.6.0-fix.1 runs: a 135 ms and a 90 ms LVGL gap, "lvgl>lvgl", both with "ota: checking" in the window)."""
+    return 71 - uptime_s if 55 <= uptime_s <= 70 else 0
+
+
 def measure(ctx, name, action, settle=1.0):
     """Frame rate during `action` (console commands): fps reset, act, wait for the animation to end, read fps.
     anim_fps counts frames less than 250 ms apart; gap_max_ms is the longest wait between two of them."""
     b = ctx.board
     b.wait_online()                                  # never while Wi-Fi rejoins after a setup page (46 fps once)
+    wait_s = first_minute_wait_s(b.heap().get('uptime_s', 0))
+    if wait_s:                                       # nor during the update check a minute after boot
+        ctx.note(f'{name}: waited {wait_s} s for the first-minute update check to pass')
+        time.sleep(wait_s)
     if time.localtime().tm_sec > 55:                 # not across a minute change: the clock's redraw right after a
         time.sleep(62 - time.localtime().tm_sec)     # move counts in swipe_gap_max_ms (weather_amoled: 127 ms once)
     b.cmd('fps reset')
