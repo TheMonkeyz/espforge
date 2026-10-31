@@ -131,7 +131,7 @@ Suites. Generic ones live in `tools/harness/core_suites.py` and test the framewo
 | Suite | What it proves |
 |---|---|
 | `boot` | the start-up: no `E (` line, `ota: Running` / `App version` / the console agree, boot stage times; a crash kept from before is noted |
-| `console` | `help` lists the commands; an unknown command is refused |
+| `console` | `help` lists the commands; an unknown command is refused; `wifi lowlat on\|off` switches Wi-Fi power save (`ps=`, `lowlat=`) |
 | `memory` | internal RAM and PSRAM free and low points, failed allocations, against `baseline.json` |
 | `screens` | each screen in `forge.json` `screens` snapshotted (size, not blank); `screens_not_shown` are prepared off-display |
 | `web` | the Playwright suite (`tools/webtest`), `GET /api/info`, the page whole; 403 for a POST over plain HTTP, 302 to the device itself, 401 without or with a wrong key, 415 for non-JSON, 421 for another Host |
@@ -178,7 +178,8 @@ function per request, from its URL, with a body that may hold NULs, and counts o
 `test_map.c` serves map tiles that way; `osm_tile.h` is a real OSM tile for such tests), with
 AddressSanitizer and UBSan. forge_lvgl's `pager.c` builds against a fake of the LVGL calls it makes
 (`tests/host/lvfake/lvgl.h`, implemented in `test_pager.c`: objects, flags, a scroll range that skips hidden
-children); a new LVGL call in pager.c needs a line there.
+children); a new LVGL call in pager.c needs a line there. forge_net's download-slot bookkeeping (`dl_gate.c`) has
+`test_dlgate.c`.
 
 ```bash
 wsl make -C tests/host      # IDF_PATH defaults to /mnt/c/Espressif/esp-idf (for cJSON)

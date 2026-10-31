@@ -78,9 +78,17 @@ static void map_task(void *arg)
                 vTaskDelay(pdMS_TO_TICKS(2000));
                 continue;
             }
+            if (!net_dl_begin("map", 30000)) {              // one TLS download at a time (net.h): try again later
+                lock();
+                m.t.busy1 = 0;
+                unlock();
+                vTaskDelay(pdMS_TO_TICKS(2000));
+                continue;
+            }
             int ok = 0, total = 0;
             bool all = fmap_draw(&m.o, m.svc, k.zoom, k.ox, k.oy, px, m.o.w, m.o.h, &b, moved_on, (void *)(intptr_t)s,
                                  progress, (void *)(intptr_t)s, &ok, &total);
+            net_dl_end("map");
             lock();
             // Cancelled or short of tiles: FAILED, kept with what it has; set_center tries it again when it comes back
             m.slot[s].state = all ? FMAP_READY : FMAP_FAILED;

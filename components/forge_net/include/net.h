@@ -50,4 +50,27 @@ void net_test_offline(void);             // now (until net_test_online or a rest
 void net_test_offline_next_boot(bool short_setup);   // next boot only (RTC flag); short: auto setup for 60 s only
 bool net_test_short_setup(void);         // this boot was started that way (offline_setup in main.c)
 void net_test_online(void);              // back to the saved network
-void net_test_info(char *out, size_t n); // one line: connected, station SSID, setup modes, clients, retries, channel
+void net_test_info(char *out, size_t n); // one line: connected, station SSID, setup modes, clients, retries, channel,
+                                         // power save, low-latency users, the download slot's holder, queued jobs
+
+// Wi-Fi power save: ESP-IDF's default (WIFI_PS_MIN_MODEM) makes each reply wait for the router's next beacon, ~100 ms
+// a request (MeteoBus's radar: 28 small requests took 4.9-6.6 s, 3.1-3.7 s with power save off; L204). A screen that
+// downloads much while open asks for low latency (on while it is open, off when it closes); counted, so two such
+// screens don't undo each other. Easy Connect holds the radio awake itself and puts this choice back when it stops.
+void net_low_latency(bool on);
+int net_low_latency_users(void);
+
+// One TLS download at a time: each holds 10-15 KB of internal RAM, and two at once took an app's internal low point
+// from ~40 to 29 KB. svc's probes, forge_ota and forge_map take the slot around their requests; an app's own
+// downloads should too (docs/MERGING-APPS.md). `who`: a short name for the log and `wifi status` (dl=<who>).
+// false = not free within timeout_ms (the holder's name is logged).
+bool net_dl_begin(const char *who, int timeout_ms);
+void net_dl_end(const char *who);
+bool net_dl_busy(void);                  // someone holds it: a low-priority poller waits before its request
+const char *net_dl_holder(void);         // its name, "none" when free
+
+// A background worker for small network jobs (a poller's request, a probe): one short-lived task (internal 8 KB
+// stack, started for the first job, gone after 30 s idle) runs them one at a time inside the download slot. `who`
+// names the job for the log and `wifi status` (bg=<n> waiting or running). false = the queue (8) is full.
+bool net_bg_post(void (*fn)(void *arg), void *arg, const char *who);
+int net_bg_queued(void);
