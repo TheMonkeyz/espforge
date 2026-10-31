@@ -331,6 +331,13 @@ reason it stays in the app.
   All three sit on power management's frequency changes (Group B, rc.2). Find out whether the USB console or lwIP
   loses a packet across a DFS switch (an `esp_pm_lock` for the console while a command is pending?); meanwhile the
   harness could resend a console command once when no reply comes, and retry an idempotent PUT once.
+- [ ] 2026-10-31, esp32-s3-meteobus v0.3.2-rc.1 (harness `--flash` on COM5, PR #25): the display's lowest internal free
+  RAM read 18 KB (its limit 25; the run before, 25 exactly; the rc's `--ota` run, 26) in the minute where the
+  harness's HTTPS snapshot (an incoming TLS session on the settings server) overlapped a bus request's TLS GET right
+  after the bus map closed. The download gate (`net_dl_begin/end`, rc.3) keeps the display's own TLS downloads to one
+  at a time but does not count an incoming HTTPS session: a request served by `esp_https_server` can land on top of a
+  download. Measure the two handshakes' peak, then either make the server's session wait for the gate (a hook in
+  forge_net's web.c around the session open) or give the gate a `net_dl_server_busy()` the pollers check.
 
 ## Emulator (web/emu)
 
