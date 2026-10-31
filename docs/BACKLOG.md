@@ -41,12 +41,15 @@ reason it stays in the app.
   **→** PR #35: the starter's page already says it (`bad_key`: "The key was refused: scan the QR code on the device again";
   `no_key` without a key); a Playwright case keeps it so. The wording is MeteoBus's and weather_amoled's to take (their
   `noReach` text), in their own repos.
-- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4: the ES8311 as speaker and microphone at once (`main/audio_p4.c`):
+- [x] v0.6.0-rc.2, 2026-10-29, esp32-s3-meteobus port/esp32-p4: the ES8311 as speaker and microphone at once (`main/audio_p4.c`):
   one `esp_codec_dev` IN_OUT device kept open, created under a lock, the amplifier switched by the app around each
   sound. esp_codec_dev's `es8311_open()` rewrites the chip, so a second device opened at each chime stops the
   microphone. For forge_presence's board hooks (a board with one codec for both).
+  **→** PR #38: `components/forge_audio`, layout `FORGE_AUDIO_ES8311_BOTH` (MeteoBus's code: one IN_OUT device under a lock,
+  `forge_audio_speaker_dev()` for the app's sound). Proven here on the ES7210 + ES8311 layout; the single-ES8311 one on
+  the P4 board when it joins `boards/`.
 
-- [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power (not committed yet): forge_presence's "off" is only brightness 0; the
+- [x] v0.6.0-rc.2, 2026-10-11, esp32-s3-meteobus v0.2.1-power (not committed yet): forge_presence's "off" is only brightness 0; the
   panel kept refreshing and the CPU stayed at 240 MHz for the hours the screen was dark. MeteoBus makes it a real off
   in its `set_brightness` hook (`main/main.c`) and `display_sleep()` (`main/display.c`): DISPOFF + SLPIN from the
   presence task (after LVGL's last band, as `display_brightness()`); the way back is split, SLPOUT from the presence
@@ -58,6 +61,9 @@ reason it stays in the app.
   `set_brightness(0)` as "off"), panel sleep in the board component (L88), the PM recipe in forge_core, and the harness
   check (`presence.dim_off_wake`: console `power` reports `panel=` and `screen_lock=`). Pitfall met on the way: a
   console command that reads `esp_clk_cpu_freq()` always sees 240 MHz (it runs); check the lock, profile the time.
+  **→** PR #38: `screen_off(bool)` hook in `presence_hooks_t`; the board's `display_sleep` (panel sleep, the split wake, the
+  "screen" lock); `CONFIG_PM_ENABLE` 80..240 MHz in the board; console `power`; harness `dim_off_wake` checks
+  `panel=asleep screen_lock=0` then `awake`/`1`. The pitfall: L202 (Group G).
 - [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power: slide.c's zoom 42-43 -> 54-58 fps (radar 57.8, bus map 54.5). One
   pass per pixel (gather two pixels, swap to the panel's byte order in the same word: `copy_swap()` over the band again
   is gone), a row whose source row is the one above is a `memcpy`, and the overlays (pill, labels, ring) are runs of
@@ -153,10 +159,12 @@ reason it stays in the app.
   in its main.c; the blob is imported by the component and kept (not erased: a rollback reads it); preview brightness
   and the console commands are the component's; host test `test_presence_blob.c` pins the old struct's layout.
   Merged; on COM5 the import read the real blob (every value as v1.14.4 showed it) and v1.15.0-rc.0 passed 22/22.
-- [ ] 2026-10-08, weather_amoled PR #28: `board_audio.c` copied into the app as `main/audio.c` only to use the app's own
+- [x] v0.6.0-rc.2, 2026-10-08, weather_amoled PR #28: `board_audio.c` copied into the app as `main/audio.c` only to use the app's own
   I2C bus (`touch_i2c_bus()` instead of `board_i2c_bus()`) and to open I2S both ways at start. A board-free audio
   helper (the bus as a parameter, e.g. `forge_audio_init(bus, speaker)`) would let an app with its own board code
   share it.
+  **→** PR #38: `components/forge_audio` (`forge_audio_init(cfg, speaker)` with the bus, port and pins); the board's
+  `board_audio_*` are thin wrappers. weather_amoled's `main/audio.c` can call it with `touch_i2c_bus()` (its session).
 - [x] v0.5.0-rc.1, 2026-10-09, esp32-s3-rtcquebec v0.4.0 (the user's new navigation, as weather_amoled's places): a
   pager on a page of another, across it (the stops in a column, in the middle of a row alerts | stops | map), each
   axis dragging its own: `pager_on_view()` (pager.c, host test), slide.c picking the pager by the drag's axis, four
@@ -190,9 +198,10 @@ reason it stays in the app.
   P4 flash helper (`p4/flash_helper_p4.ps1`: `--chip esp32p4`, bootloader at 0x2000, finds the P4's port among
   several boards). Candidates for forge_core's console and tools/devloop.
 
-- [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power: `CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y` (32 by default, same 32 KB
+- [x] v0.6.0-rc.2, 2026-10-11, esp32-s3-meteobus v0.2.1-power: `CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y` (32 by default, same 32 KB
   cache): every PSRAM-bound frame got faster, none slower in the harness (zoom fill -5 %, bus map drawn 1725 -> 1663 ms,
   snapshots ~4 % faster). A board default for any app that copies pictures out of PSRAM.
+  **→** PR #38: in `sdkconfig.defaults`. Harness: swipes 52-61 fps, snapshots 1.7-2.1 s, none slower than the baseline.
 
 - [ ] 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0: this was the third new repo (after esp32-s3-weather and
   esp32-s3-rtcquebec) set up by hand: the "protect main" and "release tags" rulesets, Pages built by a workflow, the
