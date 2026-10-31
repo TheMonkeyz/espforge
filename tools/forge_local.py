@@ -61,7 +61,9 @@ def local_manifest(text, forge):
     for name, entry in forge_entries(manifest_entries(text)).items():
         if not entry.get('path'):
             raise SystemExit(f'{name}: no path: in main/idf_component.yml (where is it in espforge?)')
-        folder = os.path.join(forge, *entry['path'].split('/')).replace(os.sep, '/')
+        # forward slashes whatever the PC: the component manager takes them on Windows too, and a test on Linux
+        # may hand in a Windows path
+        folder = os.path.join(forge, *entry['path'].split('/')).replace('\\', '/')
         block = re.compile(r'^(  ' + re.escape(name) + r':[ \t]*\r?\n)((?:    \S.*\n)+)', re.M)
         text, n = block.subn(lambda m, p=folder: m.group(1) + f'    override_path: "{p}"   {MARK}{nl}', text)
         if n != 1:
