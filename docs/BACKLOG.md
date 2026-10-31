@@ -11,7 +11,7 @@ reason it stays in the app.
 
 ## Framework code
 
-- [ ] 2026-10-30, esp32-s3-meteobus port/esp32-p4 (3fb5c2d): diag's statistics hold interrupts off long enough to
+- [x] v0.6.0-rc.1, 2026-10-30, esp32-s3-meteobus port/esp32-p4 (3fb5c2d): diag's statistics hold interrupts off long enough to
   break an ESP32-P4 MIPI-DSI display: ESP-IDF's DPI driver restarts the frame DMA from an interrupt after every frame
   (~0.9 ms gap), and `uxTaskGetSystemState()` (diag's per-task lines: it measures every task's stack in a critical
   section) took 6.1 ms, `heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)` (the heap line; also slide.c's
@@ -20,17 +20,27 @@ reason it stays in the app.
   size) and sets the panel up on core 1. For espforge: the Kconfig, PSRAM's largest block in diag optional or
   cheaper, forge_lvgl's slide.c `room_for()` without the walk, and a LESSONS entry (time each statistic; on a board fed
   by a per-frame interrupt, nothing periodic may hold interrupts off past the frame gap).
+  **→** PR #35: `FORGE_DIAG_TASK_STATS` and `FORGE_DIAG_PSRAM_LARGEST` (forge_core's Kconfig), `diag: stats cost` timing both
+  at start. forge_lvgl's slide.c has no `room_for()` yet: the cache of FIX-PLAN-2026-10-30 D1 is built on the free size
+  first. The lesson (L201): Group G.
 
-- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4 (0177715): a second chip family. `p4/espforge-p4.patch` (against
+- [x] v0.6.0-rc.1, 2026-10-29, esp32-s3-meteobus port/esp32-p4 (0177715): a second chip family. `p4/espforge-p4.patch` (against
   v0.3.0) holds what MeteoBus needed for an ESP32-P4 board (Guition JC1060P470C, Wi-Fi through an ESP32-C6 with
   esp-hosted / esp_wifi_remote): forge_core `diag.c`'s crash summary for RISC-V (it used the Xtensa backtrace struct);
   forge_net without Easy Connect where DPP isn't there (`FORGE_DPP` guard, `net_dpp_supported()` for the app's setup
   screen: esp_wifi_remote has no DPP); `CONFIG_FORGE_HTTPS_PORT` (443 by default) with `web_port()` for the addresses
   forge_net writes (the C6's esp-hosted 2.3 "network split" kept 443; no longer needed once the C6 was updated, kept
   for co-processors that need it). Port the three, then a board in `boards/` for this one (MeteoBus's docs/P4-PORT.md).
-- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4: forge_net's settings page says "Could not reach the display" when a
+  **→** PR #35: the three ported. The patch's `#define FORGE_DPP (!CONFIG_ESP_WIFI_REMOTE_ENABLED)` did not compile on the S3
+  (the symbol is undefined there and `net_dpp_supported()` returns it as C): 0 or 1 by `#ifdef` now. The starter hides
+  the Easy Connect page when `net_dpp_supported()` is false. The board in `boards/`: its own session
+  (FIX-PLAN-2026-10-30, follow-ups).
+- [x] v0.6.0-rc.1, 2026-10-29, esp32-s3-meteobus port/esp32-p4: forge_net's settings page says "Could not reach the display" when a
   change is refused for a missing key (401): the page keeps the key per origin, so after the display's address or port
   changes the page has none. Say "scan the display's QR code again" on 401 (the user met it after a port change).
+  **→** PR #35: the starter's page already says it (`bad_key`: "The key was refused: scan the QR code on the device again";
+  `no_key` without a key); a Playwright case keeps it so. The wording is MeteoBus's and weather_amoled's to take (their
+  `noReach` text), in their own repos.
 - [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4: the ES8311 as speaker and microphone at once (`main/audio_p4.c`):
   one `esp_codec_dev` IN_OUT device kept open, created under a lock, the amplifier switched by the app around each
   sound. esp_codec_dev's `es8311_open()` rewrites the chip, so a second device opened at each chime stops the
@@ -86,11 +96,12 @@ reason it stays in the app.
   (`radar_set_side_work`), after a PSRAM-stack TLS task stopped for good once and an internal one cost 6 KB. A
   framework "background download worker" with a queue would serve every app's pollers the same way.
 
-- [ ] 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0 (3bbe34a): forge_net `svc_user_agent()` builds the User-Agent in a
+- [x] v0.6.0-rc.1, 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0 (3bbe34a): forge_net `svc_user_agent()` builds the User-Agent in a
   128-byte buffer, and `-Werror=format-truncation` fails the build once `CONFIG_FORGE_PRODUCT`, `CONFIG_FORGE_REPO` and
   `CONFIG_FORGE_UA_COMMENT` are a little longer ("esp32-s3-meteobus", "open-source weather and bus display").
   MeteoBus shortened its comment to "open-source weather/bus". Make the buffer larger (256) or check the lengths
   with a `_Static_assert` with a clear message, in `components/forge_net/svc.c`.
+  **→** PR #35: 256 bytes and the `_Static_assert` (the three Kconfig strings plus 96 must fit).
 
 - [x] v0.3.0-rc.1, 2026-10-06, esp32-s3-rtcquebec v0.1.0: forge_lvgl `pager_set_count()`: build every page once, show as many as
   the app has data for (pages past n hidden, out of the scroll range and of slide.c's drags). PR #8; review found
@@ -227,20 +238,23 @@ reason it stays in the app.
   **→** esp32-s3-rtcquebec moved (its PR #1, v0.3.1-rc.1: 20/20 on COM5); espforge's side: `gen_config.py` reads
   espforge's own Kconfig (v0.3.0-rc.1), `smoke.js` finds Playwright from the current directory (PR #16). Still to
   do here: NEW-PROJECT's section and `tools/fetch_forge.py` in the template.
-- [ ] 2026-10-07, espforge v0.3.0-rc.1 (harness on COM5): `perf.page_swipes` runs right after
+- [x] v0.6.0-rc.1, 2026-10-07, espforge v0.3.0-rc.1 (harness on COM5): `perf.page_swipes` runs right after
   `navigation.setup_pages_slide`, whose Easy Connect page leaves the home network: the first swipe can land while
   Wi-Fi rejoins (46 fps and a 146 ms gap once, a console reply lost once; clean on re-runs). Wait for `net:
   Connected` (or `wifi status`) before the perf suite measures.
+  **→** PR #35: `Board.wait_online()` (wifi status connected=1) in `measure()` and after the setup pages; unit test.
 - [x] v0.3.0-rc.2, 2026-10-07, espforge v0.3.0-rc.1: internal RAM since forge_presence: free 125 -> 111 KB, largest block 47-55 ->
   36-41 KB (floor 40), most likely I2S0's DMA buffers both ways (4 x 320 frames each, internal) and the presence
   task's stack. To measure (a build without presence_start), then: open TX only when an app plays sound, or fewer
   DMA frames for the microphones. Before the stable v0.3.0.
   **→** Measured (no presence 128/58 KB, without microphones 123/52, rc.1 112/41) and fixed in v0.3.0-rc.2: the
   speaker's direction only on request (117/46). The rest (~6 KB) is the microphones' own DMA and the codec.
-- [ ] 2026-10-08, espforge v0.4.0 (harness on COM5): `memory.heap_numbers` in an `--ota` run measures right after the
+- [x] v0.6.0-rc.1, 2026-10-08, espforge v0.4.0 (harness on COM5): `memory.heap_numbers` in an `--ota` run measures right after the
   update installed (the image confirmed, the update's TLS connection maybe still held): internal_largest_kb 35 there,
   46 three times on the same firmware at rest and after a restart (36-46 across tonight's runs). Measure memory after
   the OTA suite's settle, or let `--ota` runs wait for the update's connection to close before the memory suite.
+  **→** PR #35: in an `--ota` run `heap_numbers` reads until two readings agree within 2 KB (`heap_settled`, 30 s at most);
+  unit test.
 - [x] v0.5.0-rc.1, 2026-10-09, esp32-s3-rtcquebec v0.4.0: the flash helpers (`flash_helper.ps1`, `.py`) checked the
   staged parts against forge.json's build_dir and the harness looked for the ELF there: a build staged from another
   folder (`stage.py --build build/forge`) was refused, and its panic not decoded. Both follow
