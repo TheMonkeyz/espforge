@@ -104,11 +104,11 @@ app only gets espforge versions that passed their own tests, and a framework fix
      forge_core:
        git: https://github.com/TheMonkeyz/espforge.git
        path: components/forge_core
-       version: v0.5.0
+       version: v0.6.0
      board:
        git: https://github.com/TheMonkeyz/espforge.git
        path: boards/ws_amoled175/board
-       version: v0.5.0
+       version: v0.6.0
    ```
    Then delete the copies (`components/forge_*`, `boards/`, `web/emu/forge/`) and the `EXTRA_COMPONENT_DIRS` line of
    the root `CMakeLists.txt`.
