@@ -9,6 +9,10 @@
 #include "slide.h"
 #include "web.h"
 
+// How a screen comes in: forge_lvgl's slide_to, or the app's own (weather_amoled keeps its own slide.c)
+static void (*settings_slider)(lv_obj_t *scr, int dir, bool vertical) = slide_to;
+void settings_set_slider(void (*fn)(lv_obj_t *scr, int dir, bool vertical)) { settings_slider = fn ? fn : slide_to; }
+
 static const char *TAG = "settings";
 
 #define C_BG     lv_color_hex(0x000000)
@@ -224,7 +228,7 @@ void settings_open(void)
     ESP_LOGI(TAG, "open");
     settings_refresh();
     lv_obj_scroll_to_y(box, 0, LV_ANIM_OFF);
-    slide_to(scr, 1, true);                                 // up from below
+    settings_slider(scr, 1, true);                          // up from below
     wait_release();
 }
 
@@ -233,7 +237,7 @@ void settings_close(void)
     if (!scr || !back_to) return;
     ESP_LOGI(TAG, "closed");
     away = false;
-    if (lv_screen_active() == scr) slide_to(back_to, -1, true);
+    if (lv_screen_active() == scr) settings_slider(back_to, -1, true);
     else lv_screen_load(back_to);
     if (O.closed) O.closed();
 }
@@ -289,7 +293,7 @@ static void gesture(lv_event_t *e)
 static void phone_back(lv_event_t *e)
 {
     settings_refresh();
-    slide_to(scr, -1, false);
+    settings_slider(scr, -1, false);
     wait_release();
 }
 
@@ -306,7 +310,7 @@ void settings_show_phone(void)
     }
     set_hidden(ph_qr, !have);
     ESP_LOGI(TAG, "phone settings page%s", have ? "" : ": no address yet");
-    slide_to(scr_phone, 1, false);
+    settings_slider(scr_phone, 1, false);
     wait_release();
 }
 

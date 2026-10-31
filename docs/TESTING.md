@@ -140,7 +140,7 @@ Suites. Generic ones live in `tools/harness/core_suites.py` and test the framewo
 | `wifi_runtime` | network lost while running: retries go on; setup pauses them; back online |
 | `wifi_setup` | the PC joins the setup network like a phone (DNS answers every name, the captive-portal redirect, the page loads, `/api/info` without the home network's name or address), Easy Connect on its channel with the setup network held there; `--phone` for a real scan |
 | `ota` | (on request) the installed release is confirmed and nothing was rolled back |
-| `navigation`, `perf` | the starter app's: swipes between pages (quick ones too; `pages()` lists them, read from the device in an app whose page count varies), long-press to setup, setup pages, fps against the baseline |
+| `navigation`, `perf` | the starter app's: swipes between pages (quick ones too; `pages()` lists them, read from the device in an app whose page count varies), long-press to Settings, a moving press is no long press (the message screen), setup pages, fps and the drag's first frame against the baseline |
 | *app suites* | whatever `app_suites.py` registers |
 
 Reports: `tools/harness/reports/<date>/report.md` (git-ignored) with `results.json`, screenshots and the log of each
@@ -179,7 +179,7 @@ function per request, from its URL, with a body that may hold NULs, and counts o
 AddressSanitizer and UBSan. forge_lvgl's `pager.c` builds against a fake of the LVGL calls it makes
 (`tests/host/lvfake/lvgl.h`, implemented in `test_pager.c`: objects, flags, a scroll range that skips hidden
 children); a new LVGL call in pager.c needs a line there. forge_net's download-slot bookkeeping (`dl_gate.c`) has
-`test_dlgate.c`.
+`test_dlgate.c`; slide.c's slot choice (`slide_slots.c`) has `test_slide_slots.c`.
 
 ```bash
 wsl make -C tests/host      # IDF_PATH defaults to /mnt/c/Espressif/esp-idf (for cJSON)

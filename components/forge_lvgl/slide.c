@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "forge_lvgl.h"
 #include "pager.h"
+#include "slide_slots.h"
 #include "testcon.h"
 #include "indev/lv_indev_private.h"         // wait_until_release: cleared after a drag (touch_resync)
 
@@ -29,7 +30,12 @@ static lv_draw_buf_t *other;                // the picture coming in, rendered w
  * nobody has touched the screen for IDLE_MS; re-rendered when older than STALE_MS (contents change: a clock, a status
  * line), so a drag shows at most 2 s old contents for the length of the drag (LVGL redraws the real page after).
  * NB slots, each holding the picture of one page: prev and next of every pager on view (two with a pager on a page of
- * another: up to four). slide_stale() marks them all old (the app changed what a neighbour shows). */
+ * another: up to four). slide_stale() marks them all old (the app changed what a neighbour shows).
+ * Their 434 KB buffers are allocated when a picture needs one and PSRAM has room (room_for), never all at start (until
+ * v0.6.0 the four were taken at init: 1.7 MB an app with two pages never used). Which slot a picture takes follows
+ * MeteoBus's rules (slide_slots.c, host-tested): empty first, then an unwanted page, a wanted one only when worth less
+ * than the new picture or when a drag needs its picture now; with no room for another buffer, a less useful picture's
+ * buffer is reused. slide_release_unneeded() frees the buffers of pages not wanted now (a memory-hungry screen on top). */
 #define IDLE_MS 300
 #define STALE_MS 2000
 #define NB 4
@@ -130,8 +136,13 @@ static int animate(frame_t *f, int to, int ms)
  * While a move runs, LVGL is paused and never sees the finger lift. The touch that started it was told to wait for its
  * release (lv_indev_wait_release), so LVGL took the next touch for the same one: quick successive swipes were missed.
  * After the move: LVGL starts afresh, and a finger already down counts as a new press. */
-// The press read_hook is tracking (a pager drag in the making)
-static struct { bool down, armed; lv_point_t p0; lv_obj_t *pager; } track;
+// The press read_hook is tracking (a pager drag in the making); p0 where it came down, p where it is
+static struct { bool down, armed; lv_point_t p0, p; lv_obj_t *pager; } track;
+
+bool slide_held_still(int max_px)
+{
+    return !track.down || (abs(track.p.x - track.p0.x) <= max_px && abs(track.p.y - track.p0.y) <= max_px);
+}
 
 static void touch_resync(bool lifted)
 {
@@ -200,19 +211,70 @@ static int slot_of(const lv_obj_t *page)                  // the slot holding th
     return -1;
 }
 
-// A slot for a new picture: an empty one, else the least recently used of those holding none of the pages in `keep`
-// (the neighbours on view)
-static int slot_free(lv_obj_t *const *keep, int nkeep)
+static int pagers_on_view(lv_obj_t *scr, lv_obj_t **out);
+
+// The pages worth keeping now, best first: prev and next of each pager on view (not those hidden by pager_set_count)
+#define NWANT (2 * MAX_PAGERS)
+static int wanted(lv_obj_t **want)
 {
-    int best = -1;
-    for (int i = 0; i < NB; i++) {
-        if (!nb[i].buf) continue;
-        if (!nb[i].page) return i;
-        bool kept = false;
-        for (int k = 0; k < nkeep && !kept; k++) kept = nb[i].page == keep[k];
-        if (!kept && (best < 0 || (int32_t)(nb[i].used - nb[best].used) < 0)) best = i;
+    lv_obj_t *on[MAX_PAGERS];
+    int n = pagers_on_view(lv_screen_active(), on), nw = 0;
+    for (int k = 0; k < n; k++) {
+        int cur = pager_current(on[k]);
+        for (int i = 0; i < 2; i++) {
+            lv_obj_t *page = pager_shown(on[k], cur + (i ? 1 : -1));
+            if (page) want[nw++] = page;
+        }
     }
-    return best;
+    return nw;
+}
+
+static int worth_of(lv_obj_t *page, lv_obj_t *const *want, int nw)
+{
+    for (int i = 0; i < nw; i++) if (want[i] == page) return i;
+    return nw;
+}
+
+// PSRAM for another picture: the free size first (cheap), the largest block (a walk of the heap with interrupts off,
+// ~2 ms with 32 MB, L201) only when the free size says it might fit. SLIDE_PSRAM_RESERVE_KB stays for the app.
+static bool room_for(int pictures)
+{
+    size_t one = (size_t)W * H * 2;
+    if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) <= SLIDE_PSRAM_RESERVE_KB * 1024 + one * pictures) return false;
+    return heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) > one + 64 * 1024;
+}
+
+// A slot for a new picture of worth want_p (slide_slots.c): with a buffer, allocated now if PSRAM has room, else a
+// less useful picture's. -1 = none (the caller renders into `other`, or waits)
+static int slot_for(bool force, lv_obj_t *const *want, int nw, int want_p)
+{
+    slide_slot_t v[NB];
+    for (int i = 0; i < NB; i++) v[i] = (slide_slot_t){ nb[i].buf != NULL, nb[i].page, nb[i].used };
+    int i = slide_slot_pick(v, NB, (const void *const *)want, nw, force, want_p);
+    if (i < 0) return -1;
+    if (!nb[i].buf) {
+        if (room_for(1)) nb[i].buf = lv_draw_buf_create(W, H, LV_COLOR_FORMAT_RGB565, 0);
+        if (!nb[i].buf) {
+            i = slide_slot_reuse(v, NB, (const void *const *)want, nw, want_p);
+            if (i < 0) return -1;
+        }
+    }
+    nb[i].page = NULL;
+    nb[i].at = 0;
+    return i;
+}
+
+void slide_release_unneeded(void)
+{
+    lv_obj_t *want[NWANT];
+    int nw = wanted(want), n = 0;
+    for (int i = 0; i < NB; i++) {
+        if (!nb[i].buf || (nb[i].page && worth_of(nb[i].page, want, nw) < nw)) continue;
+        lv_draw_buf_destroy(nb[i].buf);
+        nb[i] = (typeof(nb[i])){ 0 };
+        n++;
+    }
+    if (n) ESP_LOGI(TAG, "%d picture(s) let go (%d KB of PSRAM)", n, n * W * H * 2 / 1024);
 }
 
 // The picture of page `target` of `pg`: the kept one, else rendered now (into a slot, or `other` without one)
@@ -222,7 +284,11 @@ static const uint8_t *neighbour(lv_obj_t *pg, int target, int *renders)
     if (!page) return NULL;
     int i = slot_of(page);
     if (i >= 0 && nb[i].at) { nb[i].used = lv_tick_get(); return nb[i].buf->data; }
-    if (i < 0) i = slot_free(NULL, 0);
+    if (i < 0) {
+        lv_obj_t *want[NWANT];
+        int nw = wanted(want);
+        i = slot_for(true, want, nw, worth_of(page, want, nw));   // a drag needs it now: a less useful slot if need be
+    }
     lv_draw_buf_t *dst = i >= 0 ? nb[i].buf : other;
     lv_obj_update_layout(lv_obj_get_screen(page));
     if (lv_snapshot_take_to_draw_buf(page, LV_COLOR_FORMAT_RGB565, dst) != LV_RESULT_OK) {
@@ -326,7 +392,11 @@ static void drag_run(void *unused)
         // called slide_stale(). The one beyond: rendered when idle.
         int back = slot_of(arrived);
         if (back < 0) back = slot_of(left);
-        if (back < 0) back = slot_free(NULL, 0);
+        if (back < 0) {
+            lv_obj_t *want[NWANT];
+            int nw = wanted(want);
+            back = slot_for(false, want, nw, worth_of(left, want, nw));
+        }
         if (back >= 0) {
             memcpy(nb[back].buf->data, shadow->data, shadow->header.stride * H);
             nb[back].page = left;
@@ -377,6 +447,7 @@ static void read_hook(lv_indev_t *in, lv_indev_data_t *data)
 {
     if (data->state != LV_INDEV_STATE_PRESSED) { track.down = false; return; }
     touched_ms = lv_tick_get();
+    track.p = data->point;
     if (!track.down) {                                     // a new press: may become a drag
         lv_obj_t *on[MAX_PAGERS];
         track.down = true;
@@ -457,20 +528,12 @@ void slide_to(lv_obj_t *scr, int dir, bool vertical)
 static void idle_tick(lv_timer_t *t)
 {
     if (!ready() || slide_busy() || lv_tick_elaps(touched_ms) < IDLE_MS) return;
-    lv_obj_t *on[MAX_PAGERS], *want[2 * MAX_PAGERS];
-    int n = pagers_on_view(lv_screen_active(), on), nw = 0;
-    for (int k = 0; k < n; k++) {
-        int cur = pager_current(on[k]);
-        for (int i = 0; i < 2; i++) {
-            lv_obj_t *page = pager_shown(on[k], cur + (i ? 1 : -1));   // not one hidden by pager_set_count
-            if (page) want[nw++] = page;
-        }
-    }
-    if (nw > NB) nw = NB;
+    lv_obj_t *want[NWANT];
+    int nw = wanted(want);
     for (int w = 0; w < nw; w++) {
         int i = slot_of(want[w]);
         if (i >= 0 && nb[i].at && lv_tick_elaps(nb[i].at) < STALE_MS) continue;
-        if (i < 0) i = slot_free(want, nw);
+        if (i < 0) i = slot_for(false, want, nw, w);       // a slot worth less than this page, with a buffer
         if (i < 0) return;
         lv_obj_update_layout(lv_obj_get_screen(want[w]));
         bool ok = lv_snapshot_take_to_draw_buf(want[w], LV_COLOR_FORMAT_RGB565, nb[i].buf) == LV_RESULT_OK;
@@ -503,10 +566,8 @@ void slide_init(void)
     if (in) lv_indev_set_scroll_limit(in, 2 * DRAG_PX);
     lv_obj_invalidate(lv_screen_active());                 // a whole frame for the shadow
     for (int i = 0; i < npagers; i++) pager_freeze(pagers[i]);
-    int got = 0;
-    for (int i = 0; i < NB; i++) got += (nb[i].buf = lv_draw_buf_create(W, H, LV_COLOR_FORMAT_RGB565, 0)) != NULL;
-    if (got < NB) ESP_LOGW(TAG, "room for %d of %d neighbour pictures (434 KB each): the others rendered when a drag "
-                                "starts", got, NB);
+    ESP_LOGI(TAG, "pictures: shadow and other (%d KB each); up to %d neighbours allocated when needed, %d KB kept for "
+                  "the app", W * H * 2 / 1024, NB, SLIDE_PSRAM_RESERVE_KB);
     lv_timer_create(idle_tick, 100, NULL);
     testcon_add_where(where_slide);
 }

@@ -128,3 +128,7 @@ settings_row_t settings_std_uptime(void);
 // The internals the ready-made rows use (settings.c)
 const char *settings_text(settings_text_t code);
 void settings_show_phone(void);
+
+// How the Settings screen (and its phone page) slide in and out: forge_lvgl's slide_to by default. An app with its own
+// slide.c (weather_amoled) gives its own: fn(scr, dir, vertical), dir 1 = from the right / below. NULL = the default.
+void settings_set_slider(void (*fn)(lv_obj_t *scr, int dir, bool vertical));

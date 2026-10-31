@@ -11,7 +11,7 @@ OUT := build
 CFLAGS := -std=gnu11 -D_DEFAULT_SOURCE -g -O1 -Wall -Wno-unused-function -fsanitize=address,undefined \
           -fno-sanitize-recover=undefined -Ishim -I$(FORGE)/include -I$(MAIN) -include shim/host.h
 # test_testcon only once the firmware has the pure command table (testcon_registry.c)
-TESTS := utf8 version png i18n textfit pager presence map dlgate $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
+TESTS := utf8 version png i18n textfit pager presence map dlgate slideslots $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
 
 all: $(TESTS:%=$(OUT)/test_%)
 	@set -e; for t in $(TESTS); do ./$(OUT)/test_$$t; done
@@ -28,6 +28,9 @@ $(OUT)/test_textfit: test_textfit.c $(FORGE)/textfit.c $(FORGE)/include/textfit.
 # pager.c against a fake of the LVGL calls it makes (lvfake/lvgl.h, implemented in test_pager.c)
 $(OUT)/test_pager: test_pager.c $(LVGLC)/pager.c $(LVGLC)/include/pager.h lvfake/lvgl.h | $(OUT)
 	$(CC) -Ilvfake $(CFLAGS) -I$(LVGLC)/include -o $@ test_pager.c $(LVGLC)/pager.c
+# slide.c's slot choice (slide_slots.c, pure C; slide.c itself needs the panel and LVGL)
+$(OUT)/test_slideslots: test_slide_slots.c $(LVGLC)/slide_slots.c $(LVGLC)/include/slide_slots.h | $(OUT)
+	$(CC) $(CFLAGS) -I$(LVGLC)/include -o $@ test_slide_slots.c $(LVGLC)/slide_slots.c
 # forge_presence's pure half (presence.c, the task and NVS, is not compiled here); cJSON from ESP-IDF
 PRES := ../../components/forge_presence
 $(OUT)/test_presence: test_presence.c $(PRES)/presence_sm.c $(PRES)/presence_json.c $(PRES)/include/presence.h | $(OUT)

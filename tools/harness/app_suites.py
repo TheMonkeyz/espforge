@@ -16,7 +16,7 @@ APP_WATCH = [
     (r'display: .*did not finish', 'a panel transfer timed out'),
     (r'lvgl: .*(out of memory|alloc failed)', 'LVGL could not allocate'),
 ]
-METRIC_SUITES = [('swipe_', 'perf'), ('setup_page_', 'navigation'), ('easy_connect_', 'navigation')]
+METRIC_SUITES = [('drag_first_frame_ms', 'perf'), ('swipe_', 'perf'), ('setup_page_', 'navigation'), ('easy_connect_', 'navigation')]
 
 HOME, NEXT = 'hello', 'system'                         # the starter's two pages, side by side: hello | system
 
@@ -148,6 +148,29 @@ def setup_pages_slide(ctx):
              f'({time.time() - t0:.1f} s in all, console round trips included); Wi-Fi back {back_s} s after closing')
 
 
+@test('navigation')
+def moving_press_is_no_long_press(ctx):
+    """A finger that moves while held is a swipe, not a long press (L200): LVGL fires LONG_PRESSED after 400 ms however
+    far the finger moved when no scroll took over. The start-up message screen has no pager (slide.c's drags don't take
+    the press over), and a long press there opens Wi-Fi setup: a slow 70 px drag across it must not (v0.6.0:
+    slide_held_still, which also guards the hello page's long press to Settings)."""
+    b = ctx.board
+    w, h = CFG['screen']['w'], CFG['screen']['h']
+    b.show('message')
+    b.wait_screen('message', 4)
+    try:
+        at = len(ctx.log.lines())
+        b.cmd(f'drag {w // 2 - 35} {h // 2} {w // 2 + 35} {h // 2} 900')
+        time.sleep(1.0)
+        # LVGL did fire LONG_PRESSED on the moving finger (so the test proves the guard, not a quiet LVGL)
+        ctx.log.wait(r'ui: long-press from a moving finger', 2, 'the long press from the moving finger, ignored', start=at)
+        s = b.screen()
+        check(s == 'message', f'a 70 px drag held 900 ms on the message screen opened "{s}": a long press from a moving finger')
+    finally:
+        go_home(ctx)
+    ctx.note('a 70 px drag held 900 ms on the start-up message screen (no pager) opened nothing')
+
+
 def log_ms(line):
     """The ESP-IDF timestamp of a log line, in ms ("I (12345) tag: ...")."""
     m = re.search(r'\((\d+)\)', line)
@@ -194,8 +217,13 @@ def measure(ctx, name, action, settle=1.0):
 def page_swipes(ctx):
     b = ctx.board
     go_home(ctx)
+    at = len(ctx.log.lines())
     measure(ctx, f'{HOME}_to_{NEXT}', ['swipe left'])
     b.wait_screen(NEXT, 4)
+    # The neighbour's picture was ready (rendered when idle; v0.6.0: its buffer allocated on demand): the first frame
+    # ~15 ms after the 10 px that make it a drag; 35-45 when the picture had to be rendered first
+    m = ctx.log.wait(r'slide: drag: first frame after (\d+) ms', 3, 'the drag line', start=at)
+    ctx.metric('drag_first_frame_ms', int(m.group(1)))
     measure(ctx, f'{NEXT}_to_{HOME}', ['swipe right'])
     b.wait_screen(HOME, 4)
     w, h = CFG['screen']['w'], CFG['screen']['h']        # a slow drag, finger-following, then the snap
