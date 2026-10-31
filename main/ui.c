@@ -455,6 +455,9 @@ static void setup_create(void)
     scr_setup = base_screen();
     lv_obj_add_flag(scr_setup, LV_OBJ_FLAG_CLICKABLE);
     su_pager = pager_create(scr_setup, false, 2, NULL, su_settled, NULL);
+    // No Easy Connect on this board (Wi-Fi through a co-processor: forge_net's net_dpp_supported): the setup-network
+    // page alone, the Easy Connect page hidden and out of the drags
+    if (!net_dpp_supported()) pager_set_count(su_pager, 1);
     for (int p = 0; p < 2; p++) {
         lv_obj_t *pg = pager_page(su_pager, p);
         su[p].title = label(pg, f_mid, C_ACCENT, 40, 300);

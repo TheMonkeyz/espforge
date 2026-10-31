@@ -20,7 +20,18 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "dns_server.h"
+#include "sdkconfig.h"
+// Easy Connect needs the supplicant's DPP, which only exists with the Wi-Fi radio on this chip: not with esp_wifi_remote
+// (an ESP32-P4 reaching Wi-Fi through a co-processor). Then net_dpp_supported() is false and net_dpp_start() fails.
+// (0 or 1, not "!CONFIG_...": the symbol is undefined on a chip with its own radio, and C code reads it too)
+#ifdef CONFIG_ESP_WIFI_REMOTE_ENABLED
+#define FORGE_DPP 0
+#else
+#define FORGE_DPP 1
+#endif
+#if FORGE_DPP
 #include "esp_dpp.h"
+#endif
 #include "esp_idf_version.h"
 #include "esp_attr.h"
 #include "esp_random.h"
@@ -468,6 +479,7 @@ void net_set_restart(void (*fn)(void)) { restart_fn = fn ? fn : esp_restart; }
 void net_restart(void) { restart_fn(); }
 static void restart_cb(void *arg) { restart_fn(); }   // forge_ota: not in an update's first minute
 
+#if FORGE_DPP
 static void dpp_event(esp_supp_dpp_event_t evt, void *data)
 {
     switch (evt) {
@@ -569,6 +581,16 @@ void net_dpp_stop(void)
     resume_saved();
 }
 
+#else
+bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done)
+{
+    (void)on_uri; (void)on_done; (void)dpp_pick_channel; (void)dpp_hold_channel; (void)restart_cb;
+    ESP_LOGW(TAG, "Easy Connect: not available on this board (Wi-Fi through a co-processor)");
+    return false;
+}
+void net_dpp_stop(void) {}
+#endif
+bool net_dpp_supported(void) { return FORGE_DPP; }
 bool net_dpp_active(void) { return dpp_active; }
 
 bool net_setup_ap_active(void) { return ap_active; }

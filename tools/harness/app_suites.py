@@ -143,8 +143,9 @@ def setup_pages_slide(ctx):
     b.cmd('swipe right')                                # back to the first page, then closed (online again)
     b.wait_screen('setup', 3)
     go_home(ctx)
+    back_s = b.wait_online()                            # the Easy Connect page left the home network: Wi-Fi back
     ctx.note(f'setup -> Easy Connect by a drag at {fps} fps, its QR code {qr_s:.2f} s after the page '
-             f'({time.time() - t0:.1f} s in all, console round trips included)')
+             f'({time.time() - t0:.1f} s in all, console round trips included); Wi-Fi back {back_s} s after closing')
 
 
 def log_ms(line):
@@ -159,6 +160,7 @@ def measure(ctx, name, action, settle=1.0):
     """Frame rate during `action` (console commands): fps reset, act, wait for the animation to end, read fps.
     anim_fps counts frames less than 250 ms apart; gap_max_ms is the longest wait between two of them."""
     b = ctx.board
+    b.wait_online()                                  # never while Wi-Fi rejoins after a setup page (46 fps once)
     if time.localtime().tm_sec > 55:                 # not across a minute change: the clock's redraw right after a
         time.sleep(62 - time.localtime().tm_sec)     # move counts in swipe_gap_max_ms (weather_amoled: 127 ms once)
     b.cmd('fps reset')

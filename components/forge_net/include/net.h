@@ -43,6 +43,8 @@ typedef void (*net_dpp_done_cb_t)(bool ok, const char *ssid);
 bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done);
 void net_dpp_stop(void);
 bool net_dpp_active(void);
+bool net_dpp_supported(void);   // false: no Easy Connect here (esp_wifi_remote: Wi-Fi through a co-processor); the
+                                // app's setup screen then shows only the setup-network page
 // Test console ("wifi ..." commands): pretend the saved network is unreachable, without changing the saved credentials
 void net_test_offline(void);             // now (until net_test_online or a restart)
 void net_test_offline_next_boot(bool short_setup);   // next boot only (RTC flag); short: auto setup for 60 s only

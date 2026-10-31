@@ -188,6 +188,26 @@ class Helpers(unittest.TestCase):
             english_netsh('    Nom   : Wi-Fi\n    Description : x\n    GUID : y\n    État : connecté\n')
 
 
+    def test_wait_online_returns_once_connected(self):
+        # perf.page_swipes ran while Wi-Fi rejoined after the Easy Connect page (46 fps once): measure() waits
+        import board
+        answers = iter(['connected=0 retries=1', 'connected=0 retries=2', 'connected=1 sta_ssid=Home'])
+        fake = type('B', (), {'wifi': lambda self: kv(next(answers))})()
+        self.assertGreaterEqual(board.Board.wait_online(fake, timeout=5, step=0), 0)
+        never = type('B', (), {'wifi': lambda self: {'connected': '0'}})()
+        with self.assertRaises(Fail):
+            board.Board.wait_online(never, timeout=0.05, step=0)
+
+    def test_heap_numbers_settle_after_an_ota_install(self):
+        # memory.heap_numbers in an --ota run read 35 KB largest right after the install, 46 at rest
+        import core_suites
+        readings = iter([{'internal': 110, 'largest': 35}, {'internal': 116, 'largest': 41},
+                         {'internal': 121, 'largest': 46}, {'internal': 121, 'largest': 46}])
+        h = core_suites.heap_settled(lambda: next(readings), settle=True, step=0)
+        self.assertEqual(h['largest'], 46)                    # the third reading, confirmed by the fourth
+        first = core_suites.heap_settled(lambda: {'internal': 1, 'largest': 2}, settle=False, step=0)
+        self.assertEqual(first['largest'], 2)
+
 class ForgeJson(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -219,6 +239,16 @@ class ForgeJson(unittest.TestCase):
     def test_missing(self):
         with self.assertRaises(FileNotFoundError):
             forgecfg.find_root(self.tmp)                     # (a temp folder has no forge.json above it)
+
+    def test_https_port_default_and_override(self):
+        # CONFIG_FORGE_HTTPS_PORT (a co-processor board may not get 443): the tools follow forge.json https_port
+        self.write({'app': 'demo'})
+        cfg = forgecfg.load(self.tmp)
+        self.assertEqual(cfg['https_port'], 443)
+        self.assertEqual(forgecfg.https_base(cfg, '10.0.0.5'), 'https://10.0.0.5')
+        self.write({'app': 'demo', 'https_port': 8443}, 'p4')
+        cfg = forgecfg.load(os.path.join(self.tmp, 'p4'))
+        self.assertEqual(forgecfg.https_base(cfg, '10.0.0.5'), 'https://10.0.0.5:8443')
 
     def test_paths_and_cache(self):
         self.write({'build_dir': 'build/v55'})
