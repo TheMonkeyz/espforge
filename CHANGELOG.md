@@ -8,6 +8,21 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.6.0 - 2026-10-31
+- Screen off is a real off: the panel goes to sleep once the screen has faded out, and the processor slows down while it waits; a touch or a sound brings both back, with the screen redrawn before it shows.
+- A touch on a dark screen only wakes it, every time; it never counts as a long press.
+- A finger that moves while held is a swipe, not a long press: Settings and Wi-Fi setup no longer open from a slow swipe.
+- The Settings list follows your finger smoothly (drawn as pictures, like the page swipes).
+- The flash layout has a new mapcache partition for a map's home pictures: a board from v0.5.0 or older needs one install over USB; after that, updates over Wi-Fi again.
+- For app developers: from MeteoBus's ESP32-P4 port. forge_core's diag has Kconfig switches for the two statistics that hold interrupts off (the per-task lines, PSRAM's largest block) and times them once at start; its crash summary reads a RISC-V core dump too. forge_net builds without Easy Connect where the Wi-Fi is a co-processor (net_dpp_supported, the starter hides that page), serves the settings page on CONFIG_FORGE_HTTPS_PORT and writes the port in every address (web_port), and checks the User-Agent's length at compile time (256 bytes).
+- For app developers: forge_presence's screen_off hook; the board's display_sleep with a "screen" power lock, CONFIG_PM_ENABLE (80..240 MHz, no light sleep) and the console's power command; forge_audio, a board-free audio component (the Waveshare layout and MeteoBus's single-ES8311 one); 64-byte data cache lines.
+- For app developers: forge_net has net_low_latency() (Wi-Fi power save off while a screen downloads much: ~100 ms less per request), one TLS download at a time (net_dl_begin/end, taken by the update check and install, the map tiles and the service probes) and a background worker for small network jobs (net_bg_post; the service probes run there instead of a task of their own). wifi status reports ps, lowlat, dl and bg; the console takes wifi lowlat on|off.
+- For app developers: forge_lvgl allocates the neighbour pictures when needed instead of all four at start (1.7 MB less PSRAM for an app with two pages) with MeteoBus's rules for which picture gives way (host-tested), slide_release_unneeded() for a memory-hungry screen, slide_held_still(); forge_settings' settings_set_slider() for an app with its own slide.c.
+- For app developers: forge_lvgl's list scrolls as pictures (the board's display_raw_area, the panel's raw_area hook); forge_map draws a path (a route) into its pictures with the pixels under it kept (fmap_set_path, no second canvas) and keeps the home place's pictures in the mapcache flash partition across boots (fmap_set_home, opts.flash_cache).
+- For app developers: console shot (a screen over USB as a picture, for a session without HTTPS to the board; tools/devloop/shot.py) and netstat (lwIP's counters); the flash helpers pick the board's port by chip when several boards are plugged in.
+- For app developers: the browser emulator runs screen dimming's real code (forge_presence's presence.c, its task, its saved settings, its /api/presence), with the board's microphones and motion sensor answering "not there"; CI builds the emulator from a pull request's own commit and runs its smoke test before merging.
+- For app developers: three PC-side tools in the template. `tools/fetch_forge.py` clones espforge at the tag the app's manifest pins; `tools/forge_local.py` builds the app against a local espforge checkout before a tag and puts the manifest back; `tools/setup_github.py` copies a repository's GitHub settings to a new one and checks them.
+
 ## v0.6.0-rc.7 - 2026-10-31
 - A touch on a dark screen only wakes it, every time: about one in ten also acted as a long press (the screen's own watcher saw the finger first and lit the screen before the touch filter looked).
 
