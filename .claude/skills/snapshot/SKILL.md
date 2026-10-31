@@ -11,7 +11,7 @@ description: Capture screens of the running device as PNGs with tools/snapshot.p
    the cached key may be stale: delete `.devloop/key` (L7).
 3. **Capture** every screen the change touches (names: `forge.json` `screens`, plus `current` and any pseudo-screens
    the project lists in docs/TESTING.md "Project checks"):
-   `python tools/snapshot.py <ip> <screen> [out.png]`.
+   `python tools/snapshot.py <screen> [out.png] --ip <ip>` (the address defaults to `.devloop/ip`).
 4. **Look at each PNG** (Read tool): text clipped by the round panel shows over the red tint; check wrapping,
    overlaps, alignment, empty labels (an empty translation shows nothing, L141).
 5. **Other languages:** set the language through the API (save the user's value first):

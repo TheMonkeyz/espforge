@@ -64,7 +64,7 @@ reason it stays in the app.
   **→** PR #38: `screen_off(bool)` hook in `presence_hooks_t`; the board's `display_sleep` (panel sleep, the split wake, the
   "screen" lock); `CONFIG_PM_ENABLE` 80..240 MHz in the board; console `power`; harness `dim_off_wake` checks
   `panel=asleep screen_lock=0` then `awake`/`1`. The pitfall: L202 (Group G).
-- [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power: slide.c's zoom 42-43 -> 54-58 fps (radar 57.8, bus map 54.5). One
+- [x] stays in the app (v0.6.0 alignment), 2026-10-11, esp32-s3-meteobus v0.2.1-power: slide.c's zoom 42-43 -> 54-58 fps (radar 57.8, bus map 54.5). One
   pass per pixel (gather two pixels, swap to the panel's byte order in the same word: `copy_swap()` over the band again
   is gone), a row whose source row is the one above is a `memcpy`, and the overlays (pill, labels, ring) are runs of
   one colour and alpha blended with one multiply a pixel (RGB565 spread over 32 bits, 5-bit alpha: at most one step
@@ -72,6 +72,8 @@ reason it stays in the app.
   cycle-counter split in the zoom's log line); the frame is now bound by PSRAM reads and the bus's waits (fill ~11 ms,
   bus ~11 ms, overlapping in two 32-row buffers). forge_lvgl's slide.c has the same zoom: port `zoom_fill()`, the
   overlay runs and the split log.
+  **→** forge_lvgl's slide.c has no zoom (nor a `zoom_fill`): nothing to port until it gets one. What the work taught,
+  measure the split, is L203.
 
 - [x] v0.6.0-rc.3, 2026-10-10, esp32-s3-meteobus v0.2.1 (fix/radar-wifi-power-save): forge_net leaves the station in ESP-IDF's
   default power save (`WIFI_PS_MIN_MODEM`, and `net_dpp_stop()` sets it back): each reply then waits for the router's
@@ -255,12 +257,14 @@ reason it stays in the app.
 - [x] v0.3.0-rc.1, 2026-10-07, esp32-s3-rtcquebec v0.3.0: the settings page's `.row { align-items: flex-end }`, so a French label
   that wraps to two lines doesn't push its field out of line.
   **→** PR #14 (the Screen section brings `.row`).
-- [ ] 2026-10-07, espforge PR #6 (the other way: espforge → weather_amoled): the PowerShell helpers restart through
+- [x] done in weather_amoled (4c7a947), 2026-10-07, espforge PR #6 (the other way: espforge → weather_amoled): the PowerShell helpers restart through
   the test console with the port open (`monitor.ps1 -Reboot`, exit 3 = esptool instead; the COM port found by VID
   303A in `flash_helper.ps1`), so a restart's boot log is whole from `ESP-ROM:` (L191). weather_amoled's
   `monitor.ps1` / `flash_helper.ps1` (repository root) still use esptool's reset and lose the first ~2.5 s (L154);
   its Python `tools/flash_helper.py` already does it (22f76f1). Twins: port, then prove on COM5 (`flash QIO`).
   **→** For weather_amoled (twins): ported in its espforge-bump release.
+  **→** Checked 2026-10-31: weather_amoled's root `flash_helper.ps1` / `monitor.ps1` restart through the console (`-Reboot`,
+  exit 3 = esptool), its commit 4c7a947.
 - [ ] 2026-10-07, esp32-s3-rtcquebec (alignment): an app made from the template can take espforge at a tag
   instead of copies (as weather_amoled and now esp32-s3-rtcquebec): `tools/fetch_forge.py`, the Makefiles'
   `FORGE ?=` (managed_components, else `.espforge`), emu.mk's `FORGE_EMU`/`COMP`/`BOARD` pointed at the clone. Say
@@ -293,9 +297,10 @@ reason it stays in the app.
 - [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0: its `tools/forge_local.py` (weather_amoled's, with every espforge
   component of the manifest and the board, `COMPONENTS` a name -> folder map): ship it in the template with the
   "framework at a tag" section of NEW-PROJECT.md (the open entry above).
-- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: building from the Claude desktop app's shell needs
+- [x] v0.6.0, 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: building from the Claude desktop app's shell needs
   `IDF_COMPONENT_CACHE_PATH` outside AppData for the component manager's git fetches (L199): say so in WORKFLOW.md
   and the build skill (or set it in the devloop / CI helper scripts that build).
+  **→** docs/WORKFLOW.md (the PC way) and the build-flash-probe skill set `IDF_COMPONENT_CACHE_PATH` before `idf.py`.
 
 - [ ] 2026-10-31, espforge v0.6.0-rc.4 (harness on COM5): `perf.page_swipes`' worst gap counts an LVGL redraw of the
   page landed on when it comes within 250 ms of the drag's repaint (the system page's 1 s refresh, its RSSI text):
@@ -325,7 +330,7 @@ reason it stays in the app.
 
 ## Lessons (docs/LESSONS.md)
 
-- [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4 (docs/P4-PORT.md "Lessons"): identify a new board from its product
+- [x] v0.6.0, 2026-10-29, esp32-s3-meteobus port/esp32-p4 (docs/P4-PORT.md "Lessons"): identify a new board from its product
   page or a photo before porting (a guessed EV board and V1 panel table cost hours); take pins from a working setup for
   the same board and an I2C scan, not its schematic (amplifier GPIO 11 not 20, no ES7210); "unreachable" over the
   network: count packets on the board first (`netstat`: a co-processor's network split, then a router isolating Wi-Fi
@@ -333,28 +338,35 @@ reason it stays in the app.
   its object's edge needs `LV_OBJ_FLAG_OVERFLOW_VISIBLE` (pictest found 7 rows missing); esp_hosted's SDIO pools are
   allocated before the scheduler and can starve the idle task (boot loop: queues 12 + 12); on the P4 move frames with
   the 2D-DMA (~8 ms a 1024x600 frame; CPU 26-28 ms, PPA scaler 26.5 ms).
+  **→** L206-L211 (docs/LESSONS.md, the v0.6.0 section).
 
-- [ ] 2026-10-11, esp32-s3-meteobus v0.2.1-power: measure the split before guessing, again (L54/LESSONS 29): three
+- [x] v0.6.0, 2026-10-11, esp32-s3-meteobus v0.2.1-power: measure the split before guessing, again (L54/LESSONS 29): three
   plausible zoom speed-ups measured nothing (the column table in internal RAM and an unrolled loop: fill 185 vs
   188 ms; the other core's TLS and tile decoding held back until the zoom ended: 54 fps both ways; 64-bit divisions in
   the per-frame tables: none), while a cycle counter around the overlay blend found 40 % of the fill at once. And a
   harness check can be wrong in the test, not the firmware: "CPU at 80 MHz while off" failed because the command that
   asks runs at 240 MHz.
+  **→** L203, and L202 for the harness check that was wrong in the test.
 
-- [ ] 2026-10-10, esp32-s3-meteobus (PR #13): a settings-page list whose rows act on the list they were drawn from
+- [x] v0.6.0, 2026-10-10, esp32-s3-meteobus (PR #13): a settings-page list whose rows act on the list they were drawn from
   (My stops: `rm.onclick = () => saveFavs(favs.filter((_, k) => k !== i))`) removes the wrong item when a tap lands
   between a save the display accepted and the page's redraw (Remove right after Move up: the old first stop went).
   Found as a flaky Playwright test on the Mac runner; reproduced every time by holding the display's answer back 1.5 s
   (`page.route` + `route.fetch`, then a delay, then `route.fulfill`). Fix: disable the rows during a save and show the
   saved list at once. Lesson: a flaky UI test may be a real race; hold the reply back to make it deterministic.
   **esp32-s3-rtcquebec's `main/web/index.html` has the same handlers** (its `saveFavs`): port the fix there.
-- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: LVGL 9.2's `LV_LABEL_LONG_DOT` needs a fixed width **and** a fixed
+  **→** L205. esp32-s3-rtcquebec already has the fix (its PR #11 `fix/stops-tap-during-save`, in v0.4.1, with the delayed-reply
+  test): nothing to port.
+- [x] v0.6.0, 2026-10-09, esp32-s3-meteobus v0.2.0-rc: LVGL 9.2's `LV_LABEL_LONG_DOT` needs a fixed width **and** a fixed
   height: with the width set by its content (a pill sized to its text) it showed only "…"; with a fixed width but a
   content height it wrapped and ran into the line below ("Terminus Chute-Montmorency"). Size a one-line label from
   `lv_text_get_size()` (width capped, height one line). A lesson for docs/LESSONS.md (LVGL).
-- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: a weather app and a bus app merged into one firmware (docs/MERGE-PLAN.md
+  **→** L194 amended: the height too (one line).
+- [x] v0.6.0, 2026-10-09, esp32-s3-meteobus v0.2.0-rc: a weather app and a bus app merged into one firmware (docs/MERGE-PLAN.md
   there): the memory plan that held (one picture cache, the two maps taking turns, a poller's stack in PSRAM, one TLS
   download at a time) is worth a page in docs/ for future merges of espforge apps.
+  **→** docs/MERGING-APPS.md, with the framework pieces that carry the plan (`slide_release_unneeded`, `net_dl_begin`,
+  `net_bg_post`).
 
 - [x] v0.3.0-rc.1, 2026-10-07, esp32-s3-rtcquebec v0.2.1: during `lv_screen_load_anim()` (200 ms) `lv_screen_active()` is still
   the previous screen, and LVGL 9.2 has no public getter for the one loading: a timer that checks "is my screen
