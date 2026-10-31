@@ -82,20 +82,25 @@ reason it stays in the app.
   parsing for slow requests, compare the board with the PC on the same URLs, and try `WIFI_PS_NONE`.
   **→** PR #39: `net_low_latency(on)` (counted; Easy Connect puts it back when it stops), `wifi status ps= lowlat=`, console
   `wifi lowlat on|off`, harness `console.wifi_low_latency`. The lesson: L204 (Group G).
-- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc (dbd61f2): slide.c's `get()` with `force` (a slide that needs a picture
+- [x] v0.6.0-rc.4, 2026-10-09, esp32-s3-meteobus v0.2.0-rc (dbd61f2): slide.c's `get()` with `force` (a slide that needs a picture
   now) allocated a new 434 KB buffer even when `room_for(1)` said no: PSRAM's low point fell from ~450 to 268 KB the
   first time a screen not kept as a neighbour (the radar, opened on top since MeteoBus) slid in. Now it takes the
   buffer of the picture worth least (not a spare). forge_lvgl's slide.c has the same `!room_for(1) && !force` test:
   port the fix (`main/slide.c`, `get()`).
-- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: slide.c's idle work never took a slot holding a needed picture, even
+  **→** PR #40: forge_lvgl's slide.c had no cache at all (four buffers taken at init): now on demand, and a forced
+  picture with no room takes a less useful picture's buffer (`slide_slot_reuse`, host-tested).
+- [x] v0.6.0-rc.4, 2026-10-09, esp32-s3-meteobus v0.2.0-rc: slide.c's idle work never took a slot holding a needed picture, even
   one worth less than the picture it had to render, nor reused a less useful picture's buffer when PSRAM had no room
   for another: with five neighbours to keep (MeteoBus's weather screen: itself, the next place, extras, the stop page,
   the hourly view) the next place's picture, evicted during a visit to the extras page, never came back, and place
   drags waited ~0.12 s (harness drag_start_ms.drag_place 14 -> 121 ms). `slot_for(..., want_p)` and the idle path's
   buffer reuse in `main/slide.c`; forge_lvgl's slide.c has the same rule.
-- [ ] 2026-10-09, esp32-s3-meteobus v0.2.0-rc: `slide_cache_release_unneeded()`: frees the pictures not in the keep
+  **→** PR #40: `slide_slot_pick(..., want_p)`: a wanted slot gives way to a picture worth more; the idle work reuses a less
+  useful picture's buffer when PSRAM has no room (`slide_slots.c`, 16 host checks).
+- [x] v0.6.0-rc.4, 2026-10-09, esp32-s3-meteobus v0.2.0-rc: `slide_cache_release_unneeded()`: frees the pictures not in the keep
   list, for a screen that needs PSRAM for a while (MeteoBus's bus map: its 434 KB picture and its tiles exist only
   while it is open). A small addition to forge_lvgl's slide.c for any app with a memory-hungry screen on top.
+  **→** PR #40: `slide_release_unneeded()` (the pages not wanted now: not a neighbour of a pager on view).
 - [x] v0.6.0-rc.3, 2026-10-09, esp32-s3-meteobus v0.2.0-rc: `netq.c`: who is downloading now (flags set around the weather loop's,
   the radar's and the bus map's downloads), so a lower-priority poller (departures.c) waits before each request: each
   TLS download holds 10-15 KB of internal RAM, and two at once took a place switch's low point from ~40 to 29 KB.
@@ -180,15 +185,19 @@ reason it stays in the app.
   ui.c) as `components/forge_settings`: the screen (Done, rows in sections, brightness arc), ready-made rows (dimming,
   pick-up, timing, language, phone QR, Wi-Fi, updates, restart, About), the app's own rows, texts by code.
   **→** PR #26; the starter opens it with a long press (harness `long_press_opens_settings`, `settings_row_acts`).
-- [ ] 2026-10-09, espforge v0.5.0-rc.1: weather_amoled onto forge_settings (its `cfg_*`, main/ui.c:2347-2672). It has
+- [x] v0.6.0-rc.4 (the hook), 2026-10-09, espforge v0.5.0-rc.1: weather_amoled onto forge_settings (its `cfg_*`, main/ui.c:2347-2672). It has
   its own slide.c, not forge_lvgl's, and forge_settings slides with forge_lvgl's `slide_to()`: give forge_settings a
   hook for the slide (or move weather_amoled to forge_lvgl first). Its rows of its own: units, sound.
+  **→** PR #40: `settings_set_slider(fn)`. The migration itself is weather_amoled's session (FIX-PLAN-2026-10-30,
+  follow-ups).
 - [ ] 2026-10-09, espforge v0.5.0-rc.1: list scrolls drawn as pictures (weather_amoled's `slide_scroll`) in forge_lvgl,
   for forge_settings' list and apps' lists (esp32-s3-rtcquebec's alerts): LVGL scrolls them at ~25 fps.
-- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: a long press only from a finger that stayed put (its ui.c
+- [x] v0.6.0-rc.4, 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: a long press only from a finger that stayed put (its ui.c
   `long_pressed`: within 24 px of where it came down). LVGL fires LONG_PRESSED for a press held 400 ms however far it
   moved: a swipe read late on a slow page opened Settings (L200). A forge_lvgl helper (`touch_held_still()`), used by
   the starter and forge_settings' openers; weather_amoled's `open_cfg` has the same exposure.
+  **→** PR #40: `slide_held_still(px)`, `SLIDE_HOLD_PX` 24; the starter's long presses ask it. The exposure in espforge: a
+  screen without a pager (the start-up message): harness `moving_press_is_no_long_press` failed on the old firmware.
 - [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: its map composes picture + route path in a canvas (`map_compose`,
   434 KB PSRAM) because `lv_line`s over the image cost 170-200 ms a frame (L200). forge_map could draw polylines into
   its own picture (an overlay list per view): no second 434 KB buffer, and weather_amoled's radar could use it too.
@@ -280,6 +289,12 @@ reason it stays in the app.
 - [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: building from the Claude desktop app's shell needs
   `IDF_COMPONENT_CACHE_PATH` outside AppData for the component manager's git fetches (L199): say so in WORKFLOW.md
   and the build skill (or set it in the devloop / CI helper scripts that build).
+
+- [ ] 2026-10-31, espforge v0.6.0-rc.4 (harness on COM5): `perf.page_swipes`' worst gap counts an LVGL redraw of the
+  page landed on when it comes within 250 ms of the drag's repaint (the system page's 1 s refresh, its RSSI text):
+  `swipe_gap_max_ms.hello_to_system` 222 and `drag_slow` 99 in two of five runs, 35-41 in the others, "lvgl>lvgl". The
+  `fps` counters should stop counting a move's animation at its end (slide.c knows it), or the harness read the
+  `slide: drag:` line's own gap max for the move and keep the frame stats for the landing separately.
 
 ## Emulator (web/emu)
 
