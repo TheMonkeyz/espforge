@@ -62,13 +62,14 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `ota: Update installed, restarting` | OTA download written. |
 | `ota: New firmware ran N s…: marked valid (no rollback)` | The new image is confirmed; a restart before this line rolls it back. |
 | `net: Connected, IP a.b.c.d` | Station up (`forge.json` `ip_line`). |
-| `web: Settings page: https://a.b.c.d/` | Web server up. |
+| `web: Settings page: https://a.b.c.d/` | Web server up (`https://a.b.c.d:port/` when `CONFIG_FORGE_HTTPS_PORT` isn't 443; `forge.json` `https_port` tells the tools). |
 | `diag: mark <stage>` | Boot stages; `diag: mark app ready` = `forge.json` `ready_line`. |
 | `slide: drag: first frame after N ms, F frames in T ms (X fps), to next/to prev/back \| gap max N ms, held reads E err U up (longest N ms), finger still max N ms, samples N, renders N, V px/ms` | Each drag drawn as pictures (forge_lvgl). |
 | `slide: change: picture N ms, F frames in T ms (X fps)` | An in-place change or screen load slid as pictures. |
 | `diag: mark <stage> internal N KB free (largest N), DMA N KB, PSRAM N KB` | A boot stage. |
-| `diag: heap: internal N KB free (min ever N, largest block now N / worst N) \| DMA N KB (largest now N / worst N) \| PSRAM N KB free (min ever N, largest N) \| failed allocs N, LVGL in internal RAM N` | Every period (`tools/diag_summary.py`). |
-| `diag: tasks: name(cC pP) X.X% NB \| …`, `diag: cpu: core0 N% busy, core1 N% busy (window N s)` | Per task: core, priority, CPU, stack bytes never used. |
+| `diag: heap: internal N KB free (min ever N, largest block now N / worst N) \| DMA N KB (largest now N / worst N) \| PSRAM N KB free (min ever N, largest N) \| failed allocs N, LVGL in internal RAM N` | Every period (`tools/diag_summary.py`). PSRAM's `largest` is `-` when `FORGE_DIAG_PSRAM_LARGEST` is off. |
+| `diag: tasks: name(cC pP) X.X% NB \| …`, `diag: cpu: core0 N% busy, core1 N% busy (window N s)` | Per task: core, priority, CPU, stack bytes never used. Absent when `FORGE_DIAG_TASK_STATS` is off. |
+| `diag: stats cost: task list N us, PSRAM largest block N us (-1: off by Kconfig)` | Once at start: how long each statistic holds interrupts off on this board (L201). |
 | `diag: display: N frames, render avg N ms max N ms, … \| animation N fps … \| LVGL lock wait max N ms, longest hold N ms by <task>` | From the board (diag hook). |
 | `App version: <ver>` | ESP-IDF's own boot line. |
 | `diag: boot reset=<reason> …`, `diag: coredump …` | Boot info; the last crash, then erased. |
@@ -77,7 +78,8 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 
 ## 4. HTTP API (`forge_net/web`)
 
-HTTPS on :443 with a per-device self-signed certificate; HTTP on :80 serves the captive portal on the setup network
+HTTPS on :443 (`CONFIG_FORGE_HTTPS_PORT`; the tools read `forge.json` `https_port`) with a per-device self-signed
+certificate; HTTP on :80 serves the captive portal on the setup network
 (192.168.4.x) and redirects to HTTPS otherwise. **Every POST and `/api/snapshot` carries `X-Key: <key>`**; POST bodies
 are JSON (`415` otherwise); a Host header that isn't the display's address gets `421`.
 

@@ -1,5 +1,16 @@
 menu "espforge"
 
+    config FORGE_HTTPS_PORT
+        int "Settings page HTTPS port"
+        default 443
+        range 1 65535
+        help
+            The settings page's port on the home network. 443 normally. A board whose Wi-Fi is a co-processor running
+            esp-hosted with "network split" (an ESP32-P4 with an ESP32-C6) hands the host only some ports: 49152-61439
+            and a static list that an older co-processor firmware may not give 443 (the Guition JC1060P470C: the page
+            was unreachable). Every address the firmware writes (QR codes, redirects, the log) carries the port when it
+            is not 443; the PC tools read forge.json's https_port.
+
     config FORGE_SETUP_SSID
         string "Setup network name"
         default "Forge-Setup"

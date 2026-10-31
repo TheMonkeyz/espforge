@@ -11,6 +11,7 @@ import time
 import urllib.request
 
 from board import CFG, ROOT, SETUP_IP, Fail, check, dns_query, http_get, test
+import forgecfg
 import snapshot
 
 # Suites that only run when asked for (or with their flag): ota needs --ota
@@ -102,9 +103,25 @@ def commands(ctx):
 
 # ---------------------------------------------------------------- memory
 
+def heap_settled(read, settle, tries=15, step=2.0, within_kb=2):
+    """The heap numbers once they stop moving. Right after an OTA install the update's TLS connection may still hold
+    its buffers (~10 KB internal): an --ota run read internal_largest_kb 35 there and 46 at rest on the same firmware
+    (2026-10-08). With `settle`, read until two readings are within `within_kb` on internal and largest (`tries` at most)."""
+    h = read()
+    if not settle:
+        return h
+    for _ in range(tries):
+        time.sleep(step)
+        n = read()
+        if abs(n['internal'] - h['internal']) <= within_kb and abs(n['largest'] - h['largest']) <= within_kb:
+            return n
+        h = n
+    return h
+
+
 @test('memory')
 def heap_numbers(ctx):
-    h = ctx.board.heap()
+    h = heap_settled(ctx.board.heap, settle=bool(getattr(ctx.opts, 'ota', None)))   # an --ota run: after the install
     ctx.metric('internal_free_kb', h['internal'])
     ctx.metric('internal_min_kb', h['min'])
     ctx.metric('internal_largest_kb', h['largest'])
@@ -239,7 +256,7 @@ def settings_page_tests(ctx):
 def live_api(ctx):
     """The page arrives whole and /api/info has every field (PROTOCOL.md §4)."""
     b = ctx.board
-    with urllib.request.urlopen(f'https://{b.ip}/', context=b.ctx, timeout=15) as r:
+    with urllib.request.urlopen(forgecfg.https_base(CFG, b.ip) + '/', context=b.ctx, timeout=15) as r:
         page = r.read()
     check(b'</html>' in page[-200:], 'settings page arrived truncated (the hardware-AES / DMA memory bug class)')
     ctx.metric('page_kb', len(page) // 1024)
@@ -279,8 +296,9 @@ def who_may_change(ctx):
     st, _ = b.request('GET', '/api/snapshot?screen=' + (CFG['screens'] or ['current'])[0])
     check(st == 401, f'snapshot without the key: {st}, expected 401')
     st, loc = b.request('GET', '/', tls=False, host='evil.example')
-    check(st in (301, 302, 307, 308) and loc == f'https://{b.ip}/',
-          f'plain HTTP on the home network: {st} {loc}, expected a redirect to https://{b.ip}/ (not the Host header)')
+    home = forgecfg.https_base(CFG, b.ip) + '/'                  # with the port when it isn't 443 (web_port)
+    check(st in (301, 302, 307, 308) and loc == home,
+          f'plain HTTP on the home network: {st} {loc}, expected a redirect to {home} (not the Host header)')
     st, _ = b.request('POST', '/api/settings', body, {**js, **k})
     check(st == 200, f'POST with the key: {st}, expected 200')
     ctx.note('settings API: 401 without/with a wrong key, 415, 421, snapshot 401, HTTP redirect, 200 with the key')

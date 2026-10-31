@@ -8,6 +8,7 @@
   "port": "",
   "baud": 460800,
   "monitor_baud": 115200,
+  "https_port": 443,
   "screen": { "w": 466, "h": 466, "shape": "round" },
   "screens": ["hello", "system", "settings", "settings1", "settings2", "setup", "setup1"],
   "screens_not_shown": ["settings1", "settings2", "setup1"],

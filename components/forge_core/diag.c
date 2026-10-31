@@ -33,6 +33,7 @@ void diag_add_hook(diag_hook_t hook) { if (nhooks < MAX_HOOKS) hooks[nhooks++] =
 
 #define MAX_TASKS 32
 #define KB(x) ((unsigned)((x) / 1024))
+static TaskStatus_t ts[MAX_TASKS];                                // report_tasks and the start-up timing
 
 typedef struct { UBaseType_t num; uint32_t rt; } prev_t;   // by task number: a freed handle is reused
 static prev_t prev[MAX_TASKS];
@@ -66,7 +67,8 @@ static void startup_info(void)
     const esp_partition_t *app = esp_ota_get_running_partition();      // (the first app partition was printed)
     if (app) ESP_LOGI(TAG, "running from %s, %u KB at 0x%lx", app->label, KB(app->size), (unsigned long)app->address);
     // The last crash, if the core dump partition holds one: the task, the PC and the backtrace (decode it with
-    // xtensa-esp32s3-elf-addr2line -pfC -e build/v55/<app>.elf <addresses>), then erased
+    // xtensa-esp32s3-elf-addr2line -pfC -e build/v55/<app>.elf <addresses>; on RISC-V riscv32-esp-elf-addr2line with
+    // the PC and RA), then erased
 #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH
     esp_core_dump_summary_t *cd = malloc(sizeof(*cd));
     esp_err_t chk = esp_core_dump_image_check();
@@ -84,15 +86,43 @@ static void startup_info(void)
         }
     }
     if (cd && chk == ESP_OK && esp_core_dump_get_summary(cd) == ESP_OK) {
+#if __XTENSA__
         char bt[16 * 11 + 1] = "";
         for (uint32_t i = 0, n = 0; i < cd->exc_bt_info.depth && i < 16; i++)
             n += snprintf(bt + n, sizeof(bt) - n, " 0x%08lx", (unsigned long)cd->exc_bt_info.bt[i]);
         ESP_LOGW(TAG, "coredump: last crash in task %s, PC 0x%08lx, backtrace%s%s", cd->exc_task,
                  (unsigned long)cd->exc_pc, bt, cd->exc_bt_info.corrupted ? " (corrupted)" : "");
+#else   // RISC-V (ESP32-P4): no backtrace in the summary, only the registers (addr2line the PC and RA)
+        ESP_LOGW(TAG, "coredump: last crash in task %s, PC 0x%08lx, RA 0x%08lx, mcause 0x%lx, mtval 0x%08lx",
+                 cd->exc_task, (unsigned long)cd->exc_pc, (unsigned long)cd->ex_info.ra,
+                 (unsigned long)cd->ex_info.mcause, (unsigned long)cd->ex_info.mtval);
+#endif
         esp_core_dump_image_erase();
     }
     free(cd);
 #endif
+    // What each statistic costs here, once. Both hold interrupts off (L201): on a board whose panel is restarted from
+    // an interrupt every frame (an ESP32-P4's MIPI-DSI, ~0.9 ms between frames) they made the screen flash white, so
+    // each has a Kconfig switch (FORGE_DIAG_TASK_STATS, FORGE_DIAG_PSRAM_LARGEST). ESP32-S3 with 8 MB: both well
+    // under a millisecond; a P4 with 25 tasks and 32 MB: 6.1 and 2.3 ms (MeteoBus, 2026-10-30).
+    int64_t t_tasks = -1, t_psram = -1;
+#if CONFIG_FORGE_DIAG_TASK_STATS
+    {
+        uint32_t total;
+        int64_t t0 = esp_timer_get_time();
+        uxTaskGetSystemState(ts, MAX_TASKS, &total);
+        t_tasks = esp_timer_get_time() - t0;
+    }
+#endif
+#if CONFIG_FORGE_DIAG_PSRAM_LARGEST
+    {
+        int64_t t0 = esp_timer_get_time();
+        heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+        t_psram = esp_timer_get_time() - t0;
+    }
+#endif
+    ESP_LOGI(TAG, "stats cost: task list %lld us, PSRAM largest block %lld us (-1: off by Kconfig)",
+             (long long)t_tasks, (long long)t_psram);
     nvs_stats_t ns;
     if (nvs_get_stats(NULL, &ns) == ESP_OK)
         ESP_LOGI(TAG, "NVS entries: %u used, %u free of %u", (unsigned)ns.used_entries,
@@ -107,7 +137,6 @@ static int cmp_rt(const void *a, const void *b)
 
 static void report_tasks(void)
 {
-    static TaskStatus_t ts[MAX_TASKS];
     uint32_t total;
     int n = uxTaskGetSystemState(ts, MAX_TASKS, &total);
     uint32_t window = total - prev_total;                         // µs of wall time (per core)
@@ -152,7 +181,9 @@ static void diag_task(void *arg)
     int64_t up_ms = esp_timer_get_time() / 1000;
     if (up_ms < 4000) vTaskDelay(pdMS_TO_TICKS(4000 - up_ms));
     startup_info();
+#if CONFIG_FORGE_DIAG_TASK_STATS
     report_tasks();                                               // baseline
+#endif
     for (int tick = 1;; tick++) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         // Largest free blocks: sampled every second, worst value reported (fragmentation)
@@ -162,19 +193,25 @@ static void diag_task(void *arg)
         if (b < dma_lg_min) dma_lg_min = b;
         if (tick % period) continue;
 
+        // PSRAM's largest block walks the whole PSRAM heap with interrupts off (~2 ms with 32 MB): optional (L201)
+        char ps_lg[12] = "-";
+#if CONFIG_FORGE_DIAG_PSRAM_LARGEST
+        snprintf(ps_lg, sizeof(ps_lg), "%u", KB(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
+#endif
         ESP_LOGI(TAG, "heap: internal %u KB free (min ever %u, largest block now %u / worst %u) | "
-                 "DMA %u KB (largest now %u / worst %u) | PSRAM %u KB free (min ever %u, largest %u) | "
+                 "DMA %u KB (largest now %u / worst %u) | PSRAM %u KB free (min ever %u, largest %s) | "
                  "failed allocs %lu, LVGL in internal RAM %lu",
                  KB(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
                  KB(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)), KB(a), KB(int_lg_min),
                  KB(heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)), KB(b), KB(dma_lg_min),
                  KB(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)), KB(heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM)),
-                 KB(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)), (unsigned long)failed_allocs,
-                 (unsigned long)lvgl_mem_fallbacks());
+                 ps_lg, (unsigned long)failed_allocs, (unsigned long)lvgl_mem_fallbacks());
         int_lg_min = dma_lg_min = SIZE_MAX;
 
         for (int i = 0; i < nhooks; i++) hooks[i]();
-        report_tasks();
+#if CONFIG_FORGE_DIAG_TASK_STATS
+        report_tasks();                                           // (Kconfig: interrupts off ~6 ms on a P4)
+#endif
     }
 }
 

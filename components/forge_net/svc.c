@@ -110,7 +110,12 @@ void svc_get(int id, svc_info_t *out)
 
 const char *svc_user_agent(void)
 {
-    EXT_RAM_BSS_ATTR static char ua[128];      // filled once; two tasks racing write the same bytes
+    EXT_RAM_BSS_ATTR static char ua[256];      // filled once; two tasks racing write the same bytes
+    // "<product>/<version> (<comment>; +https://github.com/<repo>)": the fixed text is 26 bytes, the version (git
+    // describe) under 32, the project name (used when FORGE_PRODUCT is empty) at most 32. -Werror=format-truncation
+    // failed MeteoBus's build at 128 bytes once its three Kconfig strings grew; this says why at compile time.
+    _Static_assert(sizeof(CONFIG_FORGE_PRODUCT) + sizeof(CONFIG_FORGE_UA_COMMENT) + sizeof(CONFIG_FORGE_REPO) + 96
+                   <= sizeof(ua), "FORGE_PRODUCT/REPO/UA_COMMENT too long for the User-Agent (svc.c)");
     if (!ua[0]) {
         const char *v = esp_app_get_description()->version;
         snprintf(ua, sizeof(ua), "%s/%s (%s%s+https://github.com/%s)",

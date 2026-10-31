@@ -1,5 +1,7 @@
-// Settings page and API (see web.h). HTTPS on 443 on the home network (a phone's GPS, and the key, need a secure
-// page); plain HTTP on 80 is the captive portal on the setup network and only redirects to HTTPS on the home network.
+// Settings page and API (see web.h). HTTPS on 443 (CONFIG_FORGE_HTTPS_PORT) on the home network (a phone's GPS, and
+// the key, need a secure page); plain HTTP on 80 is the captive portal on the setup network and only redirects to
+// HTTPS on the home network.
+#include "sdkconfig.h"
 #include "web.h"
 #include "esp_attr.h"
 #include <stdio.h>
@@ -242,7 +244,7 @@ static esp_err_t http_root_get(httpd_req_t *req)
     if (web_from_setup_ap(req)) return index_get(req);
     char ip[20] = "", loc[40];
     if (!net_get_ip(ip, sizeof(ip))) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no address yet");
-    snprintf(loc, sizeof(loc), "https://%s/", ip);       // the device's own address, never the Host header
+    snprintf(loc, sizeof(loc), "https://%s%s/", ip, web_port());   // the device's own address, never the Host header
     return redirect_to(req, loc);
 }
 
@@ -297,7 +299,7 @@ bool web_url(char *out, int n)
 {
     char ip[20];
     if (!net_get_ip(ip, sizeof(ip))) return false;
-    snprintf(out, n, "https://%s/#k=%s", ip, key);
+    snprintf(out, n, "https://%s%s/#k=%s", ip, web_port(), key);
     return true;
 }
 
@@ -332,7 +334,7 @@ static esp_err_t guarded(httpd_req_t *req)
         if (req->method == HTTP_POST) return refuse(req, "403 Forbidden", "https");
         char ip[20], loc[40];
         if (!net_get_ip(ip, sizeof(ip))) return refuse(req, "403 Forbidden", "https");
-        snprintf(loc, sizeof(loc), "https://%s/", ip);
+        snprintf(loc, sizeof(loc), "https://%s%s/", ip, web_port());
         return redirect_to(req, loc);
     }
     if (r->not_ap && ap) return refuse(req, "403 Forbidden", "setup");
@@ -388,6 +390,7 @@ static void start_https(void)
     if (!tlscert_get(&cert, &cert_len, &pkey, &key_len)) { ESP_LOGE(TAG, "no TLS certificate, HTTPS disabled"); return; }
     tlscert_log_fingerprint();
     httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
+    conf.port_secure = CONFIG_FORGE_HTTPS_PORT;                // 443 unless the board needs another (Kconfig)
     conf.servercert = (const uint8_t *)cert;
     conf.servercert_len = cert_len;
     conf.prvtkey_pem = (const uint8_t *)pkey;
@@ -402,6 +405,13 @@ static void start_https(void)
     httpd_uri_t page = { .uri = "/", .method = HTTP_GET, .handler = index_get };
     httpd_register_uri_handler(s, &page);
     add_all(s, false);
+}
+
+const char *web_port(void)
+{
+    static char p[8];
+    if (CONFIG_FORGE_HTTPS_PORT != 443 && !p[0]) snprintf(p, sizeof(p), ":%d", CONFIG_FORGE_HTTPS_PORT);
+    return p;
 }
 
 static void cmd_key(int argc, char **argv) { ESP_LOGI("test", "key %s", key); }
@@ -446,6 +456,6 @@ void web_start(void)
         httpd_register_uri_handler(h, &other);
     }
     char ip[20];
-    if (net_get_ip(ip, sizeof(ip))) ESP_LOGI(TAG, "Settings page: https://%s/", ip);
+    if (net_get_ip(ip, sizeof(ip))) ESP_LOGI(TAG, "Settings page: https://%s%s/", ip, web_port());
     else ESP_LOGI(TAG, "Web servers started (no IP yet)");
 }
