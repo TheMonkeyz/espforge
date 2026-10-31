@@ -134,7 +134,9 @@ class Build(TempProject):
         self.assertEqual(seen['argv'][:3], ['-B', 'build/forge', '-D'])
         self.assertEqual(seen['argv'][3], 'SDKCONFIG=' + os.path.join('build/forge', 'sdkconfig'))
         self.assertEqual(seen['argv'][4:], ['build'])
-        self.assertEqual(os.path.normcase(seen['cwd']), os.path.normcase(self.root))
+        # realpath: macOS's temp folder is a symlink (/var -> /private/var), so idf.py's getcwd() differs in name
+        self.assertEqual(os.path.normcase(os.path.realpath(seen['cwd'])),
+                         os.path.normcase(os.path.realpath(self.root)))
         self.assertIn('override_path: "' + self.forge.replace(os.sep, '/') + '/components/forge_core"', seen['manifest'])
         self.assertIn('override_path: "' + self.forge.replace(os.sep, '/') + '/boards/ws_amoled175/board"',
                       seen['manifest'])
