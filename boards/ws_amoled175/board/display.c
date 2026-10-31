@@ -11,6 +11,10 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
 
 static const char *TAG = "display";
 
@@ -246,17 +250,88 @@ void display_get_test_stats(display_stats_t *out, bool reset)
     display_unlock();
 }
 
+/* The panel asleep while the screen is off (display_sleep: forge_presence's screen_off hook, through the app). Going
+ * to sleep is two commands from the calling task (the presence task, core 0), as display_brightness(). Coming back is
+ * split: the caller sends SLPOUT (one command, the same rule), and the LVGL task finishes on core 1 (wake_at): the
+ * 120 ms the DCS asks for after SLPOUT, a whole frame into the panel's memory, then DISPON. A whole refresh from core 0
+ * would be the cross-core race of lesson L81 (the transfer-done interrupt is on core 1). From MeteoBus v0.2.1. */
+static volatile bool asleep;
+static volatile int64_t wake_at;         // SLPOUT sent: DISPON after this time (esp_timer us), 0 = nothing pending
+// Held while the panel is awake or waking: the CPU stays at 240 MHz even when idle (board.c configures 80..240 MHz).
+// Released while it sleeps: an idle core drops to 80 MHz (a running task still gets 240, ESP-IDF's "rtos" locks).
+#if CONFIG_PM_ENABLE
+static esp_pm_lock_handle_t cpu_lock;
+#endif
+static bool cpu_held;                    // (the lock counts acquires: one each way)
+
+static void cpu_full_speed(bool on)
+{
+    if (on == cpu_held) return;
+#if CONFIG_PM_ENABLE
+    if (!cpu_lock && esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "screen", &cpu_lock) != ESP_OK) return;
+    if (on) esp_pm_lock_acquire(cpu_lock); else esp_pm_lock_release(cpu_lock);
+#endif
+    cpu_held = on;
+}
+
+static void wake_finish(void)            // LVGL task, lock held
+{
+    int64_t left = wake_at - esp_timer_get_time();
+    if (left > 0) vTaskDelay(pdMS_TO_TICKS(left / 1000 + 1));
+    lv_obj_invalidate(lv_screen_active());              // a whole frame into the panel's memory before it shows
+    lv_refr_now(NULL);
+    disp_phase = 7;
+    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
+    disp_phase = 8;
+    lcd_cmd(0x29, NULL, 0);                             // DISPON
+    disp_phase = 0;
+    wake_at = 0;
+    asleep = false;
+    ESP_LOGI(TAG, "panel awake");
+}
+
 static void lvgl_task(void *arg)
 {
     while (1) {
         uint32_t wait = 10;
-        if (display_lock(-1)) { wait = lv_timer_handler(); display_unlock(); }
+        if (display_lock(-1)) {
+            if (wake_at) wake_finish();
+            wait = lv_timer_handler();
+            display_unlock();
+        }
         // 1 ms minimum: enough to let other tasks run (at 60 fps a frame is 16.7 ms: a 5 ms minimum cost 30 %)
         if (wait < 1) wait = 1;
         if (wait > 50) wait = 50;
+        if (asleep && wait < 100) wait = 100;   // the panel asleep: 10 rounds a second (the touch that wakes it is read here)
         vTaskDelay(pdMS_TO_TICKS(wait));
     }
 }
+
+void display_sleep(bool off)
+{
+    // Called with the display lock held, from any task. As display_brightness(): no esp_lcd call while LVGL's last
+    // band is still going out.
+    if (off == asleep && !wake_at) return;
+    disp_phase = 7;
+    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
+    disp_phase = 8;
+    if (off) {
+        wake_at = 0;                                    // (a wake not finished yet: the panel goes back to sleep)
+        lcd_cmd(0x28, NULL, 0);                         // DISPOFF
+        lcd_cmd(0x10, NULL, 0);                         // SLPIN: the panel's oscillator and drivers stop
+        asleep = true;
+        cpu_full_speed(false);
+        ESP_LOGI(TAG, "panel asleep");
+    } else if (!wake_at) {
+        cpu_full_speed(true);
+        lcd_cmd(0x11, NULL, 0);                         // SLPOUT: the DCS minimum before the next command is 120 ms
+        wake_at = esp_timer_get_time() + 120000;        // the LVGL task takes it from here (wake_finish)
+    }
+    disp_phase = 0;
+}
+
+bool display_asleep(void) { return asleep; }
+bool display_cpu_full_speed(void) { return cpu_held; }   // the "screen" lock held (console "power")
 
 void display_init(void)
 {
@@ -311,6 +386,7 @@ void display_init(void)
 
     lvgl_mux = xSemaphoreCreateRecursiveMutex();
     xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8192, NULL, 4, &lvgl_th, 1);
+    cpu_full_speed(true);                                 // the panel is awake: 240 MHz even when idle (display_sleep)
     ESP_LOGI(TAG, "Display ready (%dx%d)", DISP_W, DISP_H);
 }
 

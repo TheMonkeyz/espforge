@@ -8,9 +8,16 @@ CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+# Power management for dynamic frequency scaling only (the board's "screen" lock: 240 MHz while the panel is awake; an
+# idle core may drop to 80 MHz while presence has the screen off). No light sleep, no tickless idle: the 15 ms touch /
+# LVGL loop and the panel's DMA need the clock. From MeteoBus v0.2.1.
+CONFIG_PM_ENABLE=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
+# 64-byte data cache lines (32 by default, same 32 KB cache): sequential reads from PSRAM fetch twice the bytes per line
+# fill. MeteoBus: every PSRAM-bound frame got faster, none slower (zoom fill -5 %, bus map 1725 -> 1663 ms, snapshots ~4 %).
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 CONFIG_FREERTOS_HZ=1000
 # Main task: start-up and the app's loop. Check "main" in the diag tasks line after adding work to it.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144

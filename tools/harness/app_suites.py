@@ -229,17 +229,28 @@ def dim_off_wake(ctx):
         b.api('/api/presence', {'enabled': True, 'margin_db': 60, 'dim_s': 2, 'off_s': 2, 'motion_wake': False})
         ctx.log.wait(r'presence: ACTIVE -> DIM', 15, 'dims after 2 s of quiet', start=at)
         ctx.log.wait(r'presence: DIM -> OFF', 15, 'off 2 s later', start=at)
+        # v0.6.0: off is a real off (the panel asleep, the "screen" lock released so an idle core may drop to 80 MHz):
+        # the fade's last step puts it to sleep (forge_presence's screen_off hook, the board's display_sleep)
+        ctx.log.wait(r'display: panel asleep', 6, 'the panel asleep once the fade is over (screen_off hook)', start=at)
         time.sleep(1.5)                                  # faded out
         state, bright, _ = presence_state(b)
         check(state == 2 and bright == 0, f'not off: state {state}, brightness {bright}')
+        p = b.power()
+        check(p.get('panel') == 'asleep', f'screen off but the panel {p.get("panel")}')
+        check(p.get('screen_lock') == '0', 'screen off but the CPU held at 240 MHz (the "screen" lock)')
         at = len(ctx.log.lines())
         b.press()                                        # a long-press: would open setup on a lit screen
         ctx.log.wait(r'presence: touch on a dark screen', 6, 'the press filter woke it', start=at)
+        ctx.log.wait(r'display: panel awake', 6, 'the panel awake on the first step of the fade up', start=at)
         time.sleep(1.5)
         state, bright, _ = presence_state(b)
         check(state == 0 and bright > 0, f'not awake: state {state}, brightness {bright}')
         check(b.screen() == HOME, f'the waking long-press also acted: on {b.screen()}, not {HOME}')
-        ctx.note('dim after 2 s, off 2 s later; a long-press on the dark screen only woke it')
+        p = b.power()
+        check(p.get('panel') == 'awake' and p.get('screen_lock') == '1',
+              f'awake but the panel {p.get("panel")}, the "screen" lock {p.get("screen_lock")} (1 expected: 240 MHz)')
+        ctx.note('dim after 2 s, off 2 s later (panel asleep, the CPU free to idle slower); a long-press on the dark '
+                 'screen only woke it (panel awake, 240 MHz held)')
     finally:
         b.api('/api/presence', orig)
         b.cmd('wake')
