@@ -11,6 +11,16 @@ reason it stays in the app.
 
 ## Framework code
 
+- [ ] 2026-10-30, esp32-s3-meteobus port/esp32-p4 (3fb5c2d): diag's statistics hold interrupts off long enough to
+  break an ESP32-P4 MIPI-DSI display: ESP-IDF's DPI driver restarts the frame DMA from an interrupt after every frame
+  (~0.9 ms gap), and `uxTaskGetSystemState()` (diag's per-task lines: it measures every task's stack in a critical
+  section) took 6.1 ms, `heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)` (the heap line; also slide.c's
+  `room_for()`) 2.3 ms. A full-screen white flash every few minutes. MeteoBus's patch adds `CONFIG_FORGE_DIAG_TASK_STATS`
+  (forge_core Kconfig, default y) and the P4 turns it off; it also stops walking PSRAM (a `--wrap` returning the free
+  size) and sets the panel up on core 1. For espforge: the Kconfig, PSRAM's largest block in diag optional or
+  cheaper, forge_lvgl's slide.c `room_for()` without the walk, and a LESSONS entry (time each statistic; on a board fed
+  by a per-frame interrupt, nothing periodic may hold interrupts off past the frame gap).
+
 - [ ] 2026-10-29, esp32-s3-meteobus port/esp32-p4 (0177715): a second chip family. `p4/espforge-p4.patch` (against
   v0.3.0) holds what MeteoBus needed for an ESP32-P4 board (Guition JC1060P470C, Wi-Fi through an ESP32-C6 with
   esp-hosted / esp_wifi_remote): forge_core `diag.c`'s crash summary for RISC-V (it used the Xtensa backtrace struct);
