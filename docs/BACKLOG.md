@@ -145,6 +145,8 @@ reason it stays in the app.
   esp32-s3-rtcquebec moves its map.c/geo.c onto it, and weather_amoled's radar.c its tile code. In v0.4.0-rc.1, with
   the emulator's `USE_MAP := 1` (PR #22); esp32-s3-rtcquebec's map on it (its v0.4.0-rc.1). Still to do: phase 2 (the
   flash cache) when weather_amoled's radar.c moves.
+  **→** Phase 2 in PR #41 (v0.6.0-rc.5): `map_cache.c` over an I/O table (host-tested), `fmap_set_home`, `opts.flash_cache`,
+  the `mapcache` partition in the starter's table; weather_amoled's radar.c moves onto it in its own session.
 - [x] v0.3.0-rc.1, 2026-10-07, esp32-s3-rtcquebec v0.3.0 (5114f19): screen dimming by sound, ported from weather_amoled's
   presence.c: typed NVS keys instead of its `cfg` blob (a blob that changes size drops the settings on an update), the
   state machine as pure C with a host test (`main/presence_sm.c`, `tests/host/test_presence.c`), touch counted as
@@ -190,17 +192,22 @@ reason it stays in the app.
   hook for the slide (or move weather_amoled to forge_lvgl first). Its rows of its own: units, sound.
   **→** PR #40: `settings_set_slider(fn)`. The migration itself is weather_amoled's session (FIX-PLAN-2026-10-30,
   follow-ups).
-- [ ] 2026-10-09, espforge v0.5.0-rc.1: list scrolls drawn as pictures (weather_amoled's `slide_scroll`) in forge_lvgl,
+- [x] v0.6.0-rc.5, 2026-10-09, espforge v0.5.0-rc.1: list scrolls drawn as pictures (weather_amoled's `slide_scroll`) in forge_lvgl,
   for forge_settings' list and apps' lists (esp32-s3-rtcquebec's alerts): LVGL scrolls them at ~25 fps.
+  **→** PR #41: a vertical drag on a scrollable list with no pager that way scrolls it as pictures (the board's
+  `display_raw_area`, the panel's `raw_area` hook); harness `perf.settings_scroll`.
 - [x] v0.6.0-rc.4, 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: a long press only from a finger that stayed put (its ui.c
   `long_pressed`: within 24 px of where it came down). LVGL fires LONG_PRESSED for a press held 400 ms however far it
   moved: a swipe read late on a slow page opened Settings (L200). A forge_lvgl helper (`touch_held_still()`), used by
   the starter and forge_settings' openers; weather_amoled's `open_cfg` has the same exposure.
   **→** PR #40: `slide_held_still(px)`, `SLIDE_HOLD_PX` 24; the starter's long presses ask it. The exposure in espforge: a
   screen without a pager (the start-up message): harness `moving_press_is_no_long_press` failed on the old firmware.
-- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: its map composes picture + route path in a canvas (`map_compose`,
+- [x] v0.6.0-rc.5, 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: its map composes picture + route path in a canvas (`map_compose`,
   434 KB PSRAM) because `lv_line`s over the image cost 170-200 ms a frame (L200). forge_map could draw polylines into
   its own picture (an overlay list per view): no second 434 KB buffer, and weather_amoled's radar could use it too.
+  **→** PR #41: `fmap_set_path()` draws the path into the picture after the tiles, the pixels under it kept (an undo
+  list, at most 192 KB) so it can change without a download; `map_path.c` host-tested. rtcquebec drops its canvas in
+  its own session.
 
 ## Tools and tests
 
