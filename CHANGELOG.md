@@ -8,6 +8,10 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.6.0-rc.6 - unreleased
+- For app developers: the browser emulator runs screen dimming's real code (forge_presence's presence.c: its task, its saved settings, its /api/presence), with the board's microphones and motion sensor answering "not there"; its NVS stand-in gains the i16 keys.
+- For app developers: CI builds the browser emulator from a pull request's own commit and runs its smoke test, so a change to the emulator or the screens is checked before merging; main and tags still build the latest stable release for the site's "Try it".
+
 ## v0.6.0-rc.5 - 2026-10-31
 - The Settings list follows your finger smoothly (drawn as pictures, like the page swipes).
 - For app developers: console shot (a screen over USB as a picture, for a session without HTTPS to the board; tools/devloop/shot.py) and netstat (lwIP's counters); the flash helpers pick the board's port by chip when several boards are plugged in.

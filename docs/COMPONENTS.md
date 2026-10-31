@@ -104,7 +104,9 @@ the touch that wakes a dark screen does nothing else.
   test `tests/host/test_presence.c`. The settings page's "Screen" section: `tools/webtest/tests/screen.spec.js`.
   On the board: harness suite `presence` (`dim_off_wake`: dim, off with the panel asleep and the "screen" lock released
   (console `power`), a long-press on the dark screen only wakes it).
-  In the browser: `web/emu/forge/emu_presence.c` stands in for `presence.c` (no microphones there).
+  In the browser: the real `presence.c` runs, the board's microphones and motion sensor answering "not there"
+  (`web/emu/forge/emu_stubs.c`): the screen stays on, the settings page shows "No microphone"; the emulator's smoke
+  test checks that `/api/presence` answers.
 
 ## forge_settings (the Settings screen)
 

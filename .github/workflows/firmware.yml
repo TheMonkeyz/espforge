@@ -12,8 +12,9 @@
 # released. Beta is offered only while the highest pre-release version is above the highest stable one (compared as
 # the firmware does, not by publish date).
 #
-# Every push also builds the display in the browser (job "emulator", web/emu, from the latest stable release); the
-# site publishes it as try/ ("Try it in your browser"), or goes out without it if that build failed.
+# Every push also builds the display in the browser (job "emulator", web/emu): a pull request builds its own commit
+# (a change to the emulator or the screens is checked before it is merged); main and tags build the latest stable
+# release, which the site publishes as try/ ("Try it in your browser"), or goes out without it if that build failed.
 #
 # Every push also runs the board-free tests (the settings page in Playwright against the mock device, the host unit
 # tests of the C code, the harness's own unit tests); a release needs them to pass. Actions are pinned to commit SHAs
@@ -151,16 +152,26 @@ jobs:
           python -m unittest discover -s tools/harness -p "test_*.py" -v
 
   emulator:
-    # The display in the browser (web/emu): LVGL and the app's screens built to WebAssembly, for the site's try/.
-    # From the latest stable release (the tag itself when one is pushed), so "Try it" runs the stable firmware; a stable
-    # release older than the emulator has no web/emu, and then this commit is built (said in the log). Not needed by a
-    # release: if it fails, the site is published without "Try it".
+    # The display in the browser (web/emu): LVGL and the app's screens built to WebAssembly, then its smoke test.
+    # A pull request (or a push to a branch other than main) builds its own commit, so a change to the emulator or the
+    # screens is checked before it is merged. A push to main or a tag builds the latest stable release (the tag itself
+    # when one is pushed), so the site's "Try it" runs the stable firmware; a stable release older than the emulator
+    # has no web/emu, and then this commit is built (said in the log). Not needed by a release: if it fails, the site
+    # is published without "Try it". The artifacts (emulator, emulator-smoke) are named the same either way: the pages
+    # job downloads them only after a release or by hand from main, never from a pull request.
     runs-on: ubuntu-24.04
+    env:
+      # true: build this commit (a pull request, a push to another branch); false: the latest stable release
+      THIS_COMMIT: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0            # tags
-      - name: Which firmware
+      - name: Which firmware (this commit - a pull request or a branch)
+        if: env.THIS_COMMIT == 'true'
+        run: echo "Emulator of this commit, $(git describe --tags --always) (${GITHUB_HEAD_REF:-$GITHUB_REF_NAME})"
+      - name: Which firmware (the latest stable release - main and tags, for the site)
+        if: env.THIS_COMMIT != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

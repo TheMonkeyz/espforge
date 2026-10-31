@@ -92,6 +92,7 @@ within a minute.
 | `build` | push, PR, tag | `git describe` → `version.txt`; ESP-IDF build in `espressif/esp-idf-ci-action` (version and target from `forge.json`); `make_flasher_site.py dist` → release parts + `flash-parts.json`; `esptool merge_bin` → `<app>-<version>-full.bin`. Uploaded as an artifact. |
 | `host-tests` | push, PR, tag | `make -C tests/host` (cJSON at ESP-IDF's version) and the harness's unit tests. |
 | `webtest` | push, PR, tag | Playwright against the mock device; screenshots uploaded. |
+| `emulator` | push, PR, tag | The display in the browser (`web/emu`) built with Emscripten, then its smoke test in headless Chromium. A pull request builds its own commit; `main` and tags build the latest stable release, for the site's *Try it* (artifacts `emulator`, `emulator-smoke`). A release doesn't need it: when it fails, the site goes out without *Try it*. |
 | `release` | `v*` tags, after the three above pass | GitHub release with the parts; pre-release if the tag has a `-`. |
 | `pages` | after a release, or *Run workflow* on `main` | Newest stable release + newest pre-release above it → `make_flasher_site.py site` → GitHub Pages; Beta only before the first stable release (L159). |
 

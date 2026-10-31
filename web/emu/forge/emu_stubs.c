@@ -3,6 +3,8 @@
 // that joined its Wi-Fi; the setup network and Easy Connect never start (their screens show, without a working code);
 // no updates (Restart reloads the page); no diagnostics or test console (the log is the browser's console).
 // forge_net's svc.c is the real one (the app's service statuses), its NTP row added here as the browser's clock.
+// The board's microphones and motion sensor (board_audio.h, imu.h) answer "not there": forge_presence's real presence.c
+// runs with its state machine idle, so the screen stays on and the settings page shows "No microphone".
 #include <stdio.h>
 #include <string.h>
 #include <emscripten.h>
@@ -15,6 +17,8 @@
 #include "svc.h"
 #include "diag.h"
 #include "testcon.h"
+#include "board_audio.h"
+#include "imu.h"
 
 const char *esp_err_to_name(esp_err_t e)
 {
@@ -111,6 +115,14 @@ uint32_t diag_failed_allocs(void) { return 0; }
 void diag_add_hook(diag_hook_t hook) { (void)hook; }
 void testcon_add_where(testcon_where_fn_t fn) { (void)fn; }
 void testcon_start(void) {}
+
+/* ---------- the board's microphones and motion sensor: not there (presence.c runs without them) ---------- */
+bool board_audio_init(bool speaker) { (void)speaker; return false; }
+bool board_mic_open(float gain_db) { (void)gain_db; return false; }
+bool board_mic_read(int16_t *samples, size_t n) { (void)samples; (void)n; return false; }
+const void *board_audio_data_if(void) { return NULL; }
+bool imu_init(i2c_master_bus_handle_t bus) { (void)bus; return false; }
+bool imu_read(float g[3]) { (void)g; return false; }
 
 // forge_core's NVS check (forge_core's i18n_nvs.c, the app's saves): emu_nvs.c never fails
 bool nvs_check(esp_err_t err, const char *what) { (void)what; return err == ESP_OK; }
