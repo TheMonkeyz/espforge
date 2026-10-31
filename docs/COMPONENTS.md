@@ -85,8 +85,9 @@ Kconfig: `FORGE_OTA_SITE` (the Pages URL, ending with `/`).
 `presence.h`: the screen dims, then turns off, when the room stays quiet; sustained noise, a movement or a touch
 wakes it (weather_amoled's presence.c, through esp32-s3-rtcquebec v0.3.0). No board code: `presence_start(hooks)`
 takes the microphones (`mic_open`, `mic_read`: 100 ms windows of 16 kHz samples), the motion sensor, the touch's
-`touch_idle_ms` and `set_brightness` (with the display lock) as `presence_hooks_t`; a NULL hook = that part missing
-(no microphones: always on). `presence_web_routes()` adds `GET/POST /api/presence` and `POST /api/calibrate`
+`touch_idle_ms`, `set_brightness` (with the display lock) and an optional `screen_off(bool)` (a real off once the fade
+down reached 0, the panel awake again before the fade up: the starter gives it the board's `display_sleep`) as
+`presence_hooks_t`; a NULL hook = that part missing (no microphones: always on; no `screen_off`: brightness 0 is "off"). `presence_web_routes()` adds `GET/POST /api/presence` and `POST /api/calibrate`
 (PROTOCOL.md §4); console `presence [calibrate N]`, `wake`. Give `presence_touch` to the board as its press filter:
 the touch that wakes a dark screen does nothing else.
 
@@ -101,7 +102,8 @@ the touch that wakes a dark screen does nothing else.
   percentile, and speech set it 30 dB too high: the screen would never have dimmed.
 - Pure half (`presence_sm.c`: the state machine, the limits, the calibration statistic; `presence_json.c`): host
   test `tests/host/test_presence.c`. The settings page's "Screen" section: `tools/webtest/tests/screen.spec.js`.
-  On the board: harness suite `presence` (`dim_off_wake`: dim, off, a long-press on the dark screen only wakes it).
+  On the board: harness suite `presence` (`dim_off_wake`: dim, off with the panel asleep and the "screen" lock released
+  (console `power`), a long-press on the dark screen only wakes it).
   In the browser: `web/emu/forge/emu_presence.c` stands in for `presence.c` (no microphones there).
 
 ## forge_settings (the Settings screen)
@@ -154,19 +156,35 @@ zoom range, retries, dimming, the empty colour, the PSRAM pictures kept, an `upd
   tile at a negative offset, 404, retries, a body too big, cancel, the world's edge at zoom 4). Not in the browser
   emulator yet (nothing there uses it).
 
+## forge_audio
+
+`forge_audio.h`: audio for a board with one I2S port shared by its codecs, board-free: the board (or an app with its
+own board code, weather_amoled) gives `forge_audio_cfg_t` (the codecs' I2C bus, the I2S port and pins, 16 kHz, the
+microphones' address and channels) to `forge_audio_init(cfg, speaker)`, then `forge_audio_mic_open(gain_db)` /
+`forge_audio_mic_read` (forge_presence's hooks) and `forge_audio_data_if()` for an app's own speaker device. Two
+layouts: `FORGE_AUDIO_ES7210_ES8311` (the Waveshare AMOLED: ES7210 microphones in, an ES8311 speaker the app opens and
+closes around each sound; the speaker's direction only when asked, ~5 KB of internal DMA RAM each way) and
+`FORGE_AUDIO_ES8311_BOTH` (MeteoBus's Guition ESP32-P4 board: one ES8311 is microphone and speaker, one IN_OUT device
+kept open under a lock since `es8311_open()` rewrites the chip, L212; the app writes to `forge_audio_speaker_dev()`
+and switches the amplifier itself). esp_codec_dev 1.5.11. Proven here on the Waveshare layout (harness `presence`);
+the single-ES8311 layout is MeteoBus's working code, to be proven on the P4 board when it joins `boards/`.
+
 ## board (boards/ws_amoled175/board)
 
-`board.h`: `BOARD_NAME`, `DISP_W`, `DISP_H`, `BOARD_ROUND`, `board_init()`, `display_lock/unlock` (recursive; records
-the longest hold and who held it), `display_brightness()`, `display_get_stats()`, `display_set_flush_hook()`,
+`board.h`: `BOARD_NAME`, `DISP_W`, `DISP_H`, `BOARD_ROUND`, `board_init()` (also `esp_pm_configure` 80..240 MHz, no
+light sleep, with `CONFIG_PM_ENABLE`), `display_lock/unlock` (recursive; records the longest hold and who held it),
+`display_brightness()`, `display_sleep(off)` / `display_asleep()` / `display_cpu_full_speed()` (the panel asleep while
+the screen is off: DISPOFF + SLPIN from the caller; the wake split, SLPOUT from the caller then the LVGL task's whole
+frame and DISPON 120 ms later, L81; a "screen" `ESP_PM_CPU_FREQ_MAX` lock held while the panel is awake, so the CPU
+idles at 240 MHz with the screen on and may drop to 80 MHz with it off; console `power cpu_mhz= panel= screen_lock=`,
+where only `screen_lock` says anything, L202), `display_get_stats()`, `display_set_flush_hook()`,
 `board_i2c_bus()`, `touch_idle_ms()`, `touch_set_read_hook()`, `touch_set_press_filter()` (asked when a finger comes
 down: true = LVGL and the read hook see no finger until it lifts; "a touch on a dark screen only wakes it"), and for slide.c `display_raw_frame()` (a frame without
 LVGL, bands filled while the previous one is sent), `touch_get()` / `touch_fresh()` (the chip read at most every
 10 ms) and `touch_forget()`, handed over with `forge_lvgl_set_panel()`. Also `imu.h` (QMI8658 accelerometer) and
-`board_audio.h`: I2S0 (`board_audio_init(speaker)`), the ES7210 microphones (`board_mic_open(gain_db)`,
-`board_mic_read`), and the shared data interface for an app's own ES8311 speaker device (`board_audio_data_if`). The
-speaker's direction is opened only when asked (`board_audio_init(true)` before the microphones): each direction's DMA
-buffers are ~5 KB of internal RAM (measured: the microphones cost 11 KB with both directions, 6 KB without).
-esp_codec_dev 1.5.11 (the board's `idf_component.yml`).
+`board_audio.h`: thin wrappers over forge_audio with this board's pins and bus (`board_audio_init(speaker)`,
+`board_mic_open(gain_db)`, `board_mic_read`, `board_audio_data_if`; the speaker's direction only when asked,
+`board_audio_init(true)` before the microphones).
 
 Rules kept in the code (see [LESSONS.md](LESSONS.md), Display and Touch): the SPI interrupt runs on the LVGL core;
 no esp_lcd call from outside LVGL while its last band is in flight (`display_brightness` waits); every touch report

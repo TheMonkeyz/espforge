@@ -251,6 +251,10 @@ class Board:
             time.sleep(step)
         return round(time.time() - t0, 1)
 
+    def power(self):
+        """cpu_mhz, panel (asleep|awake), screen_lock (0|1): the board's "power" command (PROTOCOL.md §2)."""
+        return kv(self.cmd('power', r'test: power (.*)').group(1))
+
     def heap(self):
         line = self.cmd('heap', r'test: heap (.*)').group(1)
         return {k: int(v) for k, v in kv(line).items() if v.lstrip('-').isdigit()}

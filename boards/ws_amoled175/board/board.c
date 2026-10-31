@@ -6,6 +6,11 @@
 #include "testcon.h"
 #include "diag.h"
 #include "forge_lvgl.h"
+#include "sdkconfig.h"
+#include "esp_private/esp_clk.h"           // esp_clk_cpu_freq(): "power"
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
 
 void display_init(void);
 void touch_init(void);
@@ -26,6 +31,15 @@ static void cmd_fps(int argc, char **argv)
              (unsigned long)d.anim_frames, d.anim_us ? d.anim_frames * 1e6f / d.anim_us : 0,
              d.anim_gap_max_us / 1000.0f, (unsigned long)d.anim_gap_max_at_ms,
              d.anim_gap_max_kind[0] ? d.anim_gap_max_kind : "-", d.pixels / 1e6f);
+}
+
+// "power": the panel's state and display.c's "screen" lock (held: 240 MHz even when idle; free: an idle core may drop
+// to 80 MHz). cpu_mhz is the clock while this command runs: always the maximum, since a running task holds ESP-IDF's
+// own lock (L202): the harness checks screen_lock, not cpu_mhz (presence.dim_off_wake).
+static void cmd_power(int argc, char **argv)
+{
+    ESP_LOGI("test", "power cpu_mhz=%d panel=%s screen_lock=%d", (int)(esp_clk_cpu_freq() / 1000000),
+             display_asleep() ? "asleep" : "awake", display_cpu_full_speed());
 }
 
 // Breadcrumbs for "where" (no lock): what the display code is doing now
@@ -61,6 +75,13 @@ static const forge_panel_t panel = {
 void board_init(void)
 {
     ESP_LOGI("board", "%s", BOARD_NAME);
+#if CONFIG_PM_ENABLE
+    // Dynamic frequency scaling: a core runs at 240 MHz while a task runs on it (ESP-IDF's own "rtos" locks) and may
+    // idle at 80 MHz; display.c's "screen" lock keeps 240 even when idle while the panel is awake, so nothing the user
+    // sees waits for the clock to come back up. No light sleep: it would break the 15 ms touch / LVGL loop and the
+    // panel's DMA timing. 80 MHz keeps the PLL, so APB (SPI, I2S for the microphones, UART) stays at 80 MHz.
+    ESP_ERROR_CHECK(esp_pm_configure(&(esp_pm_config_t){ .max_freq_mhz = 240, .min_freq_mhz = 80, .light_sleep_enable = false }));
+#endif
     touch_init();
     display_init();
     display_lock(-1);
@@ -69,6 +90,7 @@ void board_init(void)
     forge_lvgl_init(display_lock, display_unlock);
     forge_lvgl_set_panel(&panel);
     testcon_register("fps", "fps [reset]", cmd_fps);
+    testcon_register("power", "power", cmd_power);
     testcon_add_where(where_display);
     diag_add_hook(diag_display);
 }

@@ -22,6 +22,14 @@ void board_init(void);
 bool display_lock(int timeout_ms);   // -1 = forever
 void display_unlock(void);
 void display_brightness(uint8_t level);   // 0..255, with the lock held, from any task
+// The panel asleep while the screen is off (forge_presence's screen_off hook, through the app): DISPOFF and SLPIN from
+// any task with the lock held; waking sends SLPOUT, and the LVGL task finishes 120 ms later with a whole frame and
+// DISPON (L81: a whole refresh from core 0 would race the transfer-done interrupt on core 1). While the panel is awake
+// a "screen" power-management lock keeps the CPU at 240 MHz even idle; asleep, an idle core may drop to 80 MHz
+// (CONFIG_PM_ENABLE; board_init configures 80..240 MHz, no light sleep). The console's "power" shows both.
+void display_sleep(bool off);
+bool display_asleep(void);
+bool display_cpu_full_speed(void);        // the "screen" lock is held
 
 // Frame statistics since the last reset (diag line every period; "fps" in the test console has its own counters)
 typedef struct {

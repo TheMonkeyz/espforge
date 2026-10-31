@@ -53,6 +53,7 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `presence` | `test: presence state=0\|1\|2 brightness=% quiet_s=S mic=0/1 imu=0/1 level=dB threshold=dB calibrating=0/1 cal=0\|1\|2 spread=dB` (state: active, dim, off; cal: none, ok, noisy) | forge_presence |
 | `presence calibrate N` | `test: ok presence calibrate N` (then `presence: calibrated: ok\|too noisy, baseline kept, …`) | forge_presence |
 | `wake` | `test: ok wake` | forge_presence |
+| `power` | `test: power cpu_mhz=N panel=asleep\|awake screen_lock=0\|1` (cpu_mhz is always the maximum: the command itself runs; `screen_lock` says whether the CPU is held at 240 MHz while idle) | board |
 
 ## 3. Log lines the tools read
 
@@ -70,6 +71,7 @@ One command per line. Every answer is a log line with the tag `test`: `I (…) t
 | `diag: heap: internal N KB free (min ever N, largest block now N / worst N) \| DMA N KB (largest now N / worst N) \| PSRAM N KB free (min ever N, largest N) \| failed allocs N, LVGL in internal RAM N` | Every period (`tools/diag_summary.py`). PSRAM's `largest` is `-` when `FORGE_DIAG_PSRAM_LARGEST` is off. |
 | `diag: tasks: name(cC pP) X.X% NB \| …`, `diag: cpu: core0 N% busy, core1 N% busy (window N s)` | Per task: core, priority, CPU, stack bytes never used. Absent when `FORGE_DIAG_TASK_STATS` is off. |
 | `diag: stats cost: task list N us, PSRAM largest block N us (-1: off by Kconfig)` | Once at start: how long each statistic holds interrupts off on this board (L201). |
+| `display: panel asleep`, `display: panel awake` | The panel put to sleep once the fade down reached 0 (forge_presence's `screen_off` hook, the board's `display_sleep`); awake again, a whole frame sent, on the first step of the fade up. |
 | `diag: display: N frames, render avg N ms max N ms, … \| animation N fps … \| LVGL lock wait max N ms, longest hold N ms by <task>` | From the board (diag hook). |
 | `App version: <ver>` | ESP-IDF's own boot line. |
 | `diag: boot reset=<reason> …`, `diag: coredump …` | Boot info; the last crash, then erased. |

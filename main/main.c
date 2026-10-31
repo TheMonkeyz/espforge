@@ -75,9 +75,17 @@ static void set_brightness(int pct)
     display_brightness((uint8_t)(pct * 255 / 100));
     display_unlock();
 }
+// A real off: the panel asleep (DISPOFF + SLPIN) once the fade down reached 0, awake again (SLPOUT, then the LVGL task
+// sends a whole frame and DISPON) before the fade up; the CPU may idle at 80 MHz meanwhile (board.h display_sleep)
+static void screen_off(bool off)
+{
+    display_lock(-1);
+    display_sleep(off);
+    display_unlock();
+}
 static const presence_hooks_t presence_hooks = {
     .mic_open = mic_open, .mic_read = board_mic_read, .accel_open = accel_open, .accel_read = imu_read,
-    .touch_idle_ms = touch_idle_ms, .set_brightness = set_brightness,
+    .touch_idle_ms = touch_idle_ms, .set_brightness = set_brightness, .screen_off = screen_off,
 };
 
 static const web_route_t app_routes[] = {
