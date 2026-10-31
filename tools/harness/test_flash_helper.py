@@ -325,3 +325,25 @@ class Requests(TempDev):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+@unittest.skipIf(fh is None, 'pyserial missing (run from an ESP-IDF shell)')
+class PortPick(unittest.TestCase):
+    """Several boards on the PC (an ESP32-P4 beside the S3): the helper asks each chip which it is, once."""
+
+    def test_one_port_needs_no_probe(self):
+        self.assertEqual(fh.pick_port([('COM5', 'x')], 'esp32s3', lambda d, c: self.fail('probed')), 'COM5')
+
+    def test_the_cached_port_wins_while_connected(self):
+        ports = [('COM5', ''), ('COM7', '')]
+        self.assertEqual(fh.pick_port(ports, 'esp32s3', lambda d, c: self.fail('probed'), cached='COM7'), 'COM7')
+        asked = []
+        self.assertEqual(fh.pick_port(ports, 'esp32s3', lambda d, c: asked.append(d) or d == 'COM5', cached='COM9'), 'COM5')
+        self.assertEqual(asked, ['COM5'])                 # a cached port that is gone: asked again
+
+    def test_two_boards_the_chip_that_answers(self):
+        ports = [('COM5', 'S3'), ('COM7', 'P4')]
+        probe = lambda d, c: (d, c) == ('COM7', 'esp32p4')
+        self.assertEqual(fh.pick_port(ports, 'esp32p4', probe), 'COM7')
+        self.assertIsNone(fh.pick_port(ports, 'esp32c3', probe))
+        self.assertIsNone(fh.pick_port([], 'esp32s3', probe))

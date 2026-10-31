@@ -102,6 +102,28 @@ def commands(ctx):
 
 
 @test('console')
+def shot_over_usb(ctx):
+    """`shot SCREEN [DIV]` (v0.6.0): a screen rendered off-display and sent over the USB console as base64 RGB565 rows,
+    for a session that can't reach the board's HTTPS (tools/snapshot.py) and for screens before Wi-Fi;
+    tools/devloop/shot.py turns a log into PNGs. Fails on the old firmware: no such command."""
+    import shot
+    b = ctx.board
+    at = len(ctx.log.lines())
+    name = (CFG['screens'] or ['current'])[0]
+    m = b.cmd(f'shot {name} 4', r'test: ok shot (\S+) (\d+)x(\d+)', timeout=30)
+    ctx.log.wait(r'^SHOTEND', 5, 'the end of the shot', start=at)
+    got = list(shot.blocks(ctx.log.lines()[at:]))
+    check(got and got[-1][0] == name, f'no SHOT block for {name} decoded from the log ({len(got)} blocks)')
+    _, w, h, rgb, rows = got[-1]
+    check((w, h) == (int(m.group(2)), int(m.group(3))) and w == CFG['screen']['w'] // 4,
+          f'{w}x{h} decoded, the console said {m.group(2)}x{m.group(3)}, a quarter of the screen expected')
+    lit = sum(1 for i in range(0, len(rgb), 3) if rgb[i] + rgb[i + 1] + rgb[i + 2] > 60)
+    check(rows == h and lit > w * h // 100, f'{rows} of {h} rows, {lit} lit pixels of {w * h}: a broken or blank picture')  # hello: text on black, ~4 %
+    shot.png(ctx.out(f'shot_{name}.png'), w, h, rgb)
+    ctx.note(f'shot {name} 4: {w}x{h} over USB, {rows} rows, {lit} lit pixels (shot_{name}.png)')
+
+
+@test('console')
 def wifi_low_latency(ctx):
     """net_low_latency() (v0.6.0): Wi-Fi power save off while a screen wants fast requests (ESP-IDF's default costs
     ~100 ms a request, MeteoBus's radar), counted; `wifi status` shows ps, lowlat, the download slot and queued jobs."""

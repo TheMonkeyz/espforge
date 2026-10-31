@@ -98,6 +98,9 @@ python tools/snapshot.py setup --key <key>      # else $FORGE_KEY (forge.json ke
 - A snapshot shows state, not interaction: for gestures, scrolling and animations ask the user to act during a log
   window. It can't show touch-target problems either (L49).
 - Cost on weather_amoled: ~434 KB of PSRAM while rendering, ~650 KB sent, 2-3 s.
+- Without HTTPS to the board (the cloud's shell, a board behind a co-processor): the console's `shot <screen> [DIV]`
+  sends the screen over USB (every DIV-th pixel, default 2), and `python tools/devloop/shot.py .devloop/serial_log.txt`
+  makes PNGs from the log.
 
 ## 5. Harness (`tools/harness/`): everything, without a person
 
@@ -131,7 +134,7 @@ Suites. Generic ones live in `tools/harness/core_suites.py` and test the framewo
 | Suite | What it proves |
 |---|---|
 | `boot` | the start-up: no `E (` line, `ota: Running` / `App version` / the console agree, boot stage times; a crash kept from before is noted |
-| `console` | `help` lists the commands; an unknown command is refused; `wifi lowlat on\|off` switches Wi-Fi power save (`ps=`, `lowlat=`) |
+| `console` | `help` lists the commands; an unknown command is refused; `wifi lowlat on\|off` switches Wi-Fi power save (`ps=`, `lowlat=`); `shot` sends a screen over USB that decodes to a picture |
 | `memory` | internal RAM and PSRAM free and low points, failed allocations, against `baseline.json` |
 | `screens` | each screen in `forge.json` `screens` snapshotted (size, not blank); `screens_not_shown` are prepared off-display |
 | `web` | the Playwright suite (`tools/webtest`), `GET /api/info`, the page whole; 403 for a POST over plain HTTP, 302 to the device itself, 401 without or with a wrong key, 415 for non-JSON, 421 for another Host |
