@@ -8,7 +8,7 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
-## v0.6.0-rc.1 - unreleased
+## v0.6.0-rc.1 - 2026-10-31
 - For app developers: from MeteoBus's ESP32-P4 port. forge_core's diag has Kconfig switches for the two statistics that hold interrupts off (the per-task lines, PSRAM's largest block) and times them once at start; its crash summary reads a RISC-V core dump too. forge_net builds without Easy Connect where the Wi-Fi is a co-processor (net_dpp_supported, the starter hides that page), serves the settings page on CONFIG_FORGE_HTTPS_PORT and writes the port in every address (web_port), and checks the User-Agent's length at compile time (256 bytes).
 
 ## v0.5.0 - 2026-10-09
