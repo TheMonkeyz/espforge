@@ -1,6 +1,6 @@
 ---
 name: new-project
-description: Turn a fresh copy of the espforge template into a new project - rename app, repo, OTA site and setup network, reset the changelog and baseline, start the project docs, and list the GitHub settings the owner must make. Use when the user starts a new device project from this template or asks to rename the project.
+description: Turn a fresh copy of the espforge template into a new project - rename app, repo, OTA site and setup network, reset the changelog and baseline, start the project docs, and copy the GitHub settings from a reference repository, then check them. Use when the user starts a new device project from this template or asks to rename the project.
 ---
 
 # New project from the template
@@ -24,5 +24,10 @@ Follow `docs/NEW-PROJECT.md`; this is the order of work.
    names and docs/LESSONS.md's history.
 8. **Build and flash** with the `build-flash-probe` skill; check the setup network's name and `ota: Running`.
 9. **Baseline:** `python tools/harness/harness.py --update-baseline`, review `baseline.proposed.json`, copy it over.
-10. **Commit** (with the user's go-ahead), then give the owner the GitHub checklist from docs/NEW-PROJECT.md §3
-    (Pages source, github-pages tag rule `v*`, tag ruleset). First release: docs/RELEASING.md "First release".
+10. **Commit** (with the user's go-ahead).
+11. **GitHub settings** (docs/NEW-PROJECT.md §3): `python tools/setup_github.py --from TheMonkeyz/espforge --to
+    <owner>/<repo>` copies the rulesets, Pages, the github-pages policies and the Actions permissions through `gh api`,
+    printing each call; then the same with `--check` (read-only, exit 1 on a difference). `gh` is not on the PATH of
+    older shells on this PC: the tool looks in `C:\Program Files\GitHub CLI\gh.exe`, or pass `--gh <path>`. What the
+    reference repository lacks is not copied: read the `--check` lines and give the owner what is left. First release:
+    docs/RELEASING.md "First release".

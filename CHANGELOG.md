@@ -11,6 +11,7 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 ## v0.6.0-rc.6 - unreleased
 - For app developers: the browser emulator runs screen dimming's real code (forge_presence's presence.c: its task, its saved settings, its /api/presence), with the board's microphones and motion sensor answering "not there"; its NVS stand-in gains the i16 keys.
 - For app developers: CI builds the browser emulator from a pull request's own commit and runs its smoke test, so a change to the emulator or the screens is checked before merging; main and tags still build the latest stable release for the site's "Try it".
+- For app developers: three PC-side tools in the template. `tools/fetch_forge.py` clones espforge at the tag the app's manifest pins (for the host tests and the display in the browser); `tools/forge_local.py` builds the app against a local espforge checkout before a tag, every espforge entry of the manifest and the board included, and puts the manifest back; `tools/setup_github.py` copies a repository's GitHub settings (rulesets, Pages, the github-pages environment's branch and tag policy, Actions permissions) to a new one and checks them.
 
 ## v0.6.0-rc.5 - 2026-10-31
 - The Settings list follows your finger smoothly (drawn as pictures, like the page swipes).
