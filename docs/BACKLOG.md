@@ -183,11 +183,14 @@ reason it stays in the app.
   cache): every PSRAM-bound frame got faster, none slower in the harness (zoom fill -5 %, bus map drawn 1725 -> 1663 ms,
   snapshots ~4 % faster). A board default for any app that copies pictures out of PSRAM.
 
-- [ ] 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0: this was the third new repo (after esp32-s3-weather and
+- [x] v0.6.0-rc.1, PR #37, 2026-10-09, esp32-s3-meteobus v0.1.0-rc.0: this was the third new repo (after esp32-s3-weather and
   esp32-s3-rtcquebec) set up by hand: the "protect main" and "release tags" rulesets, Pages built by a workflow, the
   `github-pages` environment's branch and tag policy (`main`, `v*`) and Actions' default read permissions. A
   `tools/setup_github.py` (or a step in the new-project skill) that copies these from a reference repo with `gh api`,
   then checks they match, would make this repeatable.
+  **→** PR #37: `tools/setup_github.py --from A --to B [--check]` (rulesets by name, Pages, the github-pages
+  policies, Actions permissions; `--check` read-only, exit 1 on a difference), a step in the new-project skill and
+  NEW-PROJECT.md §3. espforge itself has no rulesets (the apps do): copy them from esp32-s3-weather, the owner's call.
 
 - [x] v0.3.0-rc.1, 2026-10-06, esp32-s3-rtcquebec v0.1.0: the flash helper started by Claude in the background, windowless;
   `tools\esptool.exe` to copy into a new project (git-ignored). PR #7.
@@ -220,13 +223,15 @@ reason it stays in the app.
   `monitor.ps1` / `flash_helper.ps1` (repository root) still use esptool's reset and lose the first ~2.5 s (L154);
   its Python `tools/flash_helper.py` already does it (22f76f1). Twins: port, then prove on COM5 (`flash QIO`).
   **→** For weather_amoled (twins): ported in its espforge-bump release.
-- [ ] 2026-10-07, esp32-s3-rtcquebec (alignment): an app made from the template can take espforge at a tag
+- [x] v0.6.0-rc.1, PR #37, 2026-10-07, esp32-s3-rtcquebec (alignment): an app made from the template can take espforge at a tag
   instead of copies (as weather_amoled and now esp32-s3-rtcquebec): `tools/fetch_forge.py`, the Makefiles'
   `FORGE ?=` (managed_components, else `.espforge`), emu.mk's `FORGE_EMU`/`COMP`/`BOARD` pointed at the clone. Say
   so in docs/NEW-PROJECT.md (a section "Later: the framework at a tag") and ship `tools/fetch_forge.py` here.
   **→** esp32-s3-rtcquebec moved (its PR #1, v0.3.1-rc.1: 20/20 on COM5); espforge's side: `gen_config.py` reads
   espforge's own Kconfig (v0.3.0-rc.1), `smoke.js` finds Playwright from the current directory (PR #16). Still to
   do here: NEW-PROJECT's section and `tools/fetch_forge.py` in the template.
+  **→** PR #37: both done (NEW-PROJECT.md "Later: the framework at a tag", `tools/fetch_forge.py`, `.espforge/`
+  git-ignored).
 - [ ] 2026-10-07, espforge v0.3.0-rc.1 (harness on COM5): `perf.page_swipes` runs right after
   `navigation.setup_pages_slide`, whose Easy Connect page leaves the home network: the first swipe can land while
   Wi-Fi rejoins (46 fps and a 146 ms gap once, a console reply lost once; clean on re-runs). Wait for `net:
@@ -246,9 +251,11 @@ reason it stays in the app.
   folder (`stage.py --build build/forge`) was refused, and its panic not decoded. Both follow
   `stage/manifest.json`'s `build_dir` now; test `test_another_build_folder_staged_is_flashed` (LESSONS L198).
   **→** PR #26.
-- [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0: its `tools/forge_local.py` (weather_amoled's, with every espforge
+- [x] v0.6.0-rc.1, PR #37, 2026-10-09, esp32-s3-rtcquebec v0.4.0: its `tools/forge_local.py` (weather_amoled's, with every espforge
   component of the manifest and the board, `COMPONENTS` a name -> folder map): ship it in the template with the
   "framework at a tag" section of NEW-PROJECT.md (the open entry above).
+  **→** PR #37: shipped, the component map read from the manifest's espforge entries (the board included),
+  `--forge` (default `../espforge`); "nothing to do" in espforge itself.
 - [ ] 2026-10-09, esp32-s3-rtcquebec v0.4.0-rc.1: building from the Claude desktop app's shell needs
   `IDF_COMPONENT_CACHE_PATH` outside AppData for the component manager's git fetches (L199): say so in WORKFLOW.md
   and the build skill (or set it in the devloop / CI helper scripts that build).
