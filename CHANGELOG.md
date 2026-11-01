@@ -8,6 +8,13 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.7.0-rc.1 - 2026-11-01
+- The screen no longer tears when it changes quickly: each picture goes to the panel in step with its refresh.
+- A long press that opens Settings now owns the touch: moving the finger afterwards no longer scrolls or swipes.
+- The installer page has a new "Configure over USB" card: plug the display into a computer (Chrome or Edge), press Connect, and change its language, update channel, screen dimming and brightness without Wi-Fi.
+- For makers: a device with no Wi-Fi (Bluetooth only) can now be built without the Wi-Fi, web page and update parts (a ready-made starter in `examples/nonet`); apps can set how far a finger moves before it counts as a swipe.
+- Tools: after a flash the log starts at the very first boot line; the test harness can test a board without Wi-Fi.
+
 ## v0.6.0 - 2026-10-31
 - Screen off is a real off: the panel goes to sleep once the screen has faded out, and the processor slows down while it waits; a touch or a sound brings both back, with the screen redrawn before it shows.
 - A touch on a dark screen only wakes it, every time; it never counts as a long press.
