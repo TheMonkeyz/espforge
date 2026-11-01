@@ -21,6 +21,10 @@ reason it stays in the app.
 - [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: forge_lvgl's slide.c takes a drag with `lv_indev_wait_release` and LVGL then
   sends no `PRESS_LOST` to the pressed object, so an app cannot tell when a press became a drag (ColorMesh's
   "hold" stays on for the length of a swipe, ~0.4 s). A drag-start callback in slide.c (`slide_set_drag_hook`?).
+  **Done in ColorMesh's local copy (components/forge_lvgl, v0.1.0-rc.7):** `slide_set_drag_hook(hook, user)` called once
+  in `read_hook()` right after `lv_indev_wait_release`. Port it. Also: forge_lvgl has no `idf_component.yml`, and the
+  component manager only lets a local `components/forge_lvgl` override the managed one when it has one (add an empty
+  `dependencies: {}` manifest to every espforge component).
 
 - [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: a project with **no Wi-Fi** (Bluetooth LE only) cannot drop forge_net:
   `components/forge_lvgl/include/screens.h` includes `web.h` only for `web_image_t`, and forge_lvgl's CMake REQUIRES
