@@ -50,5 +50,17 @@ int main(void)
     char tiny[8];
     testcon_help(tiny, sizeof(tiny));               // a short buffer is cut, never overrun (ASan checks)
     CHECK(strlen(tiny) < sizeof(tiny), "tiny help: %s", tiny);
+
+    // A full table of long usages fits "help"'s buffer, the last one included (esp32-s3-colormesh's 35 commands cut
+    // the 600-byte one before "reboot", espforge v0.7.0-rc.1)
+    static char names[TESTCON_MAX][12], usages[TESTCON_MAX][40];
+    for (int i = 0; i < TESTCON_MAX; i++) {
+        snprintf(names[i], sizeof(names[i]), "cmd%02d", i);
+        snprintf(usages[i], sizeof(usages[i]), "cmd%02d [lvgl|raw on|off] [log N] X Y", i);
+        testcon_register(names[i], usages[i], record);
+    }
+    static char full[TESTCON_HELP_MAX];
+    testcon_help(full, sizeof(full));
+    CHECK(strstr(full, "cmd45 [lvgl") != NULL, "a full table: the last usages are cut (%zu bytes)", strlen(full));
     return check_done("testcon");
 }

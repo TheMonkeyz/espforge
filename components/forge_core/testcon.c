@@ -32,7 +32,7 @@ static void cmd_ping(int argc, char **argv) { ESP_LOGI(TAG, "pong %s", esp_app_g
 
 static void cmd_help(int argc, char **argv)
 {
-    EXT_RAM_BSS_ATTR static char out[600];                 // static: the console task's stack is small (PSRAM: L185)
+    EXT_RAM_BSS_ATTR static char out[TESTCON_HELP_MAX];    // static: the console task's stack is small (PSRAM: L185)
     testcon_help(out, sizeof(out));
     ESP_LOGI(TAG, "commands: %s", out);
 }

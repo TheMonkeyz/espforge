@@ -8,6 +8,9 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.7.0-rc.2 - 2026-11-01
+- For makers: the test console's `help` lists every command again (an app with many commands had the end of the list cut off).
+
 ## v0.7.0-rc.1 - 2026-11-01
 - The screen no longer tears when it changes quickly: each picture goes to the panel in step with its refresh.
 - A long press that opens Settings now owns the touch: moving the finger afterwards no longer scrolls or swipes.

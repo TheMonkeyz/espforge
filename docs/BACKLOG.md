@@ -66,6 +66,9 @@ reason it stays in the app.
   advert's layout, the flood, the firmware pull); a component cut from one app would guess the API. What is general went
   in as lessons (L214 scan vs connection, L215 HOST_QUEUE_CONG_CHECK). Port when a second Bluetooth project starts:
   ColorMesh's `mesh.c` bring-up and scan, its `sdkconfig.defaults` BT set and RESEARCH-BLE.md are the source.
+- [x] v0.7.0-rc.2, 2026-11-01, esp32-s3-colormesh on espforge v0.7.0-rc.1 (its harness `console.commands`): `help` wrote
+  into a 600-byte buffer and ColorMesh's 35 commands (its own, `slide hold ...`, `te ...`) cut the list before
+  `reboot`. **→** `TESTCON_HELP_MAX` 2048 (PSRAM); `test_testcon.c` fills the table and failed at 600.
 - [ ] 2026-11-01, espforge v0.7.0-rc.1, for the apps (each in its own session, on its next espforge bump):
   esp32-s3-colormesh: the tag, `board` and `forge_lvgl` back as git dependencies (its local copies deleted),
   forge_net and dns_server dropped, `CONFIG_FORGE_SLIDE_DRAG_PX=28`, `slide_drop_touch()` in its swatch long press

@@ -25,3 +25,7 @@ void testcon_add_where(testcon_where_fn_t fn);
 void testcon_start(void);   // the reader task and the built-in commands (ping, help, heap, where, memspeed, reboot)
 
 #define TESTCON_MAX 48
+// "help"'s answer: every usage, comma-separated (TESTCON_MAX of ~40 characters). It was 600 bytes, and
+// esp32-s3-colormesh's 35 commands on espforge v0.7.0-rc.1 (its own, `slide hold ...`, `te ...`) cut it before
+// "reboot": the harness's console check failed.
+#define TESTCON_HELP_MAX 2048
