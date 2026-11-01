@@ -8,6 +8,15 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 `- ` line per change, written for the person holding the display. Release candidates get their own
 `## vX.Y.Z-rc.N - YYYY-MM-DD` section, shown only to Beta users; the final release's section lists everything again.
 
+## v0.7.0 - 2026-11-01
+- The screen no longer tears when it changes quickly: each picture goes to the panel in step with its refresh.
+- A long press that opens Settings now owns the touch: moving the finger afterwards no longer scrolls or swipes.
+- The installer page has a new "Configure over USB" card: plug the display into a computer (Chrome or Edge), press Connect, and change its language, update channel, screen dimming and brightness without Wi-Fi.
+- For makers: a device with no Wi-Fi (Bluetooth only) can now be built without the Wi-Fi, web page and update parts (a ready-made starter in `examples/nonet`, checked by CI).
+- For makers: apps can set how far a finger moves before it counts as a swipe (CONFIG_FORGE_SLIDE_DRAG_PX), learn when a press becomes a swipe (slide_set_drag_hook) and drop the rest of a touch after a long press (slide_drop_touch).
+- For makers: every component has its own idf_component.yml, so an app can replace one with a local copy; a build made after a release candidate now counts as newer than it; the test console's `help` lists every command again (an app with many commands had the end cut off); the console's cfg commands read and change the settings over USB.
+- Tools: after a flash the log starts at the very first boot line; the test harness can test a board without Wi-Fi, checks the panel's refresh signal and takes screens over USB; `tools/fetch_forge.py --tag` fetches a given release.
+
 ## v0.7.0-rc.2 - 2026-11-01
 - For makers: the test console's `help` lists every command again (an app with many commands had the end of the list cut off).
 
