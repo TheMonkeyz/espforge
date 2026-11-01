@@ -69,8 +69,10 @@ reason it stays in the app.
 - [x] v0.7.0-rc.2, 2026-11-01, esp32-s3-colormesh on espforge v0.7.0-rc.1 (its harness `console.commands`): `help` wrote
   into a 600-byte buffer and ColorMesh's 35 commands (its own, `slide hold ...`, `te ...`) cut the list before
   `reboot`. **→** `TESTCON_HELP_MAX` 2048 (PSRAM); `test_testcon.c` fills the table and failed at 600.
-- [ ] 2026-11-01, espforge v0.7.0-rc.1, for the apps (each in its own session, on its next espforge bump):
-  esp32-s3-colormesh: the tag, `board` and `forge_lvgl` back as git dependencies (its local copies deleted),
+- [ ] 2026-11-01, espforge v0.7.0-rc.1, for the apps (each in its own session, on its next espforge bump; the tag
+  to take is the stable **v0.7.0**, 2026-11-01, same code as rc.2):
+  esp32-s3-colormesh (**done**: PR #6 at v0.7.0, harness --no-net 19/19 on board A, its swipe-hold limit 100 -> 150 ms
+  since v0.4.0 measures the same 66-109 ms; merged 2026-11-01): the tag, `board` and `forge_lvgl` back as git dependencies (its local copies deleted),
   forge_net and dns_server dropped, `CONFIG_FORGE_SLIDE_DRAG_PX=28`, `slide_drop_touch()` in its swatch long press
   (alignment PR). esp32-s3-rtcquebec (v0.5.0 now): the tag (it gets v0.6.0's changes too), the tear-free board, the
   harness and flash helper files; its manifest needs a `forge_audio` entry (the v0.6.0 board requires it; built
@@ -438,6 +440,7 @@ reason it stays in the app.
   **→** PR #44 (half): in an `--ota` run the suite waits until 90 s of uptime (past the first check's TLS GETs), then
   for two readings that agree (`ota_heap_wait_s`, unit test `HeapAfterOta`). Still open: which allocation it is. 90 s
   is not enough: v0.7.0-rc.1's `--ota` run read 31 KB at 90 s (v0.6.0's: 32), a re-run 7 minutes later 41.
+  v0.7.0's `--ota` run (2026-11-01, COM5, from a v0.7.0-rc.2 label): 27/27, 36 KB (the only performance note).
 - [ ] 2026-10-31, espforge v0.6.0-rc.6 to rc.7 (harness on COM5, `presence.dim_off_wake` about 25 times): while the
   panel sleeps (CPU at 80 MHz, the "screen" lock released) a test-console command was lost twice (`power`, `presence`:
   no reply within 15 s; the next command answered), and once the HTTPS PUT restoring the settings right after the
