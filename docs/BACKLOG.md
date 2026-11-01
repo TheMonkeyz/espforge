@@ -70,8 +70,9 @@ reason it stays in the app.
   esp32-s3-colormesh: the tag, `board` and `forge_lvgl` back as git dependencies (its local copies deleted),
   forge_net and dns_server dropped, `CONFIG_FORGE_SLIDE_DRAG_PX=28`, `slide_drop_touch()` in its swatch long press
   (alignment PR). esp32-s3-rtcquebec (v0.5.0 now): the tag (it gets v0.6.0's changes too), the tear-free board, the
-  harness and flash helper files; its `tools/forge_local.py` fails on its CRLF manifest ("forge_core not found"):
-  take espforge's. esp32-s3-meteobus (v0.3.0/v0.5.0): the same, and the HTTPS-on-TLS measurement above.
+  harness and flash helper files; its manifest needs a `forge_audio` entry (the v0.6.0 board requires it; built
+  against this checkout with it: OK, no warnings); its `tools/forge_local.py` fails on its CRLF manifest
+  ("forge_core not found"): take espforge's. esp32-s3-meteobus (v0.3.0/v0.5.0): the same, and the HTTPS-on-TLS measurement above.
   weather_amoled: forge_core/net/ota/dns_server at the tag (built against this checkout: OK; two
   `-Wmissing-field-initializers` for `web_route_t.keyed` in its routes.c, from v0.6.0's web.h), its twin flash helper
   can take the restart after a flash.
