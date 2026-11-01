@@ -7,14 +7,18 @@
 //
 // - The picture of the screen shown follows the panel (every area LVGL flushes is copied into it), so a move never
 //   waits for it. The current page's neighbours are rendered off-display while nobody touches (refreshed every 2 s),
-//   so a drag's first frame comes ~15 ms after the 10 px that make it a drag; one not ready is rendered then
+//   so a drag's first frame comes ~15 ms after the DRAG_PX that make it a drag; one not ready is rendered then
 //   (lv_snapshot, ~30-40 ms). In-place changes and screen loads render the new picture when they start.
 // - Pager drags: slide_pager() takes over a pager's finger drags. The drag is recognised in the touch read (before
 //   LVGL acts on it), then followed outside LVGL: the neighbour page comes in under the finger, the ends resist and
 //   bounce back, release past a third or a flick goes on, else back. Then pager_switch() and LVGL takes over again.
+//   DRAG_PX is Kconfig FORGE_SLIDE_DRAG_PX (menu "espforge LVGL", 10 by default: LVGL's own; 28 when a tap or a hold
+//   with a slight finger move became a swipe, esp32-s3-colormesh). List scrolls are decided at 10 px whatever it is.
 // - In-place changes (slide_change) and screen loads (slide_to): the old picture slides out, the new one in.
 // Everything runs in the LVGL task with the display lock held. Without the board's panel hooks or PSRAM for two
-// pictures, the same calls fall back to LVGL's own animation (or none). Log lines: "slide: ...".
+// pictures, the same calls fall back to LVGL's own animation (or none). Log lines: "slide: ...". Test console:
+// "slide" answers "test: slide drag_px=N scroll_px=N lvgl_px=N drags=N scrolls=N hooked=N dropped=N" (since boot);
+// "slide hold X Y MS X2 Y2 [MOVE_MS [END_MS]]" holds a simulated finger, then moves it on.
 
 void slide_init(void);                       // forge_lvgl_set_panel() calls it
 void slide_pager(lv_obj_t *pager);           // up to 6 pagers; freezes LVGL's own scrolling of it
@@ -24,6 +28,20 @@ void slide_pager(lv_obj_t *pager);           // up to 6 pagers; freezes LVGL's o
 // The app changed what a neighbour page shows (the alerts next to a stop, after the stop changed): the kept pictures
 // are old; re-rendered when idle, or when a drag reaches them first.
 void slide_stale(void);
+// A press became a pager drag (any pager given to slide_pager): hook(pager, user) is called once per drag, at the
+// DRAG_PX that decide it, before the first frame. The touch belongs to the drag from then on: LVGL sends the pressed
+// object no PRESS_LOST and no RELEASED, during the move or after it (a hold started on LV_EVENT_PRESSED ends here, not
+// at the next tick that notices). Called from the touch read (LVGL task, display lock held, before LVGL handles that
+// read): set flags, log, no screen loads or object deletes, nothing slow (the drag's first frame waits). One hook;
+// NULL removes it. From esp32-s3-colormesh.
+typedef void (*slide_drag_hook_t)(lv_obj_t *pager, void *user);
+void slide_set_drag_hook(slide_drag_hook_t hook, void *user);
+// The app took the touch now down (a long press acted): the rest of it is ignored until the finger lifts: no pager
+// drag, no list scroll, and LVGL waits for the release too (lv_indev_wait_release: no scroll of its own, no CLICKED on
+// the lift; the pressed object gets PRESS_LOST then). From an LVGL event handler (LVGL task, display lock held); no
+// effect without a touch down. Without it, a finger that moved on after a long press still started a drag (it was
+// still tracked). Log: "slide: touch dropped ...".
+void slide_drop_touch(void);
 // PSRAM the pictures leave to the app (KB): a neighbour's buffer is allocated only while more than this stays free
 #define SLIDE_PSRAM_RESERVE_KB 1000
 // A screen that needs PSRAM for a while (a map with its tiles): free the pictures of pages not wanted now (not the

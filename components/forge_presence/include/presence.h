@@ -63,6 +63,7 @@ typedef struct {
 
 void presence_start(const presence_hooks_t *hooks);   // loads the settings, starts the task, the console commands
 void presence_web_routes(void);                     // GET/POST /api/presence, POST /api/calibrate; before web_start()
+                                                    // (built only with forge_net in the build: none without Wi-Fi)
 
 void presence_get_config(presence_cfg_t *out);
 bool presence_set_config(const presence_cfg_t *in); // saves to NVS (baseline is kept); false = not saved

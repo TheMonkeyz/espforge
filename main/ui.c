@@ -92,10 +92,12 @@ static lv_obj_t *make_qr(lv_obj_t *parent, int size)
     return qr;
 }
 
-// A long press: Settings (forge_settings); offline, Wi-Fi setup is what's needed (as weather_amoled)
+// A long press: Settings (forge_settings); offline, Wi-Fi setup is what's needed (as weather_amoled). The touch is the
+// long press's from then on (slide_drop_touch): a finger that moves on doesn't also drag a page or scroll Settings.
 static void long_pressed(lv_event_t *e)
 {
     if (!slide_held_still(SLIDE_HOLD_PX)) { ESP_LOGI(TAG, "long-press from a moving finger: a swipe, ignored (L200)"); return; }
+    slide_drop_touch();
     if (net_is_connected()) {
         ESP_LOGI(TAG, "long-press: settings");
         settings_open();
@@ -108,6 +110,7 @@ static void long_pressed(lv_event_t *e)
 static void msg_long_pressed(lv_event_t *e)          // the start-up message: Wi-Fi setup
 {
     if (!slide_held_still(SLIDE_HOLD_PX)) { ESP_LOGI(TAG, "long-press from a moving finger: a swipe, ignored (L200)"); return; }
+    slide_drop_touch();
     ESP_LOGI(TAG, "long-press: Wi-Fi setup");
     ui_wifi_setup(NULL);
 }
@@ -621,6 +624,14 @@ static const screen_def_t screens[] = {
     { "message", get_msg,    show_msg,    NULL,           shown_msg },
 };
 
+// slide.c: a press became a pager drag. LVGL then sends the pressed object nothing more (no PRESS_LOST): an app that
+// started something on LV_EVENT_PRESSED ends it here (esp32-s3-colormesh's hold). The starter only says so, once per
+// drag (harness navigation.swipe_calls_drag_hook). From the touch read, display lock held: a log line, nothing slow.
+static void drag_started(lv_obj_t *pg, void *user)
+{
+    ESP_LOGI(TAG, "drag started (%s)", pg == pager ? "main" : pg == su_pager ? "setup" : "other");
+}
+
 void ui_init(void)
 {
     textfit_init(ttf_start, ttf_end - ttf_start);
@@ -637,6 +648,7 @@ void ui_init(void)
     setup_create();
     settings_make();
     screens_register(screens, sizeof(screens) / sizeof(screens[0]));
+    slide_set_drag_hook(drag_started, NULL);
     lv_screen_load(scr_msg);
     display_unlock();
     web_set_snapshot(screens_snapshot, screens_snapshot_free);

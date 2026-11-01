@@ -18,6 +18,11 @@ checked by md5 against stage/manifest.json and against the build (L1).
 The board's port: --port, else $FORGE_PORT, else forge.json's port, else the ESP32-S3's own USB (VID 0x303A; macOS
 /dev/cu.usbmodem…), else esptool's choice. The board's USB goes away at every hard reset (native USB): the monitor
 reopens it, and finds the board again by vendor id if it comes back under another name.
+
+After a flash, once the test console answers `ping`, the board is restarted once more through the console's `reboot`
+with the port kept open, so the log is whole from `ESP-ROM:` on (esptool's reset loses the first ~3 s, LESSONS L154,
+L191). Without a console answer (other firmware) the log goes on from the flash's own boot. forge.json
+"flash_restart": false turns it off.
 """
 import argparse
 import hashlib
@@ -38,6 +43,8 @@ DEV = forgecfg.devloop(CFG)
 ESPRESSIF_VID = 0x303A
 SILABS_VID = 0x10C4                      # a board with a CP210x bridge (the Guition ESP32-P4)
 BOOTED = (b'ESP-ROM:', b'rst:0x')                 # the first lines of a boot (ROM banner, reset reason)
+SETTLE_S = 2.0                     # after esptool's reset: the USB re-enumerates before the port can be opened
+CONSOLE_ASK_S = 8.0                # after a flash: how long to wait for the test console's `pong` (ready at ~3 s)
 
 
 def p(name):
@@ -287,24 +294,78 @@ def console_reboot(port, wait=4.0):
     re-enumerates the USB, and the ~2.5 s before the port is back are lost (the flash mode, the reset reason: the
     harness printed "flash ?"; LESSONS L154, L191). Returns (open port, bytes read since the command), or None when no
     boot follows (firmware without the console, a hung board): then use esptool."""
-    import serial
     s = open_port(port, wait=3)
     if s is None:
         return None
+    buf = restart_through_console(s, wait)
+    if buf is not None:
+        return s, buf
+    try:
+        s.close()
+    except Exception:
+        pass
+    return None
+
+
+def restart_through_console(s, wait=4.0):
+    """`reboot` on the open port `s`: the bytes read since, once a boot begins (ESP-ROM, rst:0x) within `wait` s;
+    None when none does (no console, a hung board, or the USB went away after all)."""
+    import serial
     buf, end = b'', time.time() + wait
     try:
         s.write(b'reboot\n')
         while time.time() < end:
             buf += s.read(4096)
             if any(m in buf for m in BOOTED):
-                return s, buf
+                return buf
     except (OSError, serial.SerialException):
-        pass                                        # the USB went away after all: not a console restart
-    try:
-        s.close()
-    except Exception:
         pass
     return None
+
+
+def restart_after_flash(port, ask=None, wait=4.0):
+    """After esptool's reset the port is back ~3 s into the boot: the lines before (`ble: synced` at 2.5 s, the reset
+    reason, the flash mode) are lost (L154), so a test cannot wait for an early event. Open the port, `ping` until the
+    test console answers, then restart through it with the port kept open (L191): the log is whole from ESP-ROM on.
+    No rollback to fear: a USB flash writes ota_data_initial.bin, so no update waits to be confirmed (L23 is about OTA
+    updates). Returns ((open port, bytes to log first), restarted). Without a `pong` within `ask` s (firmware without
+    the test console) or without a boot after `reboot`, the bytes are the flash's own boot, logged as before
+    (restarted False); (None, False) when the port does not open or goes away (monitor() opens it again)."""
+    import serial
+    ask = CONSOLE_ASK_S if ask is None else ask
+    time.sleep(SETTLE_S)                            # let USB re-enumerate after esptool's reset
+    s = open_port(port)
+    if s is None:
+        return None, False
+    first, end, next_ping = b'', time.time() + ask, 0.0
+    try:
+        while b'test: pong' not in first and time.time() < end:
+            if time.time() >= next_ping:
+                s.write(b'ping\n')                  # (a line sent before the console is up is only lost)
+                next_ping = time.time() + 1.0
+            first += s.read(4096)
+    except (OSError, serial.SerialException):
+        try:
+            s.close()
+        except Exception:
+            pass
+        return None, False                          # the board restarted by itself: monitor() reopens the port
+    if b'test: pong' not in first:
+        return (s, first), False
+    boot = restart_through_console(s, wait)
+    if boot is None:
+        return (s, first), False                    # it answers but did not restart: log on from its own boot
+    return (s, one_boot(boot)), True                # (the first boot's lines are dropped: the log holds one boot)
+
+
+def one_boot(buf):
+    """The bytes read after `reboot`, from the boot's first line on: the console's `ok restarting` line, then the
+    boot. The old boot's last lines in between (Wi-Fi stopping: 30 lines on espforge v0.7.0-align.1) are dropped."""
+    at = min(i for i in (buf.find(m) for m in BOOTED) if i >= 0)
+    at = buf.rfind(b'\n', 0, at) + 1                # the start of that line
+    ok = buf.rfind(b'ok restarting', 0, at)
+    head = buf[buf.rfind(b'\n', 0, ok) + 1:buf.find(b'\n', ok) + 1] if ok >= 0 else b''
+    return head + buf[at:]
 
 
 def monitor(port, seconds, url=False, echo=True, opened=None):
@@ -329,7 +390,7 @@ def monitor(port, seconds, url=False, echo=True, opened=None):
         s, buf = opened
     else:
         if not url:
-            time.sleep(2)                           # let USB re-enumerate after the reset
+            time.sleep(SETTLE_S)                    # let USB re-enumerate after the reset
         s, buf = open_port(port, url), b''
     if s is None:
         live.close()
@@ -442,9 +503,16 @@ def run_request(kind, seconds, port_opt=None, echo=True):
         print('\a', end='', flush=True)
         return rc
     say(f'{kind.upper()} OK on {port} in {flash_s} s - board is restarting')
+    restarted = False                               # a flash's boot restarted through the console
     if kind == 'flash':
         remove('ip')                                # what the tools cached belongs to the old firmware (L7)
         remove('key')
+        if CFG.get('flash_restart', True) is not False:
+            # "logging" only once the log holds the boot it keeps (the harness reads it from its first line)
+            opened, restarted = restart_after_flash(port)
+            say('Restarted through the test console after the flash (the boot log is kept from its first line)'
+                if restarted else 'No restart through the test console after the flash: the log starts ~3 s into '
+                'the boot (L154)')
     write('flash.status', 'logging\n')
     say(f'Logging serial output for {seconds} s (saved to .devloop/serial_log.txt). Press q or Esc to stop early ...')
     log, early, err = monitor(port, seconds, echo=echo, opened=opened)
@@ -453,7 +521,8 @@ def run_request(kind, seconds, port_opt=None, echo=True):
     errs = sum(1 for line in log if line.startswith('E ('))
     warns = sum(1 for line in log if line.startswith('W ('))
     # "resets" are the unexpected ones: not the restart asked for (an esptool reset's own boot is lost, L154)
-    resets = max(0, sum(1 for line in log if 'rst:0x' in line) - (1 if opened else 0))
+    asked = (kind == 'reboot' and opened) or restarted
+    resets = max(0, sum(1 for line in log if 'rst:0x' in line) - (1 if asked else 0))
     say(f'Serial log saved: {len(log)} lines, {errs} errors, {warns} warnings, {resets} resets' +
         (f' ({err})' if err else ''))
     total = int(time.time() - start)

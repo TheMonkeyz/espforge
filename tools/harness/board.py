@@ -2,6 +2,10 @@
 its HTTPS API and snapshots, and the PC's Wi-Fi card (netsh) acting as a phone on the setup network. Also the test
 registry the suites use (@test, check, Fail). Contract: docs/PROTOCOL.md; project values: forge.json.
 
+No-net mode (forge.json "no_net": true, or harness.py --no-net; a board without Wi-Fi, from esp32-s3-colormesh):
+nothing uses HTTPS (key, api, request, install raise Fail; wait_online has nothing to wait for), and snap() takes the
+screen over the USB console (`shot`, tools/devloop/shot.py).
+
 Standard library only.
 """
 import json
@@ -15,18 +19,28 @@ import sys
 import time
 import http.client
 import urllib.request
+from typing import NamedTuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
 sys.path.insert(0, os.path.join(HERE, '..', 'devloop'))
 import forgecfg  # noqa: E402  (tools/forgecfg.py)
-import snapshot  # noqa: E402  (tools/snapshot.py)
+import shot  # noqa: E402  (tools/devloop/shot.py: screens over the USB console)
+try:
+    import snapshot  # noqa: E402  (tools/snapshot.py: HTTPS snapshots; a no-net project may not ship it)
+except ImportError:
+    snapshot = None
 
 CFG = forgecfg.load(HERE)
 ROOT = CFG['_root']
 DEV = forgecfg.devloop(CFG)
+NO_NET = bool(CFG.get('no_net'))                   # no Wi-Fi: console only (harness.py --no-net sets it per run)
 SETUP_IP = CFG['setup_subnet'] + '.1'
 SCREEN_C = (CFG['screen']['w'] // 2, CFG['screen']['h'] // 2)   # the centre: taps and long-presses
+# A line that says the firmware is up after a reset: "console ready" prints at ~2.6 s, often inside the ~2.5 s a PC
+# monitor misses after esptool's reset (LESSONS L154); forge_ota's "ota: Running", diag's "running from ota_N" (a
+# no-net firmware has no forge_ota), or the ready line say the same later
+BOOT_SEEN = r'test: console ready|ota: Running|diag: running from|' + CFG['ready_line']
 
 
 class Fail(Exception):
@@ -106,14 +120,31 @@ def kv(line):
     return dict(x.split('=', 1) for x in line.split() if '=' in x)
 
 
+class Shot(NamedTuple):
+    """A screen taken over the USB console (Board.snap in no-net mode)."""
+    ms: int          # from the command sent to SHOTEND in the log
+    path: str        # the PNG written (None when no `out` was given)
+    w: int           # pixels: the screen's size / div
+    h: int
+    rows: int        # rows that arrived (h when the block is whole)
+    rgb: bytes       # w * h * 3
+
+
 class Board:
-    def __init__(self, ip, log):
+    def __init__(self, ip, log, no_net=None):
         self.ip, self.log = ip, log
+        self.no_net = NO_NET if no_net is None else no_net
+        self.resends = []                               # read-only commands sent again (harness.py notes them)
         self._key = None                                # the display's key (forge_net web), asked once from the console
         self.before = None
         self.ctx = ssl.create_default_context()
         self.ctx.check_hostname = False
         self.ctx.verify_mode = ssl.CERT_NONE          # the board's certificate is self-signed
+
+    def _needs_net(self, what):
+        if getattr(self, 'no_net', NO_NET):
+            raise Fail(f'{what}: this project has no network (forge.json no_net / --no-net): the board has no HTTPS '
+                       'API, use the console')
 
     # ---- flash helper ----
     def helper_status(self):
@@ -124,7 +155,10 @@ class Board:
 
     def version_before_restart(self):
         """Version running now, after waiting for a fresh update to be confirmed. A restart in the first 60 s of an
-        update rolls it back to the previous firmware (seen: the harness tested the old build instead of the rc)."""
+        update rolls it back to the previous firmware (seen: the harness tested the old build instead of the rc).
+        No-net: None (no API to ask, and the helper is idle before a restart, so there is no console either)."""
+        if getattr(self, 'no_net', NO_NET):
+            return None
         try:
             u = self.api('/api/update')
         except Exception:
@@ -174,8 +208,9 @@ class Board:
         self.forget()                                  # other firmware now, or the same one restarted: ask again
         # "console ready" prints at ~2.6 s, often inside the ~2.5 s a PC monitor misses after esptool's reset (USB
         # re-enumerates, docs/LESSONS.md L154): the later ota line or the ready line say the same. A restart through
-        # the test console keeps the whole boot (L191); a flash, or firmware without the console, still loses it
-        self.log.wait(r'test: console ready|ota: Running|' + CFG['ready_line'], 30, 'firmware with the test console')
+        # the test console keeps the whole boot (L191); a flash restarts through the console once it answers too (the
+        # flash helpers); only firmware without the console loses it
+        self.log.wait(BOOT_SEEN, 30, 'firmware with the test console')
 
     def stop_log(self):
         if self.helper_status() == 'logging':
@@ -197,14 +232,29 @@ class Board:
     # Commands that only read: sent again once when an answer is lost. The USB console has dropped a command line
     # now and then with the board fine (weather_amoled: "wifi status" right after a burst of Wi-Fi log lines, no
     # answer; "where" answered at once 15 s later, October 4). A lost read is not a firmware failure (LESSONS L184).
-    READ_ONLY = ('screen', 'wifi status', 'heap', 'ping', 'key', 'help')
+    # While the panel sleeps (CPU at 80 MHz, power management switching the clock) `power` and `presence` were lost
+    # the same way (espforge v0.6.0-rc.6/rc.7, presence.dim_off_wake). The whole line must match: `screen hello`,
+    # `fps` (it resets the counters) or `wifi offline` change something and are never sent twice. An app adds its own
+    # reads with Board.READ_ONLY += ('...',).
+    READ_ONLY = ('screen', 'wifi status', 'heap', 'ping', 'key', 'help', 'power', 'presence', 'te', 'netstat')
 
-    def cmd(self, line, expect=r'test: (ok|pong|screen|heap|wifi|fps|key|where|commands)', timeout=15, _again=True):
+    def may_resend(self, line):
+        """True for a command that only reads: sent again once when its answer is lost (cmd)."""
+        return line in self.READ_ONLY
+
+    def send(self, line):
+        """A line to the console through the helper's serial.send, waited for its "> line" echo in the log (the
+        monitor polls the file every 200 ms). Returns the log length before the write: waits for what the command
+        causes start there. cmd() adds the wait for the reply."""
         at = len(self.log.lines())
         with open(p('serial.send.tmp'), 'w') as f:
             f.write(line + '\n')
         os.replace(p('serial.send.tmp'), p('serial.send'))
         self.log.wait(re.escape('> ' + line), 5, 'helper passed the command on', start=at)
+        return at
+
+    def cmd(self, line, expect=r'test: (ok|pong|screen|heap|wifi|fps|key|where|commands)', timeout=15, _again=True):
+        at = self.send(line)
         try:
             m = self.log.wait(r'test: error .*|' + expect, timeout, line, start=at)
         except Fail as e:
@@ -215,8 +265,11 @@ class Board:
                 w = self.cmd('where', r'test: where (.*)', timeout=5).group(1)
             except Fail:
                 w = 'no answer either'
-            if _again and w != 'no answer either' and line in self.READ_ONLY:
-                print(f'  (no answer to "{line}" while the console answers "where": sent again)', flush=True)
+            if _again and w != 'no answer either' and self.may_resend(line):
+                print(f'  (no answer to "{line}" within {timeout} s while the console answers "where": sent again)',
+                      flush=True)
+                if hasattr(self, 'resends'):
+                    self.resends.append(line)
                 return self.cmd(line, expect, timeout, _again=False)
             raise Fail(f'{e}; where: {w}')
         if m.group(0).startswith('test: error'):
@@ -243,7 +296,10 @@ class Board:
         """Wait until the station is back on the home network (`wifi status` connected=1); the seconds it took.
         A setup page takes the radio off the network (Easy Connect), and the first measurement after it landed while
         Wi-Fi rejoined: 46 fps and a 146 ms gap once, a console reply lost once (v0.3.0-rc.1's run, 2026-10-07).
-        (A reconnection starts no update check of its own; the one a minute after boot is dodged by measure().)"""
+        (A reconnection starts no update check of its own; the one a minute after boot is dodged by measure().)
+        No-net: 0 at once (no network to wait for: the perf suite's measurements still run)."""
+        if getattr(self, 'no_net', False):
+            return 0.0
         t0 = time.time()
         while self.wifi().get('connected') != '1':
             if time.time() - t0 > timeout:
@@ -280,6 +336,7 @@ class Board:
     def key(self):
         """The display's key (every POST and /api/snapshot need it): the test console's "key" command, saved in
         .devloop/key for snapshot.py. '' when there is no console (no log window) or no answer."""
+        Board._needs_net(self, 'key')
         if self._key is None:
             if self.helper_status() != 'logging':      # no console without the helper's log window (yet)
                 return forgecfg.read_cached(CFG, 'key')
@@ -297,6 +354,7 @@ class Board:
         return h
 
     def api(self, path, data=None, timeout=10):
+        Board._needs_net(self, f'api {path}')
         req = urllib.request.Request(forgecfg.https_base(CFG, self.ip) + path, method='POST' if data is not None else 'GET',
                                      data=json.dumps(data).encode() if data is not None else None,
                                      headers=self.headers({'Content-Type': 'application/json'}))
@@ -305,6 +363,7 @@ class Board:
 
     def request(self, method, path, body=None, headers=None, tls=True, host=None):
         """(status, Location header) of one raw request: for the "who may change things" rules."""
+        Board._needs_net(self, f'request {method} {path}')
         c = (http.client.HTTPSConnection(self.ip, int(CFG['https_port']), context=self.ctx, timeout=10) if tls
              else http.client.HTTPConnection(self.ip, 80, timeout=10))
         h = {'Host': host or self.ip}
@@ -322,6 +381,7 @@ class Board:
         offers `want` (after a tag, CI and the Pages site take ~5 min), install, then wait until the new firmware
         runs and is confirmed (a restart in its first 60 s would roll it back). Needs a log window. The display's
         channel (Beta / Stable) is left as it is: an rc needs Beta."""
+        Board._needs_net(self, f'install {want}')
         end = time.time() + wait_min * 60
         while True:
             u = self.api('/api/update', {'action': 'check'})
@@ -347,8 +407,14 @@ class Board:
         self.log.wait(r'ota: Running ' + re.escape(want) + ' from', 90, f'{want} starting', start=at)
         self.log.wait(r'ota: New firmware ran \d+ s[^:]*: marked valid', 120, 'the update confirmed (no rollback)', start=at)
 
-    def snap(self, screen, out=None):
-        """(milliseconds, BMP bytes) of GET /api/snapshot; saves a PNG to `out` (masked on a round panel)."""
+    def snap(self, screen, out=None, div=2):
+        """(milliseconds, BMP bytes) of GET /api/snapshot; saves a PNG to `out` (masked on a round panel).
+        No-net: a Shot (ms, path, w, h, rows, rgb) through the console's `shot <screen> <div>` (div 1..4: every
+        div-th pixel, so w = screen width / div), waited for its SHOTEND line (30 s), the PNG written to `out`."""
+        if getattr(self, 'no_net', NO_NET):
+            return self.shot(screen, out, div)
+        if snapshot is None:
+            raise Fail('tools/snapshot.py is not in this project: HTTPS snapshots need it')
         t0 = time.time()
         req = urllib.request.Request(forgecfg.https_base(CFG, self.ip) + f'/api/snapshot?screen={screen}', headers=self.headers())
         with urllib.request.urlopen(req, context=self.ctx, timeout=30) as r:
@@ -357,6 +423,24 @@ class Board:
         if out:
             open(out, 'wb').write(snapshot.bmp_to_png(bmp, snapshot.round_panel(CFG)))
         return ms, bmp
+
+    def shot(self, screen, out=None, div=2, timeout=30):
+        """The screen over the USB console (tools/devloop/shot.py decodes the SHOT block from the log): a Shot. The
+        `test: ok shot` reply comes 150 ms after SHOTEND and is not waited for; an `error shot` line fails it."""
+        t0 = time.time()
+        at = self.send(f'shot {screen} {div}')
+        m = self.log.wait(r'^SHOTEND\s*$|test: error .*|error shot .*', timeout, f'the end of the shot of {screen}',
+                          start=at)
+        if not m.group(0).startswith('SHOTEND'):
+            raise Fail(f'shot {screen} {div}: {m.group(0)}')
+        ms = round((time.time() - t0) * 1000)
+        blk = shot.last_block(self.log.lines()[at:], screen)
+        if not blk:
+            raise Fail(f'shot {screen} {div}: SHOTEND arrived but no "SHOT {screen} w h" block decodes from the log')
+        name, w, h, rgb, rows = blk
+        if out:
+            shot.png(out, w, h, rgb, round_mask=CFG['screen'].get('shape') == 'round')
+        return Shot(ms, out, w, h, rows, rgb)
 
 
 class PCWifi:

@@ -16,6 +16,7 @@
 #include "imu.h"
 #include "diag.h"
 #include "testcon.h"
+#include "cfgcon.h"
 #include "net.h"
 #include "web.h"
 #include "ota.h"
@@ -49,18 +50,24 @@ static void *json_alloc(size_t n)
     return p ? p : malloc(n);
 }
 
+// The display language, from the settings page or the USB console: shown at once, saved; false = not saved
+static bool set_language(lang_t l)
+{
+    if (l == i18n_lang()) return true;
+    i18n_set(l);
+    bool ok = i18n_save();
+    ui_texts_changed();
+    ESP_LOGI(TAG, "language %s", i18n_code(l));
+    return ok;
+}
+
 // POST /api/settings {"lang":"en"|"fr"}: the app's own settings (docs/PROTOCOL.md §4)
 static esp_err_t settings_post(httpd_req_t *req)
 {
     cJSON *j = web_read_json(req);
     const char *lang = cJSON_GetStringValue(cJSON_GetObjectItem(j, "lang"));
     bool ok = lang && !strcmp(i18n_code(i18n_from_code(lang)), lang);   // one of the app's languages
-    if (ok && i18n_from_code(lang) != i18n_lang()) {
-        i18n_set(i18n_from_code(lang));
-        ok = i18n_save();
-        ui_texts_changed();
-        ESP_LOGI(TAG, "language %s", lang);
-    }
+    if (ok) ok = set_language(i18n_from_code(lang));
     cJSON_Delete(j);
     if (!ok) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad settings");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
@@ -87,6 +94,68 @@ static const presence_hooks_t presence_hooks = {
     .mic_open = mic_open, .mic_read = board_mic_read, .accel_open = accel_open, .accel_read = imu_read,
     .touch_idle_ms = touch_idle_ms, .set_brightness = set_brightness, .screen_off = screen_off,
 };
+
+/* ---------- Settings over USB (cfgcon.h): the flasher site's "Configure over USB" card builds its form from these;
+ * a board without Wi-Fi is set up the same way. Labels in English: they are for the PC page, not the display. */
+static cfgcon_option_t lang_opts[8];        // filled from the app's languages in cfg_fields()
+static void cfg_get_lang(cfgcon_value_t *v) { snprintf(v->s, sizeof(v->s), "%s", i18n_code(i18n_lang())); }
+static const char *cfg_set_lang(const cfgcon_value_t *v)
+{
+    return set_language(i18n_from_code(v->s)) ? NULL : "not saved";
+}
+
+static const cfgcon_option_t channel_opts[] = { { "stable", "Stable" }, { "beta", "Beta (release candidates)" } };
+static void cfg_get_channel(cfgcon_value_t *v)
+{
+    ota_status_t st;
+    ota_get_status(&st);
+    snprintf(v->s, sizeof(v->s), "%s", st.channel);
+}
+static const char *cfg_set_channel(const cfgcon_value_t *v) { ota_set_channel(v->s); return NULL; }   // saved, checks
+
+static void cfg_get_dim(cfgcon_value_t *v) { presence_cfg_t c; presence_get_config(&c); v->b = c.enabled; }
+static const char *cfg_set_dim(const cfgcon_value_t *v)
+{
+    presence_cfg_t c;
+    presence_get_config(&c);
+    c.enabled = v->b;
+    return presence_set_config(&c) ? NULL : "not saved";
+}
+static void cfg_get_bright(cfgcon_value_t *v) { presence_cfg_t c; presence_get_config(&c); v->i = c.bright_pct; }
+static const char *cfg_set_bright(const cfgcon_value_t *v)
+{
+    presence_cfg_t c;
+    presence_get_config(&c);
+    c.bright_pct = v->i;                    // 5..100, presence_clamp_cfg's limits
+    return presence_set_config(&c) ? NULL : "not saved";
+}
+
+static void cfg_get_ip(cfgcon_value_t *v)
+{
+    if (!net_get_ip(v->s, sizeof(v->s))) snprintf(v->s, sizeof(v->s), "no Wi-Fi");
+}
+
+static cfgcon_field_t cfg_lang = { .key = "lang", .label = "Language", .help = "on the display", .type = CFGCON_SELECT,
+                                   .options = lang_opts, .get = cfg_get_lang, .set = cfg_set_lang };
+static const cfgcon_field_t cfg_list[] = {
+    { .key = "channel", .label = "Update channel", .help = "what the display installs over Wi-Fi",
+      .type = CFGCON_SELECT, .options = channel_opts, .noptions = 2, .get = cfg_get_channel, .set = cfg_set_channel },
+    { .key = "dim", .label = "Screen dimming", .help = "dims, then turns off, the screen in a quiet room",
+      .type = CFGCON_BOOL, .get = cfg_get_dim, .set = cfg_set_dim },
+    { .key = "brightness", .label = "Brightness", .type = CFGCON_INT, .min = 5, .max = 100, .step = 5, .unit = "%",
+      .get = cfg_get_bright, .set = cfg_set_bright },
+    { .key = "ip", .label = "Address", .help = "the settings page is at https://<address>/", .type = CFGCON_INFO,
+      .get = cfg_get_ip },
+};
+
+static void cfg_fields(void)
+{
+    int n = i18n_count() < 8 ? i18n_count() : 8;
+    for (int i = 0; i < n; i++) lang_opts[i] = (cfgcon_option_t){ i18n_code(i), i18n_name(i) };
+    cfg_lang.noptions = n;
+    cfgcon_add(&cfg_lang);
+    for (size_t i = 0; i < sizeof(cfg_list) / sizeof(cfg_list[0]); i++) cfgcon_add(&cfg_list[i]);
+}
 
 static const web_route_t app_routes[] = {
     { "/api/settings", HTTP_POST, settings_post, .keyed = true },
@@ -158,6 +227,7 @@ void app_main(void)
     touch_set_press_filter(presence_touch);   // a touch on a dark screen only wakes it
     ota_start(ui_ota);          // logs "ota: Running ..."; checks once Wi-Fi is up; confirms a new image after 60 s
     ui_init();
+    cfg_fields();               // console "cfg": the settings over USB (the flasher site's card)
     testcon_start();            // ready before Wi-Fi, so start-up itself can be tested
     ui_message("espforge", tr(T_STARTING));
 

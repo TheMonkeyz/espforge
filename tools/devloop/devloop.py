@@ -2,7 +2,8 @@
 """Drive the flash helper (start_flash_helper.bat on Windows, flash_helper.py on macOS / Linux) without hand-writing
 its files in .devloop/ (docs/PROTOCOL.md §1). Standard library only.
 
-    python tools/devloop/devloop.py flash [seconds]      # stage the build (stage.py), then flash it and log
+    python tools/devloop/devloop.py flash [seconds]      # stage the build (stage.py), flash it, then log (restarted
+                                                         # once through the test console: the boot log is whole)
     python tools/devloop/devloop.py flash 300 --no-stage # flash what is already staged
     python tools/devloop/devloop.py reboot [seconds]     # restart (no flash; test console, else esptool), then log
     python tools/devloop/devloop.py send "heap"          # a line to the test console (while logging)

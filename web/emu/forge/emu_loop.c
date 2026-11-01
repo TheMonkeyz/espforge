@@ -20,7 +20,9 @@ void emu_start_app_main(void) { xTaskCreate(app_task, "main", 8192, NULL, 1, NUL
 void emu_step(void)
 {
     emu_tasks_run();                               // app_main (at first) and the app's tasks, until their next wait
+#ifdef EMU_NET                                     // (emu.mk: not with USE_NET := 0, no web server then)
     emu_web_poll();                                // the settings page's requests, as the display's web server
+#endif
     uint32_t wait = 15;
     if (lv_is_initialized() && lv_display_get_default()) wait = lv_timer_handler();   // (once board_init() ran)
     emscripten_sleep(wait > 15 ? 15 : wait < 1 ? 1 : wait);

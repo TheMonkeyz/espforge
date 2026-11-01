@@ -7,7 +7,9 @@
 #include "forge_i18n.h"
 #include "presence.h"
 #include "slide.h"
+#ifdef FORGE_HAVE_NET                                 // forge_net in the build (CMakeLists.txt): the phone's page
 #include "web.h"
+#endif
 
 // How a screen comes in: forge_lvgl's slide_to, or the app's own (weather_amoled keeps its own slide.c)
 static void (*settings_slider)(lv_obj_t *scr, int dir, bool vertical) = slide_to;
@@ -36,7 +38,10 @@ static settings_row_t R[SETTINGS_ROWS_MAX];
 static lv_obj_t *row_obj[SETTINGS_ROWS_MAX], *row_name[SETTINGS_ROWS_MAX], *row_val[SETTINGS_ROWS_MAX];
 static int nrows;
 static lv_obj_t *scr, *box, *done_lbl, *arc, *bright, *zone;
-static lv_obj_t *scr_phone, *ph_title, *ph_qr, *ph_note;
+static lv_obj_t *scr_phone;                           // the phone page: NULL without forge_net
+#ifdef FORGE_HAVE_NET
+static lv_obj_t *ph_title, *ph_qr, *ph_note;
+#endif
 static lv_obj_t *back_to;                             // the screen Settings was opened from
 static bool away;                                     // an action row opened a screen of the app's (settings_resume)
 
@@ -288,7 +293,9 @@ static void gesture(lv_event_t *e)
     lv_indev_wait_release(in);
 }
 
-/* ---------- the phone's settings page: a QR code ---------- */
+/* ---------- the phone's settings page: a QR code (only with forge_net: web_url) ---------- */
+
+#ifdef FORGE_HAVE_NET
 
 static void phone_back(lv_event_t *e)
 {
@@ -313,6 +320,7 @@ void settings_show_phone(void)
     settings_slider(scr_phone, 1, false);
     wait_release();
 }
+#endif
 
 static lv_obj_t *base_screen(void)
 {
@@ -335,6 +343,7 @@ static lv_obj_t *centred(lv_obj_t *parent, const lv_font_t *f, lv_color_t c, int
     return l;
 }
 
+#ifdef FORGE_HAVE_NET
 static void phone_create(void)
 {
     scr_phone = base_screen();
@@ -352,6 +361,7 @@ static void phone_create(void)
     lv_obj_align(ph_qr, LV_ALIGN_TOP_MID, 0, 100);
     ph_note = centred(scr_phone, O.font_small, C_DIM, 336, 300);
 }
+#endif
 
 /* ---------- creation ---------- */
 
@@ -416,7 +426,9 @@ lv_obj_t *settings_create(const settings_opts_t *opts, const settings_row_t *row
         lv_obj_add_event_cb(zone, bright_changed, LV_EVENT_PRESS_LOST, NULL);
     }
     lv_obj_add_event_cb(scr, gesture, LV_EVENT_GESTURE, NULL);
+#ifdef FORGE_HAVE_NET
     phone_create();
+#endif
     lv_timer_create(tick, 1000, NULL);
     settings_refresh();
     return scr;

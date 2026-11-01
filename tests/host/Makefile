@@ -11,7 +11,7 @@ OUT := build
 CFLAGS := -std=gnu11 -D_DEFAULT_SOURCE -g -O1 -Wall -Wno-unused-function -fsanitize=address,undefined \
           -fno-sanitize-recover=undefined -Ishim -I$(FORGE)/include -I$(MAIN) -include shim/host.h
 # test_testcon only once the firmware has the pure command table (testcon_registry.c)
-TESTS := utf8 version png i18n textfit pager presence map mapcache dlgate slideslots $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
+TESTS := utf8 version png i18n textfit pager presence map mapcache dlgate slideslots cfgcon $(if $(wildcard $(FORGE)/testcon_registry.c),testcon)
 
 all: $(TESTS:%=$(OUT)/test_%)
 	@set -e; for t in $(TESTS); do ./$(OUT)/test_$$t; done
@@ -37,6 +37,9 @@ $(OUT)/test_presence: test_presence.c $(PRES)/presence_sm.c $(PRES)/presence_jso
 	$(CC) $(CFLAGS) -I$(PRES)/include -I$(PRES) -I$(CJSON) -o $@ test_presence.c $(PRES)/presence_sm.c 	    $(PRES)/presence_json.c $(CJSON)/cJSON.c -lm
 $(OUT)/test_testcon: test_testcon.c $(FORGE)/testcon_registry.c $(FORGE)/include/testcon.h | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_testcon.c $(FORGE)/testcon_registry.c
+# forge_core's settings over the console (cfgcon.c, pure but for the app's name and version) and the command table
+$(OUT)/test_cfgcon: test_cfgcon.c $(FORGE)/cfgcon.c $(FORGE)/include/cfgcon.h $(FORGE)/testcon_registry.c | $(OUT)
+	$(CC) $(CFLAGS) -o $@ test_cfgcon.c $(FORGE)/cfgcon.c $(FORGE)/testcon_registry.c
 # forge_net's download slot: the bookkeeping (dl_gate.c); the waiting is net.c's and not compiled here
 NET := ../../components/forge_net
 $(OUT)/test_dlgate: test_dlgate.c $(NET)/dl_gate.c $(NET)/include/dl_gate.h | $(OUT)

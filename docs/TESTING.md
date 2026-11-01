@@ -127,6 +127,7 @@ python tools/harness/harness.py perf --update-baseline           # propose new r
 | `--update-baseline` | Write `tools/harness/baseline.proposed.json` (see below). |
 | `--phone` | Include steps only a person can do; the harness prints `>>> ASK THE USER` (relay it at once). |
 | `--ip`, `--minutes` | Override the IP from the log; log window to request (default 40 min). |
+| `--no-net` | A board without Wi-Fi (or `forge.json` `"no_net": true`): no IP, the network suites (web, update, wifi_runtime, wifi_setup, ota) never run (asked for, refused, as `--ip` and `--ota`), the boot check reads `diag: firmware` and `diag: running from ota_N`, screens come over USB (`shot`). |
 
 Suites. Generic ones live in `tools/harness/core_suites.py` and test the framework; each project adds its own in
 `tools/harness/app_suites.py`.
@@ -135,7 +136,8 @@ Suites. Generic ones live in `tools/harness/core_suites.py` and test the framewo
 |---|---|
 | `boot` | the start-up: no `E (` line, `ota: Running` / `App version` / the console agree, boot stage times; a crash kept from before is noted |
 | `console` | `help` lists the commands; an unknown command is refused; `wifi lowlat on\|off` switches Wi-Fi power save (`ps=`, `lowlat=`); `shot` sends a screen over USB that decodes to a picture |
-| `memory` | internal RAM and PSRAM free and low points, failed allocations, against `baseline.json` |
+| `memory` | internal RAM and PSRAM free and low points, failed allocations, against `baseline.json`; in an `--ota` run after 90 s of uptime (past the first update check), then two readings that agree |
+| `display` | `te`: the tear-free display: `display: TE <n> Hz on GPIO13` at start-up (50..70), `te` state=1 with a period of 14.5..18.5 ms and still pulsing 3 s later, two swipes then `fps` with pushes>0 and te_timeouts=0 (`forge.json` `"display_te": false` for a panel without TE) |
 | `screens` | each screen in `forge.json` `screens` snapshotted (size, not blank); `screens_not_shown` are prepared off-display |
 | `web` | the Playwright suite (`tools/webtest`), `GET /api/info`, the page whole; 403 for a POST over plain HTTP, 302 to the device itself, 401 without or with a wrong key, 415 for non-JSON, 421 for another Host |
 | `update` | an update check ends in "up to date" or "available" (network errors tolerated) |
@@ -143,7 +145,7 @@ Suites. Generic ones live in `tools/harness/core_suites.py` and test the framewo
 | `wifi_runtime` | network lost while running: retries go on; setup pauses them; back online |
 | `wifi_setup` | the PC joins the setup network like a phone (DNS answers every name, the captive-portal redirect, the page loads, `/api/info` without the home network's name or address), Easy Connect on its channel with the setup network held there; `--phone` for a real scan |
 | `ota` | (on request) the installed release is confirmed and nothing was rolled back |
-| `navigation`, `perf` | the starter app's: swipes between pages (quick ones too; `pages()` lists them, read from the device in an app whose page count varies), long-press to Settings, a moving press is no long press (the message screen), setup pages, fps and the drag's first frame against the baseline, the Settings list scrolled as pictures |
+| `navigation`, `perf` | the starter app's: swipes between pages (quick ones too; `pages()` lists them, read from the device in an app whose page count varies), long-press to Settings, a moving press is no long press (the message screen), setup pages, fps and the drag's first frame against the baseline (a swipe's worst gap is the move's own, from its `slide: drag:` line), the Settings list scrolled as pictures; the drag threshold (a move under `FORGE_SLIDE_DRAG_PX` stays a press), the drag hook called once per swipe, a long press that drops its touch (the finger moving on after Settings opened neither drags nor scrolls) |
 | *app suites* | whatever `app_suites.py` registers |
 
 Reports: `tools/harness/reports/<date>/report.md` (git-ignored) with `results.json`, screenshots and the log of each
@@ -187,7 +189,14 @@ AddressSanitizer and UBSan. forge_lvgl's `pager.c` builds against a fake of the 
 (`tests/host/lvfake/lvgl.h`, implemented in `test_pager.c`: objects, flags, a scroll range that skips hidden
 children); a new LVGL call in pager.c needs a line there. forge_net's download-slot bookkeeping (`dl_gate.c`) has
 `test_dlgate.c`; slide.c's slot choice (`slide_slots.c`) has `test_slide_slots.c`; forge_map's path overlay is in
-`test_map.c` and its flash cache (`map_cache.c` over a RAM-backed I/O table) in `test_map_cache.c`.
+`test_map.c` and its flash cache (`map_cache.c` over a RAM-backed I/O table) in `test_map_cache.c`; forge_core's settings
+over the console (`cfgcon.c`: fields, JSON escapes, set checks) in `test_cfgcon.c`.
+
+Other checks without a board: `node --test web/flash/config.test.js` (the flasher page's Configure over USB card:
+console parsing, the form from the schema, `cfg set` commands); `python examples/nonet/check_nonet.py
+examples/nonet/build` after `idf.py build` in `examples/nonet` (fails if forge_net, forge_ota, dns_server, esp_wifi or
+esp_https_server is in the no-Wi-Fi build; `node web/emu/forge/smoke.js examples/nonet/web/emu/build` tests its
+emulator); `tools/harness/test_components.py` (every component has an `idf_component.yml`, so an app can override it).
 
 ```bash
 wsl make -C tests/host      # IDF_PATH defaults to /mnt/c/Espressif/esp-idf (for cJSON)

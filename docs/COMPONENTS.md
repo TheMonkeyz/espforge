@@ -15,7 +15,9 @@ before using a function; the comments there say why things are done the way they
               └──► forge_core ◄──┘
 ```
 
-Not drawn: forge_presence and forge_map, which use forge_core and forge_net only (no LVGL, no board).
+Not drawn: forge_presence and forge_map, which use forge_core and forge_net only (no LVGL, no board). forge_lvgl
+needs only lvgl and forge_core (since v0.7.0); forge_presence and forge_settings take forge_net and forge_ota when the
+app has them ("No Wi-Fi" below).
 
 ## Start-up order (main/main.c)
 
@@ -40,8 +42,10 @@ Routes must be added before `web_start()`; console commands can be registered at
 | `diag.h` | `diag_start(period_s)`, `diag_mark(stage)`, `diag_failed_allocs()`, `diag_add_hook(fn)` for an extra line per period. Boot info, last crash from the core dump (then erased; the Xtensa backtrace, or on RISC-V the PC, RA, mcause and mtval), heap with worst largest block, per-task CPU and stack. Kconfig ("espforge core"): `FORGE_DIAG_TASK_STATS` (the per-task lines) and `FORGE_DIAG_PSRAM_LARGEST` (PSRAM's largest block in the heap line) each hold interrupts off for milliseconds on an ESP32-P4 with 32 MB, which its per-frame display interrupt cannot take (L201); `diag: stats cost` at start times both here. |
 | `forge_i18n.h` | Language core: `i18n_init(texts, count, langs, nlangs)` with the app's language list (`i18n_en`, `i18n_fr`, or its own `i18n_lang_t`: code, name, weekdays, months, date style EN or FR) and its `LANG_` enum in that order; `i18n_text(id)` (the first language's when missing or empty), `i18n_count`, `i18n_set/lang/code/name/from_code`, optional `i18n_load/save` (NVS `i18n/lang`), `tr_weekday`, `tr_date_long` ("Mercredi 1er octobre"), `tr_date_ymd`. |
 | `nvs_util.h` | `nvs_check(err, what)` (logs, returns success), `nvs_init()`. Don't grow a struct saved as a blob: add keys. |
-| `version.h` | `parse_ver`, `cmp_ver`: `vX.Y.Z-anything < -rc.N < vX.Y.Z < vX.Y.Z-N-gHASH`. Host-tested; CI mirrors it. |
-| `http_once.h` | `http_once(cfg, &status)`: init/perform/cleanup; NULL client = `ESP_ERR_NO_MEM`, not a crash. |
+| `version.h` | `parse_ver`, `cmp_ver`: `vX.Y.Z-anything < -rc.N < vX.Y.Z < vX.Y.Z-N-gHASH`; a git-describe build after an rc (`-rc.N-M-gHASH`) between rc.N and rc.N+1 (L216). Host-tested; CI mirrors it (tags only). |
+| `forge_image.h` | `forge_image_t`: an RGB565 picture (data, w, h, stride, priv) from `screens_snapshot()` for `/api/snapshot`; forge_net's `web_image_t` is the same type. |
+| `cfgcon.h` | Settings over the USB console: the app registers fields (`cfgcon_add`: key, English label, type text/bool/int/select/color/info, a getter, a setter that only applies and saves). Console `cfg` (one JSON line of values, with `app` and `version`), `cfg schema`, `cfg set KEY VALUE` (cfgcon checks range, step, options, length first; `%XX` escapes for texts). The flasher site's "Configure over USB" card builds its form from the schema, so a project without Wi-Fi or a settings page gets one with no page code. The starter registers language, update channel, dimming, brightness and its address. Pure parts host-tested (`test_cfgcon.c`). |
+| `http_once.h` | `http_once(cfg, &status)`: init/perform/cleanup; NULL client = `ESP_ERR_NO_MEM`, not a crash. forge_core does not require `esp_http_client` (a no-Wi-Fi build has none): a component that includes this requires it itself. |
 | `utf8.h` | `utf8_cut`, `utf8_copy`: never split a character. |
 | `png_rows.h` | PNG decode one row at a time with the ROM's inflate (~50 KB whatever the size): 8-bit grey, RGB, palette (+tRNS), grey+alpha, RGBA, and 1/2/4-bit grey and palette (OpenStreetMap's few-colour tiles); not 16-bit, not interlaced. |
 | `textfit.h` | Text from outside (network names, places...) without the characters the fonts lack (emoji): `textfit_init(ttf, len)` reads a TTF's cmap, `textfit_add()` a fallback font (a character counts if any font has it); `textfit(in, out, n)`. Pure C, host-tested. |
@@ -78,7 +82,7 @@ Kconfig: `FORGE_OTA_SITE` (the Pages URL, ending with `/`).
 | `forge_lvgl.h` | `forge_lvgl_init(lock, unlock)` (called by the board), `ui_lock/ui_unlock`, the simulated finger (`finger_inject`, `finger_injected` for the board's touch driver) and the console's `tap press swipe drag`. `lvgl_mem.c` puts LVGL's heap in PSRAM (small blocks fall back to internal RAM, counted; out of memory = restart). |
 | `screens.h` | Named screens: `screens_register(defs, n)` with `get / show / prepare / shown`; console `screen [name]`; `screens_snapshot` for `/api/snapshot`. Names = `forge.json` `screens`. |
 | `pager.h` | Full-screen pager: pages side by side (or stacked), `pager_switch` / `pager_go`; its drags are `slide.h`'s. `pager_set_count(pager, n)` shows only the first n of the pages created (the others are hidden, out of reach of swipes; `pager_page()` still gives them): build every page once, show as many as there is data for. `pager_set_order(pager, pages, n)` shows those pages in that order, the others hidden after them (a summary page that stays last after a varying list; keep page objects, not numbers: `pager_index()`). `pager_shown(pager, i)`: page i only if it is shown (slide.c's neighbours). A pager can sit on a page of another, across it (esp32-s3-rtcquebec: the stops in a column, in the middle of a row alerts | stops | map): `pager_on_view(pager)` says whether every pager page above it is the one shown. Host test: `tests/host/test_pager.c`. |
-| `slide.h` | Moves drawn as pictures copied to the panel (~66 fps, LVGL's own scrolling ~24): `slide_pager(pager)` takes over its drags (follow the finger, bounce at the ends, flick), `slide_change()` / `slide_to()` slide an in-place change or a screen load. `slide_tap_ok()`: false during a move and 600 ms after it (a quick swipe's next press can reach LVGL as a tap); a click handler on a pager page asks it first. With a pager on a page of another, a drag moves the pager on view along its axis (none that way: LVGL's, a list or a gesture). A shadow of the panel (every flush copied) plus the neighbours of the pagers on view kept ready (rendered when idle, refreshed every 2 s; `slide_stale()` when the app changed what they show): two fixed pictures (shadow, other) and up to four neighbours whose 434 KB buffers are allocated when a picture needs one and PSRAM has room (`SLIDE_PSRAM_RESERVE_KB` stays for the app): the starter's two pages take 1.7 MB in all. Which slot a picture takes follows MeteoBus's rules (`slide_slots.c`, host-tested: empty first, then an unwanted page, a wanted one only when worth less, a drag forces); `slide_release_unneeded()` frees the pictures of pages not wanted now, for a memory-hungry screen on top. `slide_held_still(px)`: the finger held is where it came down (a long-press handler asks it: LVGL fires LONG_PRESSED however far the finger moved when no scroll took over, L200; `SLIDE_HOLD_PX` 24). A vertical drag on a scrollable list with no pager that way (Settings) is drawn as pictures too (weather_amoled's `slide_scroll`): the rows moved within the shadow, the rows coming in rendered as a strip, only the list's rectangle sent through the panel's `raw_area` hook (LVGL's own scrolling: ~25 fps); `slide_screen_busy()` for long flash writes to wait on. Log: `slide: drag: first frame after N ms, ... gap max, held reads, finger still max, renders`. Needs the board's panel hooks (`forge_lvgl_set_panel`). |
+| `slide.h` | Moves drawn as pictures copied to the panel (~66 fps, LVGL's own scrolling ~24): `slide_pager(pager)` takes over its drags (follow the finger, bounce at the ends, flick), `slide_change()` / `slide_to()` slide an in-place change or a screen load. `slide_tap_ok()`: false during a move and 600 ms after it (a quick swipe's next press can reach LVGL as a tap); a click handler on a pager page asks it first. With a pager on a page of another, a drag moves the pager on view along its axis (none that way: LVGL's, a list or a gesture). A shadow of the panel (every flush copied) plus the neighbours of the pagers on view kept ready (rendered when idle, refreshed every 2 s; `slide_stale()` when the app changed what they show): two fixed pictures (shadow, other) and up to four neighbours whose 434 KB buffers are allocated when a picture needs one and PSRAM has room (`SLIDE_PSRAM_RESERVE_KB` stays for the app): the starter's two pages take 1.7 MB in all. Which slot a picture takes follows MeteoBus's rules (`slide_slots.c`, host-tested: empty first, then an unwanted page, a wanted one only when worth less, a drag forces); `slide_release_unneeded()` frees the pictures of pages not wanted now, for a memory-hungry screen on top. `slide_held_still(px)`: the finger held is where it came down (a long-press handler asks it: LVGL fires LONG_PRESSED however far the finger moved when no scroll took over, L200; `SLIDE_HOLD_PX` 24). A vertical drag on a scrollable list with no pager that way (Settings) is drawn as pictures too (weather_amoled's `slide_scroll`): the rows moved within the shadow, the rows coming in rendered as a strip, only the list's rectangle sent through the panel's `raw_area` hook (LVGL's own scrolling: ~25 fps); `slide_screen_busy()` for long flash writes to wait on. Log: `slide: drag: first frame after N ms, ... gap max, held reads, finger still max, renders`. Needs the board's panel hooks (`forge_lvgl_set_panel`). `slide_set_drag_hook(hook, user)`: called once per pager drag, from the touch read at the moment it is decided (LVGL sends the pressed object no PRESS_LOST then: an app that started something on PRESSED ends it there; flags and logs only). `slide_drop_touch()`: a long-press handler takes the touch now down: no pager drag, no list scroll, and LVGL waits for the release too (no scroll of its own, no CLICKED on the lift; PRESS_LOST then). The drag threshold is Kconfig `FORGE_SLIDE_DRAG_PX` (menu "espforge LVGL", 6..60, default 10; esp32-s3-colormesh 28); lists drawn as pictures still start after 10 px, LVGL's own scroll limit is 10 px past whichever applies. Console `slide` (thresholds; drags, scrolls, hook calls and dropped touches since boot) and `slide hold X Y MS X2 Y2 [MOVE_MS [END_MS]]` (a held finger that then moves). |
 
 ## forge_presence (screen dimming)
 
@@ -87,7 +91,7 @@ wakes it (weather_amoled's presence.c, through esp32-s3-rtcquebec v0.3.0). No bo
 takes the microphones (`mic_open`, `mic_read`: 100 ms windows of 16 kHz samples), the motion sensor, the touch's
 `touch_idle_ms`, `set_brightness` (with the display lock) and an optional `screen_off(bool)` (a real off once the fade
 down reached 0, the panel awake again before the fade up: the starter gives it the board's `display_sleep`) as
-`presence_hooks_t`; a NULL hook = that part missing (no microphones: always on; no `screen_off`: brightness 0 is "off"). `presence_web_routes()` adds `GET/POST /api/presence` and `POST /api/calibrate`
+`presence_hooks_t`; a NULL hook = that part missing (no microphones: always on; no `screen_off`: brightness 0 is "off"). `presence_web_routes()` (built only when forge_net is in the build) adds `GET/POST /api/presence` and `POST /api/calibrate`
 (PROTOCOL.md §4); console `presence [calibrate N]`, `wake`. Give `presence_touch` to the board as its press filter:
 the touch that wakes a dark screen does nothing else.
 
@@ -115,6 +119,10 @@ rows in sections that scroll, a brightness arc along the bottom (the finger's x 
 saved on release). It slides up from below; Done or a swipe right slides back to the screen it came from. Refreshed
 every second while shown, so a change made on the phone's page shows up.
 
+- forge_net and forge_ota are optional: linked only when the app has them (`idf_component_optional_requires`; the
+  sources see `FORGE_HAVE_NET` / `FORGE_HAVE_OTA`). Without forge_net: no phone page (no `LV_USE_QRCODE` needed), no
+  `settings_std_phone` / `_network` / `_ip` (a link error if listed); without forge_ota: no `settings_std_updates`, and
+  Restart restarts at once.
 - Rows (`settings_row_t`: kind, label, callbacks): a section title, a switch (the whole row toggles it), a value (a tap
   cycles it), an action (a tap does it), an info line. Ready-made ones, `settings_std_*`: dimming, wake on pick-up
   (only with a motion sensor), timing presets (forge_presence); language (`i18n_save`, then the app's `changed`); the
@@ -188,12 +196,36 @@ LVGL, bands filled while the previous one is sent), `touch_get()` / `touch_fresh
 `board_mic_open(gain_db)`, `board_mic_read`, `board_audio_data_if`; the speaker's direction only when asked,
 `board_audio_init(true)` before the microphones).
 
+Display (since v0.7.0, from esp32-s3-colormesh): LVGL draws in DIRECT mode into one whole 466x466 RGB565 frame in
+PSRAM (424 KB); each finished frame's dirty rows go to the panel in 32-line bands through the two internal DMA buffers,
+started on the panel's Tearing Effect pulse (GPIO13, ~59 Hz), or behind / ahead of the scan when the write cannot
+catch it ("chase"): each refresh shows one whole frame, no tearing. `display_raw_frame()` (moves) and top-down
+`display_raw_area()` start on TE too (areas always chase); an area sent bottom up (a list scrolled down) goes at once
+(L219), and areas are copied back into the frame, which always holds what the panel shows (L218). While the panel
+sleeps pushes don't wait for TE; after 3 pushes without a pulse they stop waiting until it comes back; the wake sends
+the frame without a re-render. The flush hook gets whole-width rows of the frame. Boot line `display: TE <n> Hz on
+GPIO13 (period .. ms, high .. ms)`; console `te [lvgl|raw|chase on|off] [log N]`; `fps` adds `pushes= push_avg_ms=
+push_max_ms= te_wait_avg_ms= te_wait_max_ms= te_lag_max_ms= te_timeouts= te_chased=`; a second `diag: display:` line
+and a 60 s `display: frames ...` summary. Moves are bound by the panel: 55 fps measured (59 at most).
+
 Rules kept in the code (see [LESSONS.md](LESSONS.md), Display and Touch): the SPI interrupt runs on the LVGL core;
 no esp_lcd call from outside LVGL while its last band is in flight (`display_brightness` waits); every touch report
 is acknowledged; 5 read errors in a row count as a release.
 
 A new board: copy the directory, keep the `board.h` API, change pins, panel init and touch driver, and point
 `EXTRA_COMPONENT_DIRS` in the root `CMakeLists.txt` at it ([NEW-PROJECT.md](NEW-PROJECT.md)).
+
+## No Wi-Fi (examples/nonet)
+
+An app with no Wi-Fi (Bluetooth LE only, like esp32-s3-colormesh) requires `board forge_core forge_lvgl forge_presence
+forge_settings` and not forge_net, forge_ota or dns_server (its `main/idf_component.yml` lists none of them). Start-up:
+`nvs_init()` (net_init does it in the Wi-Fi starter), `app_text_init()`, `diag_start(60)`, `board_init()`,
+`presence_start(&hooks)` and `touch_set_press_filter(presence_touch)`, `ui_init()` (Settings without the phone, Wi-Fi,
+updates, network and IP rows), `testcon_start()`, `diag_mark("app ready")`. No `web_*`, `presence_web_routes` or
+`ota_start`: there is no `ota: Running` line, so the harness reads diag's lines (`--no-net`, forge.json `no_net`).
+Nothing confirms a new image: leave out `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, or confirm it in the app.
+`examples/nonet` is the template (921 KB, 68 components); `examples/nonet/check_nonet.py` fails when forge_net,
+forge_ota, dns_server, esp_wifi or esp_https_server is in its build (CI job `nonet`). Settings over USB: `cfgcon.h`.
 
 ## The starter app (main/)
 
@@ -215,6 +247,10 @@ console). `main.c`'s `app_main()` runs unchanged, its Wi-Fi already joined. The 
 `index.html` (the page's words); `ui.c` has one `#ifdef EMU_BUILD` for its font. Audio, motion sensor or flash
 partitions an app uses are its own stand-ins in `web/emu`. Design, build and what an app adds:
 [web/emu/README.md](../web/emu/README.md). Published by CI on the flasher site as `try/`.
+
+`USE_NET := 0` in an app's `web/emu/Makefile` builds it without forge_net and forge_ota (no `svc.c`, `ota_web.c`,
+`presence_web.c`, `emu_net.c`, `emu_web.c`, no settings page beside the screen; smoke.js skips the page's checks);
+default 1. `examples/nonet/web/emu` is built that way.
 
 Keep components buildable there: a call to the radio, the flash or a driver belongs behind the component's own
 functions (stubbed in `forge/emu_stubs.c`), not in code the screens run.

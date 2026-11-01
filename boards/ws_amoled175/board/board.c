@@ -17,6 +17,7 @@ void touch_init(void);
 void touch_register_lvgl(void);
 void display_get_test_stats(display_stats_t *out, bool reset);
 int display_lvgl_inflight(void);
+void display_register_cmds(void);
 extern volatile int disp_phase;
 
 // "fps reset", then "fps": frames since the reset (the harness measures animations this way)
@@ -26,11 +27,16 @@ static void cmd_fps(int argc, char **argv)
     display_get_test_stats(&d, true);
     if (argc == 2 && !strcmp(argv[1], "reset")) { ESP_LOGI("test", "ok fps reset"); return; }
     ESP_LOGI("test", "fps frames=%lu render_avg_ms=%.1f render_max_ms=%.1f anim_frames=%lu anim_fps=%.1f "
-                     "gap_max_ms=%.1f gap_max_at_ms=%lu gap_max_kind=%s mpx=%.2f", (unsigned long)d.frames,
-             d.frames ? d.render_us / 1000.0f / d.frames : 0, d.render_max_us / 1000.0f,
+                     "gap_max_ms=%.1f gap_max_at_ms=%lu gap_max_kind=%s mpx=%.2f pushes=%lu push_avg_ms=%.1f "
+                     "push_max_ms=%.1f te_wait_avg_ms=%.1f te_wait_max_ms=%.1f te_lag_max_ms=%.2f te_timeouts=%lu "
+                     "te_chased=%lu",
+             (unsigned long)d.frames, d.frames ? d.render_us / 1000.0f / d.frames : 0, d.render_max_us / 1000.0f,
              (unsigned long)d.anim_frames, d.anim_us ? d.anim_frames * 1e6f / d.anim_us : 0,
              d.anim_gap_max_us / 1000.0f, (unsigned long)d.anim_gap_max_at_ms,
-             d.anim_gap_max_kind[0] ? d.anim_gap_max_kind : "-", d.pixels / 1e6f);
+             d.anim_gap_max_kind[0] ? d.anim_gap_max_kind : "-", d.pixels / 1e6f, (unsigned long)d.pushes,
+             d.pushes ? d.push_us / 1000.0f / d.pushes : 0, d.push_max_us / 1000.0f,
+             d.pushes ? d.te_wait_us / 1000.0f / d.pushes : 0, d.te_wait_max_us / 1000.0f, d.te_lag_max_us / 1000.0f,
+             (unsigned long)d.te_timeouts, (unsigned long)d.te_chased);
 }
 
 // "power": the panel's state and display.c's "screen" lock (held: 240 MHz even when idle; free: an idle core may drop
@@ -60,6 +66,10 @@ static void diag_display(void)
              d.pixels / 1e6, d.anim_us ? d.anim_frames * 1e6 / d.anim_us : 0, (unsigned long)d.anim_frames,
              d.anim_gap_max_us / 1000.0, d.lvgl_wait_max_us / 1000.0, d.hold_max_us / 1000.0,
              d.hold_task[0] ? d.hold_task : "-");
+    ESP_LOGI("diag", "display: %lu pushes, push avg %.1f ms max %.1f ms, TE wait avg %.1f ms max %.1f ms, "
+             "TE timeouts %lu", (unsigned long)d.pushes, d.pushes ? d.push_us / 1000.0 / d.pushes : 0,
+             d.push_max_us / 1000.0, d.pushes ? d.te_wait_us / 1000.0 / d.pushes : 0, d.te_wait_max_us / 1000.0,
+             (unsigned long)d.te_timeouts);
 }
 
 // Direct panel and touch access for forge_lvgl's moves drawn as pictures (slide.h)
@@ -92,6 +102,7 @@ void board_init(void)
     forge_lvgl_set_panel(&panel);
     testcon_register("fps", "fps [reset]", cmd_fps);
     testcon_register("power", "power", cmd_power);
+    display_register_cmds();
     testcon_add_where(where_display);
     diag_add_hook(diag_display);
 }

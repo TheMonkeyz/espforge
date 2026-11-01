@@ -26,6 +26,10 @@ int main(void)
         { "v1.12.0-3-g1a2b3c4", "v1.12.0", 1 }, // git describe after a release: a dev build above it
         { "v1.12.0-3-g1a2b3c4", "v1.12.1-rc.1", -1 },
         { "v1.12.0-dirty", "v1.12.0-rc.1", -1 },// "-dirty" is just another suffix
+        { "v0.4.0-rc.1-1-gsigned", "v0.4.0-rc.1", 1 },   // git describe after an rc: above it (ColorMesh v0.4.0)...
+        { "v0.4.0-rc.1-1-gsigned", "v0.4.0-rc.2", -1 },  // ...below the next rc
+        { "v0.4.0-rc.1-3-gabc", "v0.4.0-rc.1-2-gdef", 1 },// by commits after the tag
+        { "v0.4.0-rc.1-1-gabc", "v0.4.0", -1 },          // and below the release
         { "1.12.0", "v1.12.0", 0 },             // the v is optional
     };
     for (unsigned i = 0; i < sizeof(pairs) / sizeof(pairs[0]); i++)

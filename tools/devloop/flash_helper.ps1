@@ -2,7 +2,9 @@
 # (docs/PROTOCOL.md section 1). Two ways to run it: in its own window (start_flash_helper.bat; close the window to stop
 # it), or windowless in the background, started by Claude Code with run_in_background so nothing opens on the user's
 # screen (stop it by stopping that task; Q / Esc need a window, use stop.request).
-#   flash.request   (body: log seconds, default 60) flash the parts staged in .devloop\stage, then log the serial port
+#   flash.request   (body: log seconds, default 60) flash the parts staged in .devloop\stage, then log the serial port;
+#                   once the test console answers, one more restart through it so the log is the whole boot
+#                   (esptool's reset loses its first ~3 s; forge.json "flash_restart": false turns it off)
 #   reboot.request  same without flashing: restart through the test console's `reboot` with the port kept open (the
 #                   boot log is whole), else esptool's hard reset; then log (re-runs the boot diagnostics)
 #   stop.request    end the log window early (or press Q / Esc in the window, when it has one)
@@ -37,6 +39,7 @@ $Chip = Get-Cfg "chip" "esp32s3"
 $Baud = Get-Cfg "baud" 460800
 $CfgPort = Get-Cfg "port" ""
 $BuildDir = Join-Path $Root ((Get-Cfg "build_dir" "build") -replace '/', '\')
+$FlashRestart = (Get-Cfg "flash_restart" $true) -ne $false   # restart through the console after a flash (monitor.ps1)
 
 function Stamp { Get-Date -Format "HH:mm:ss" }
 function Say($msg, $color = "Gray") {
@@ -76,12 +79,14 @@ function Find-BoardPort {
   return $null
 }
 
-# Logs the port for $secs s (monitor.ps1); -Reboot restarts through the test console first. Returns its exit code:
-# 2 = stopped early, 3 = no restart through the console
-function Run-Monitor($port, $secs, [switch]$Reboot) {
+# Logs the port for $secs s (monitor.ps1); -Reboot restarts through the test console first, -AfterFlash once the
+# console answers after a flash. Returns its exit code: 2 = stopped early, 3 = no restart through the console;
+# -AfterFlash adds 10 when it restarted the board
+function Run-Monitor($port, $secs, [switch]$Reboot, [switch]$AfterFlash) {
   $a = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "monitor.ps1"), "-Port", $port,
          "-Seconds", $secs)
   if ($Reboot) { $a += "-Reboot" }
+  if ($AfterFlash) { $a += "-AfterFlash" }
   & powershell @a | Out-Null
   return $LASTEXITCODE
 }
@@ -157,6 +162,7 @@ while ($true) {
   # esptool's hard reset re-enumerates the USB and the first ~2.5 s of boot log are lost (L154); a software restart
   # with the port open keeps them (L191). esptool only when no boot follows (no console, a hung board).
   $consoleReboot = $false
+  $flashRestarted = $false   # a flash's boot restarted through the console (monitor.ps1 -AfterFlash)
   $monExit = 0
   if ($reboot) {
     $port = Find-BoardPort
@@ -226,10 +232,20 @@ while ($true) {
   [console]::beep(1000, 150)
 
   # ---- serial log ----
-  Status "logging"
+  # After a flash the port is back ~3 s into the boot (L154): monitor.ps1 -AfterFlash restarts through the test
+  # console once it answers, so the log is whole (L191), and says "logging" itself once it holds that boot
+  $afterFlash = (-not $reboot) -and $FlashRestart
+  if (-not $afterFlash) { Status "logging" }
   Title "ESP flash helper - logging serial ($secs s)"
   Say "Logging serial output for $secs s (saved to .devloop\serial_log.txt). Press Q or Esc to stop early ..."
-  $monExit = Run-Monitor $port $secs
+  if ($afterFlash) { Say "  (restarting once more through the test console when it answers: the boot log is whole)" }
+  $monExit = Run-Monitor $port $secs -AfterFlash:$afterFlash
+  if ($monExit -ge 10) {
+    $flashRestarted = $true; $monExit -= 10
+    Say "Restarted through the test console after the flash (the boot log is kept from its first line)"
+  } elseif ($afterFlash) {
+    Say "No restart through the test console after the flash: the log starts ~3 s into the boot (L154)" "Yellow"
+  }
   }   # (not a console restart)
   $flashSecs = if ($consoleReboot) { 0 } else { $flashSecs }
   $early = if ($monExit -eq 2) { 1 } else { 0 }
@@ -241,7 +257,7 @@ while ($true) {
   $warns = @($log | Where-Object { $_ -match '^W \(' }).Count
   # the unexpected ones: not the restart asked for (an esptool reset's own boot is lost, L154)
   $resets = @($log | Where-Object { $_ -match 'rst:0x' }).Count
-  if ($consoleReboot -and $resets -gt 0) { $resets-- }
+  if (($consoleReboot -or $flashRestarted) -and $resets -gt 0) { $resets-- }
   $color = if ($errs -gt 0 -or $resets -gt 0) { "Yellow" } else { "Green" }
   Say ("Serial log saved: {0} lines, {1} errors, {2} warnings, {3} resets" -f $log.Count, $errs, $warns, $resets) $color
   $total = [int]((Get-Date) - $start).TotalSeconds

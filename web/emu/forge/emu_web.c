@@ -36,16 +36,6 @@ bool web_from_setup_ap(httpd_req_t *req) { (void)req; return false; }
 const uint8_t index_html_start[] asm("_binary_index_html_start") = "";
 const uint8_t index_html_end[] asm("_binary_index_html_end") = "";
 
-const esp_app_desc_t *esp_app_get_description(void)
-{
-    static esp_app_desc_t d;
-    if (!d.version[0]) {
-        snprintf(d.version, sizeof(d.version), "%s", EMU_VERSION);
-        snprintf(d.project_name, sizeof(d.project_name), "%s", EMU_APP);
-    }
-    return &d;
-}
-
 esp_err_t httpd_resp_sendstr(httpd_req_t *req, const char *s)
 {
     free(req->reply);

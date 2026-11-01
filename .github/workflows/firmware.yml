@@ -111,6 +111,23 @@ jobs:
           name: firmware-${{ steps.ver.outputs.version }}
           path: dist/
 
+  nonet:
+    # The no-Wi-Fi starter (examples/nonet): builds without forge_net, forge_ota, dns_server, esp_wifi, esp_https_server
+    needs: config
+    if: github.event_name != 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Build examples/nonet (ESP-IDF ${{ needs.config.outputs.idf }})
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d  # v1
+        with:
+          esp_idf_version: ${{ needs.config.outputs.idf }}
+          target: ${{ needs.config.outputs.chip }}
+          path: "examples/nonet"
+          command: idf.py build
+      - name: No Wi-Fi in the build (check_nonet.py)
+        run: python3 examples/nonet/check_nonet.py examples/nonet/build
+
   webtest:
     # The settings page (main/web/index.html) in Playwright against the mock device: no board needed
     runs-on: ubuntu-24.04
@@ -119,6 +136,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: "22"
+      - name: Flasher page unit tests (web/flash/config.js, the "Configure over USB" card)
+        run: node --test web/flash/config.test.js
       - name: Playwright tests
         working-directory: tools/webtest
         run: |
@@ -208,6 +227,12 @@ jobs:
           if [ ! -f web/emu/forge/smoke.js ]; then echo "no smoke test in this release"; exit 0; fi
           cd tools/webtest && npm ci && npx playwright install --with-deps chromium
           node ../../web/emu/forge/smoke.js ../../web/emu/build ../../emu-smoke
+      - name: The no-Wi-Fi emulator (examples/nonet, USE_NET := 0), built and smoke-tested
+        run: |
+          if [ ! -f examples/nonet/web/emu/Makefile ]; then echo "no examples/nonet in this release"; exit 0; fi
+          source "$HOME/emsdk/emsdk_env.sh"
+          make -C examples/nonet/web/emu -j4 LVGL="$PWD/lvgl" CJSON="$PWD/cjson"
+          cd tools/webtest && node ../../web/emu/forge/smoke.js ../../examples/nonet/web/emu/build ../../emu-smoke/nonet
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         if: always()
         with:
@@ -220,7 +245,7 @@ jobs:
           path: emu/
 
   release:
-    needs: [config, build, webtest, host-tests]
+    needs: [config, build, nonet, webtest, host-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:

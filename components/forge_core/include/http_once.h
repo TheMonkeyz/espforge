@@ -1,4 +1,6 @@
 #pragma once
+// Needs esp_http_client in the REQUIRES of the component that includes it: forge_core doesn't require it (an app with
+// no Wi-Fi has no HTTP client), the header is here so every component and app finds it.
 #include "esp_http_client.h"
 
 // One request on its own connection: the client is created, performed and cleaned up. esp_http_client_init() returns

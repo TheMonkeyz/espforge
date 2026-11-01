@@ -1,0 +1,3 @@
+# espforge's dns_server. The component manager lets an app's local components/dns_server override the managed copy (a git
+# dependency at a tag) only when the component has a manifest, so every espforge component carries one.
+dependencies: {}

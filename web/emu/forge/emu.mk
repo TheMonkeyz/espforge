@@ -5,7 +5,7 @@
 #   APP_EMU    the app's own emulator files in web/emu (emu_main.c, any stand-in of its own hardware)
 #   EMBED      the files main/CMakeLists.txt embeds that the app reads as arrays: name=path (name_start, name_end)
 # and may add to: FORGE_CORE FORGE_LVGL FORGE_NET FORGE_OTA FORGE_PRESENCE (the framework's files to build, += before the include), APP_CFLAGS,
-# USE_MAP := 1 (forge_map), USE_SETTINGS := 1 (forge_settings),
+# USE_MAP := 1 (forge_map), USE_SETTINGS := 1 (forge_settings), USE_NET := 0 (an app with no Wi-Fi: below),
 # APP_EXPORTS (more C functions the page calls, e.g. ,_emu_mic), BOARD (the board's include folder), COMP.
 #   make            # in WSL, after `source ~/emsdk/emsdk_env.sh`: build/ (serve it over HTTP)
 #   make config     # lv_kconfig.h and sdkconfig.h from the firmware's sdkconfig, after changing its options
@@ -38,14 +38,30 @@ endif
 
 # The framework's files every app needs, plus the ones the app's Makefile lists before the include
 # (FORGE_CORE += png_rows.c ...): with `?=` an app's `+=` replaced the list instead of adding to it
-FORGE_CORE := i18n.c i18n_nvs.c textfit.c testcon_registry.c $(filter-out i18n.c i18n_nvs.c textfit.c testcon_registry.c,$(FORGE_CORE))
+FORGE_CORE := i18n.c i18n_nvs.c textfit.c testcon_registry.c cfgcon.c $(filter-out i18n.c i18n_nvs.c textfit.c testcon_registry.c cfgcon.c,$(FORGE_CORE))
 FORGE_LVGL := forge_lvgl.c pager.c slide.c screens.c $(filter-out forge_lvgl.c pager.c slide.c screens.c,$(FORGE_LVGL)) slide_slots.c
+# forge_presence: the real presence.c (its task, its settings in NVS, its console commands) with its pure half (and,
+# with forge_net, its routes); the board's microphones and motion sensor answer "not there" (emu_stubs.c), so the
+# screen stays on
+FORGE_PRESENCE := presence.c presence_sm.c presence_json.c \
+                  $(filter-out presence.c presence_sm.c presence_json.c presence_web.c,$(FORGE_PRESENCE))
+# USE_NET := 0 before the include: an app with no Wi-Fi, built without forge_net and forge_ota (examples/nonet,
+# esp32-s3-colormesh). No svc.c, ota_web.c, presence_web.c, no Wi-Fi / updates / web server stand-ins (emu_net.c,
+# emu_web.c), no settings page beside the screen (settings.html from main/web/index.html, emu-settings.js), and
+# forge_settings without its phone, network and updates rows, as the firmware's CMake builds it (FORGE_HAVE_NET,
+# FORGE_HAVE_OTA). Default 1: the Wi-Fi starter's emulator, unchanged.
+USE_NET ?= 1
+ifneq ($(USE_NET),0)
 FORGE_NET := svc.c $(filter-out svc.c,$(FORGE_NET))
 FORGE_OTA := ota_web.c $(filter-out ota_web.c,$(FORGE_OTA))
-# forge_presence: the real presence.c (its task, its settings in NVS, its console commands) with its pure half and its
-# routes; the board's microphones and motion sensor answer "not there" (emu_stubs.c), so the screen stays on
-FORGE_PRESENCE := presence.c presence_sm.c presence_json.c presence_web.c \
-                  $(filter-out presence.c presence_sm.c presence_json.c presence_web.c,$(FORGE_PRESENCE))
+FORGE_PRESENCE += presence_web.c
+NET_CFLAGS := -DEMU_NET=1 -DFORGE_HAVE_NET=1 -DFORGE_HAVE_OTA=1
+EMU_NET := emu_net.c emu_web.c
+PAGE_NET := $(OUT)/settings.html $(OUT)/emu-settings.js
+else
+FORGE_NET :=
+FORGE_OTA :=
+endif
 # forge_map, for an app with a street map (USE_MAP := 1 before the include): all of it (its task, downloads as fetch()),
 # with png_rows.c and miniz
 ifneq ($(USE_MAP),)
@@ -56,7 +72,7 @@ endif
 ifneq ($(USE_SETTINGS),)
 FORGE_SETTINGS := settings.c settings_std.c
 endif
-EMU := emu_loop.c emu_display.c emu_touch.c emu_http.c emu_nvs.c emu_stubs.c emu_tasks.c emu_web.c emu_time.c
+EMU := emu_loop.c emu_display.c emu_touch.c emu_http.c emu_nvs.c emu_stubs.c emu_tasks.c emu_time.c $(EMU_NET)
 LV_SRC := $(shell find $(LVGL)/src -name '*.c' 2>/dev/null)
 # png_rows.c inflates with tinfl, in the ESP32-S3's ROM: here miniz 3.0.2's (MIT, as tests/host), downloaded once, only
 # when the app builds png_rows.c (FORGE_CORE += png_rows.c: map tiles, pictures)
@@ -67,7 +83,7 @@ CFLAGS := -O2 -DEMU_BUILD '-DEMU_VERSION="$(VERSION)"' '-DEMU_APP="$(APP)"' -I. 
           -I$(MAIN) -I$(COMP)/forge_core/include -I$(COMP)/forge_lvgl/include -I$(COMP)/forge_net/include \
           -I$(COMP)/forge_ota/include -I$(COMP)/forge_presence/include -I$(COMP)/forge_presence -I$(COMP)/forge_map/include -I$(COMP)/forge_settings/include -I$(BOARD) -I$(LVGL) -I$(LVGL)/src -I$(CJSON) $(if $(USE_MINIZ),-I$(MINIZ)) \
           -include string.h -include stdint.h '-DLV_CONF_KCONFIG_EXTERNAL_INCLUDE="lv_kconfig.h"' \
-          -DLV_LVGL_H_INCLUDE_SIMPLE -Wno-unused-parameter $(APP_CFLAGS)
+          -DLV_LVGL_H_INCLUDE_SIMPLE -Wno-unused-parameter $(NET_CFLAGS) $(APP_CFLAGS)
 # Header dependencies of our own files (LVGL and cJSON are fixed versions: tracking their 400 files costs minutes
 # over /mnt/c); after a change in LVGL's options, make clean
 DEP := -MMD -MP
@@ -84,9 +100,12 @@ OBJ := $(patsubst %.c,$(OUT)/fw/%.o,$(APP_SRC)) $(patsubst %.c,$(OUT)/app/%.o,$(
        $(patsubst %.c,$(OUT)/forge_presence/%.o,$(FORGE_PRESENCE)) $(patsubst %.c,$(OUT)/forge_map/%.o,$(FORGE_MAP)) \
        $(patsubst %.c,$(OUT)/forge_settings/%.o,$(FORGE_SETTINGS)) $(patsubst %.c,$(OUT)/emu/%.o,$(EMU)) $(patsubst $(LVGL)/%.c,$(OUT)/lvgl/%.o,$(LV_SRC)) \
        $(OUT)/cjson/cJSON.o $(if $(EMBED),$(OUT)/emu/embed.o) $(if $(USE_MINIZ),$(OUT)/miniz/miniz.o)
-# The page uses the flasher site's fonts (../fonts/, from main/); served alone, build/ is the site's root: a copy there
-PAGE_FONTS := $(foreach e,$(filter %.ttf,$(EMBED)),$(OUT)/fonts/$(notdir $(word 2,$(subst =, ,$(e)))))
-PAGE := $(OUT)/index.html $(OUT)/settings.html $(OUT)/emu-page.js $(OUT)/emu-settings.js $(PAGE_FONTS)
+# The page uses the flasher site's fonts (../fonts/, the ones main/ embeds); served alone, build/ is the site's root: a
+# copy there, from wherever EMBED takes them (examples/nonet: the Wi-Fi starter's main/)
+EMBED_TTF := $(foreach e,$(filter %.ttf,$(EMBED)),$(word 2,$(subst =, ,$(e))))
+PAGE_FONTS := $(addprefix $(OUT)/fonts/,$(notdir $(EMBED_TTF)))
+vpath %.ttf $(sort $(dir $(EMBED_TTF)))
+PAGE := $(OUT)/index.html $(OUT)/emu-page.js $(PAGE_NET) $(PAGE_FONTS)
 
 all: $(OUT)/emu.js $(PAGE)
 
@@ -97,7 +116,7 @@ $(OUT)/emu.js: $(OBJ)
 $(OUT)/index.html: index.html
 	@mkdir -p $(OUT)
 	cp $< $@
-$(OUT)/fonts/%.ttf: $(MAIN)/%.ttf
+$(OUT)/fonts/%.ttf: %.ttf
 	@mkdir -p $(dir $@)
 	cp $< $@
 $(OUT)/emu-page.js: $(FORGE_EMU)/emu-page.js

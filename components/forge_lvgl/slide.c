@@ -137,8 +137,11 @@ static int animate(frame_t *f, int to, int ms)
  * While a move runs, LVGL is paused and never sees the finger lift. The touch that started it was told to wait for its
  * release (lv_indev_wait_release), so LVGL took the next touch for the same one: quick successive swipes were missed.
  * After the move: LVGL starts afresh, and a finger already down counts as a new press. */
-// The press read_hook is tracking (a pager drag in the making); p0 where it came down, p where it is
-static struct { bool down, armed; lv_point_t p0, p; lv_obj_t *pager; int64_t t0; } track;
+// The press read_hook is tracking (a pager drag in the making); p0 where it came down, p where it is. dropped: the app
+// took this touch (slide_drop_touch), nothing of it is ours until the finger lifts.
+static struct { bool down, armed, dropped; lv_point_t p0, p; lv_obj_t *pager; int64_t t0; } track;
+// Since boot, for the test console's "slide": pager drags started, drag hook calls, touches dropped, list scrolls
+static volatile uint32_t n_drags, n_hooked, n_dropped, n_scrolls;
 
 bool slide_held_still(int max_px)
 {
@@ -193,7 +196,23 @@ static int finger(int *x, int *y, int *errs)
 /* ---------- pager drags ---------- */
 
 #define MAX_PAGERS 6
-#define DRAG_PX 10                      // decided after 10 px, by the larger axis (as LVGL picks a scroll direction)
+// A press becomes a pager drag after DRAG_PX, by the larger axis (as LVGL picks a scroll direction). Kconfig
+// FORGE_SLIDE_DRAG_PX ("espforge LVGL"): 10 as LVGL's own; esp32-s3-colormesh takes 28 (a tap or a hold with a slight
+// finger move became a swipe). The fallback: an emulator sdkconfig.h generated before the option (gen_config.py).
+#ifdef CONFIG_FORGE_SLIDE_DRAG_PX
+#define DRAG_PX CONFIG_FORGE_SLIDE_DRAG_PX
+#else
+#define DRAG_PX 10
+#endif
+// A list scroll (no pager along the finger's axis) is decided sooner: lists keep LVGL's 10 px whatever the pagers take
+// (at 28 a list would lag the finger by 28 px: scroll_run follows from where it was decided). A finger that may still
+// become a drag of a pager across waits for DRAG_PX (read_hook).
+#define SCROLL_PX (DRAG_PX < 10 ? DRAG_PX : 10)
+// LVGL's own scroll starts this far past ours (L99: deciding after LVGL gave quick flicks to its slow scroll).
+// read_hook sees each read before LVGL does, so any margin keeps ours first; 10 keeps LVGL at 20 px with the default.
+// Set per press: past DRAG_PX where a pager is on view, else past SCROLL_PX (a list LVGL scrolls itself, a horizontal
+// one or on a board without raw_area, keeps 20 px instead of 2 x 28 = 56 on a screen without a pager).
+#define LVGL_MARGIN_PX 10
 static lv_obj_t *pagers[MAX_PAGERS];
 static int npagers;
 static struct { bool queued, vertical; lv_obj_t *pager; int x0, y0, x1, y1; } drag;
@@ -203,6 +222,24 @@ static lv_obj_t *slide_scroll_target(lv_obj_t *scr, int x, int y);
 static bool slide_scroll(lv_obj_t *list, int y0, int64_t t0, int y1);
 
 bool slide_busy(void) { return drag.queued || chg.queued || scroll.queued; }
+
+static slide_drag_hook_t drag_hook;                         // slide_set_drag_hook
+static void *drag_hook_user;
+void slide_set_drag_hook(slide_drag_hook_t hook, void *user) { drag_hook = hook; drag_hook_user = user; }
+
+void slide_drop_touch(void)
+{
+    if (!track.down || track.dropped) return;              // no touch, or this one already dropped
+    track.armed = false;                                   // no pager drag, no list scroll from it
+    track.dropped = true;
+    n_dropped++;
+    // LVGL lets go of it too: no scroll of a list under the finger at its own limit, no CLICKED when the finger lifts
+    // (a long press's release is a CLICKED, only SHORT_CLICKED is left out); the pressed object gets PRESS_LOST then
+    lv_indev_t *in = lv_indev_active();
+    if (!in) in = lv_indev_get_next(NULL);
+    if (in) lv_indev_wait_release(in);
+    ESP_LOGI(TAG, "touch dropped: the app took it, ignored until the finger lifts");
+}
 
 static uint32_t moved_ms;                                   // lv_tick when the last move ended (slide_tap_ok)
 bool slide_tap_ok(void) { return !slide_busy() && (!moved_ms || lv_tick_elaps(moved_ms) >= SLIDE_TAP_GUARD_MS); }
@@ -445,9 +482,9 @@ static lv_obj_t *pager_for(lv_obj_t *scr, bool vertical)
     return best;
 }
 
-// Each touch read, before LVGL handles it: a press on a screen with a slide pager on view that moves 10 px becomes a
+// Each touch read, before LVGL handles it: a press on a screen with a slide pager on view that moves DRAG_PX becomes a
 // drag of the pager on view along that axis (with a pager on a page of another, each axis has its own); with none that
-// way it stays LVGL's (a list scrolling, a gesture)
+// way, a list under the finger after SCROLL_PX (drawn as pictures), else it stays LVGL's (its scrolling, a gesture)
 static void read_hook(lv_indev_t *in, lv_indev_data_t *data)
 {
     if (data->state != LV_INDEV_STATE_PRESSED) { track.down = false; return; }
@@ -455,29 +492,45 @@ static void read_hook(lv_indev_t *in, lv_indev_data_t *data)
     track.p = data->point;
     if (!track.down) {                                     // a new press: may become a drag
         lv_obj_t *on[MAX_PAGERS];
+        int n = pagers_on_view(lv_screen_active(), on);
         track.down = true;
-        track.armed = !slide_busy() && (pagers_on_view(lv_screen_active(), on) > 0 || (P && P->raw_area));
+        track.dropped = false;
+        track.armed = !slide_busy() && (n > 0 || (P && P->raw_area));
         track.p0 = data->point;
         track.t0 = esp_timer_get_time();
+        lv_indev_set_scroll_limit(in, (n ? DRAG_PX : SCROLL_PX) + LVGL_MARGIN_PX);   // LVGL's after ours
         return;
     }
     if (!track.armed) return;
-    int dx = data->point.x - track.p0.x, dy = data->point.y - track.p0.y;
-    if (abs(dx) < DRAG_PX && abs(dy) < DRAG_PX) return;
-    track.armed = false;
-    bool vertical = abs(dy) > abs(dx);
-    track.pager = pager_for(lv_screen_active(), vertical);
+    int dx = abs(data->point.x - track.p0.x), dy = abs(data->point.y - track.p0.y), moved = dx > dy ? dx : dy;
+    if (moved < SCROLL_PX) return;
+    bool vertical = dy > dx;
+    lv_obj_t *scr = lv_screen_active();
+    track.pager = pager_for(scr, vertical);
     if (!track.pager) {                                    // no pager that way: a list under the finger, as pictures
         if (vertical && P->raw_area && ready() && !slide_busy()) {
-            lv_obj_t *list = slide_scroll_target(lv_screen_active(), track.p0.x, track.p0.y);
-            if (list && slide_scroll(list, track.p0.y, track.t0, data->point.y)) lv_indev_wait_release(in);
+            lv_obj_t *list = slide_scroll_target(scr, track.p0.x, track.p0.y);
+            if (list && slide_scroll(list, track.p0.y, track.t0, data->point.y)) {
+                track.armed = false;
+                n_scrolls++;
+                lv_indev_wait_release(in);
+                return;
+            }
         }
+        if (moved < DRAG_PX && pager_for(scr, !vertical)) return;   // may still turn into a drag across
+        track.armed = false;
         return;                                            // else LVGL's (a gesture)
     }
+    if (moved < DRAG_PX) return;                           // a pager that way: decided at DRAG_PX
+    track.armed = false;
     if (!ready() || slide_busy()) return;
     drag = (typeof(drag)){ true, vertical, track.pager, track.p0.x, track.p0.y, data->point.x, data->point.y };
     lv_async_call(drag_run, NULL);                         // at the top of the LVGL task (stack for the render)
     lv_indev_wait_release(in);                             // the drag owns this touch: LVGL ignores it from now on
+    n_drags++;
+    // LVGL sends the pressed object no PRESS_LOST (wait_release, then touch_resync's reset after the move): the app
+    // learns here that its press became a drag (esp32-s3-colormesh's "hold", which stayed on for the whole swipe)
+    if (drag_hook) { n_hooked++; drag_hook(track.pager, drag_hook_user); }
 }
 
 void slide_pager(lv_obj_t *pager)
@@ -675,13 +728,13 @@ static void scroll_run(void *unused)
     int ref_y = scroll.y1, ref_pos = s.shown, pos = s.shown, fy = scroll.y1, errs = 0, moved = 0;
     float fpos = pos, v = 0;
     struct { int64_t t; int p; } smp[8];                 // finger samples (time, position) for the flick speed:
-    smp[0].t = scroll.t0;                                // the press and the 10 px that made it a scroll come first
+    smp[0].t = scroll.t0;                                // the press and the SCROLL_PX that made it a scroll come first
     smp[0].p = ref_pos + (scroll.y1 - scroll.y0);        // (a flick can be over by now)
     smp[1].t = scroll.t1;
     smp[1].p = ref_pos;
     int ns = 2;
     bool down = true;
-    // A touch while coasting stops the list; it moves again only once the finger has moved 10 px (a new touch is
+    // A touch while coasting stops the list; it moves again only once the finger has moved SCROLL_PX (a new touch is
     // decided). maybe_up: coasting on an "up" not confirmed yet.
     bool deciding = false, maybe_up = false;
     int lifts = 0, touches = 0, read_errs = 0;
@@ -697,10 +750,10 @@ static void scroll_run(void *unused)
             last_read = now;
         } else last_read = 0;
         if (down && deciding && r != 0) {
-            if (r < 0 || (abs(x - tx0) < 10 && abs(y - ty0) < 10)) { vTaskDelay(1); continue; }
+            if (r < 0 || (abs(x - tx0) < SCROLL_PX && abs(y - ty0) < SCROLL_PX)) { vTaskDelay(1); continue; }
             deciding = false;
             ref_y = ty0;                                 // the list follows from where the touch went down
-            fy = y;                                      // (catching up the 10 px it took to decide)
+            fy = y;                                      // (catching up the SCROLL_PX it took to decide)
             ref_pos = pos;
             smp[0].t = touched_at;
             smp[0].p = ref_pos;
@@ -898,9 +951,46 @@ static void idle_tick(lv_timer_t *t)
 
 static void where_slide(char *out, size_t n) { snprintf(out, n, " slide_phase=%d", phase); }
 
+static int ms_arg(const char *s) { int v = atoi(s); return v < 0 ? 0 : v > 10000 ? 10000 : v; }   // 0..10000 ms
+
+/* "slide": the thresholds and the counters since boot (no lock: volatile counters; lvgl_px is the last press's).
+ * "slide hold X Y MS X2 Y2 [MOVE_MS [END_MS]]": a finger held MS at X Y, then moved to X2 Y2 over MOVE_MS (default
+ * 400), kept there END_MS (default 0) and lifted. forge_lvgl's drag moves from the start, its press never moves: this
+ * is the hold that becomes a long press and then moves on (harness long_press_drops_touch), or a short move that
+ * stops before the lift (drag_threshold: no flick). */
+static void cmd_slide(int argc, char **argv)
+{
+    if (argc == 1) {
+        lv_indev_t *in = lv_indev_get_next(NULL);
+        ESP_LOGI("test", "slide drag_px=%d scroll_px=%d lvgl_px=%d drags=%lu scrolls=%lu hooked=%lu dropped=%lu",
+                 DRAG_PX, SCROLL_PX, in ? (int)in->scroll_limit : -1, (unsigned long)n_drags,
+                 (unsigned long)n_scrolls, (unsigned long)n_hooked, (unsigned long)n_dropped);
+        return;
+    }
+    if (strcmp(argv[1], "hold") || argc < 7) {
+        ESP_LOGW("test", "error slide [hold X Y MS X2 Y2 [MOVE_MS [END_MS]]]");
+        return;
+    }
+    int x0 = atoi(argv[2]), y0 = atoi(argv[3]), x1 = atoi(argv[5]), y1 = atoi(argv[6]);
+    int move = argc > 7 ? ms_arg(argv[7]) : 400, steps = move / 16 < 2 ? 2 : move / 16;
+    finger_inject(true, x0, y0);
+    vTaskDelay(pdMS_TO_TICKS(ms_arg(argv[4])));
+    for (int i = 1; i <= steps; i++) {                     // steps of ~16 ms, as forge_lvgl's drag
+        finger_inject(true, x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps);
+        vTaskDelay(pdMS_TO_TICKS(16));
+    }
+    if (argc > 8) vTaskDelay(pdMS_TO_TICKS(ms_arg(argv[8])));
+    finger_inject(false, x1, y1);
+    vTaskDelay(pdMS_TO_TICKS(100));                        // LVGL must read the release before the real controller
+    finger_inject_end();
+    ESP_LOGI("test", "ok slide hold");
+}
+
 void slide_init(void)
 {
     extern const forge_panel_t *forge_lvgl_panel(void);
+    // The console command first: it answers (counters at 0) on a board without the panel hooks too
+    testcon_register("slide", "slide [hold X Y MS X2 Y2 [MOVE_MS [END_MS]]]", cmd_slide);
     P = forge_lvgl_panel();
     W = lv_display_get_horizontal_resolution(NULL);
     H = lv_display_get_vertical_resolution(NULL);
@@ -913,10 +1003,12 @@ void slide_init(void)
     P->set_read_hook(read_hook);
     lv_display_add_event_cb(lv_display_get_default(), rendered, LV_EVENT_RENDER_READY, NULL);
     // LVGL's own scroll starts after 10 px too: a read landing between its decision and ours went to LVGL (a list
-    // scrolled at ~20 fps, the touch read only between its frames). Ours decides at DRAG_PX, LVGL's at twice that
-    // (LESSONS L99).
+    // scrolled at ~20 fps, the touch read only between its frames). Ours decides first, LVGL's LVGL_MARGIN_PX later
+    // (LESSONS L99); read_hook sets it again at each press (DRAG_PX or SCROLL_PX, by the pagers on view).
     lv_indev_t *in = lv_indev_get_next(NULL);
-    if (in) lv_indev_set_scroll_limit(in, 2 * DRAG_PX);
+    if (in) lv_indev_set_scroll_limit(in, DRAG_PX + LVGL_MARGIN_PX);
+    ESP_LOGI(TAG, "a pager drag after %d px, a list scroll after %d px (LVGL's own: %d px more)", DRAG_PX, SCROLL_PX,
+             LVGL_MARGIN_PX);
     lv_obj_invalidate(lv_screen_active());                 // a whole frame for the shadow
     for (int i = 0; i < npagers; i++) pager_freeze(pagers[i]);
     ESP_LOGI(TAG, "pictures: shadow and other (%d KB each); up to %d neighbours allocated when needed, %d KB kept for "
