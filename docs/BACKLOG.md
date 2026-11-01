@@ -11,6 +11,13 @@ reason it stays in the app.
 
 ## Framework code
 
+- [ ] 2026-10-31, esp32-s3-colormesh (components/board copy): **tearing** on fast full-screen colour changes with the board's
+  display.c: LVGL PARTIAL mode flushes 32-line bands as they render (a full redraw is 65-85 ms, L87), longer than the
+  panel's ~16.7 ms refresh, so the panel shows half old / half new. The panel's TE output is enabled (0x35) but never
+  read; the schematic routes LCD_TE to GPIO13. ColorMesh copies the board component and adds: TE ISR on GPIO13, full
+  frames in PSRAM (RENDER_MODE_DIRECT), bands pushed to the panel right after the TE edge (like display_raw_frame, ~15 ms
+  per frame), display_raw_frame TE-synced too. Port to boards/ws_amoled175 once measured (frame/push/TE-wait log lines).
+
 - [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: forge_lvgl's slide.c takes a drag with `lv_indev_wait_release` and LVGL then
   sends no `PRESS_LOST` to the pressed object, so an app cannot tell when a press became a drag (ColorMesh's
   "hold" stays on for the length of a swipe, ~0.4 s). A drag-start callback in slide.c (`slide_set_drag_hook`?).
