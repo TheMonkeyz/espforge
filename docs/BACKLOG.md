@@ -25,6 +25,9 @@ reason it stays in the app.
   in `read_hook()` right after `lv_indev_wait_release`. Port it. Also: forge_lvgl has no `idf_component.yml`, and the
   component manager only lets a local `components/forge_lvgl` override the managed one when it has one (add an empty
   `dependencies: {}` manifest to every espforge component).
+  Also wanted: a way for the app to **drop the current touch** in slide.c after it handled a long press (ColorMesh
+  v0.3.0: a long press on a swatch sets the wave colour, but a finger that then moves 10 px still starts a pager
+  drag because `read_hook` keeps tracking the touch after `lv_indev_wait_release`): `slide_drop_touch()`.
 
 - [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: a project with **no Wi-Fi** (Bluetooth LE only) cannot drop forge_net:
   `components/forge_lvgl/include/screens.h` includes `web.h` only for `web_image_t`, and forge_lvgl's CMake REQUIRES
