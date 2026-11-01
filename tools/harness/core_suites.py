@@ -2,6 +2,10 @@
 app. Each test is a function(ctx) that raises board.Fail on a failed check; ctx.metric() records numbers for the
 baseline, ctx.note() adds a line to the report, ctx.skip() says why a metric wasn't measured. Contract:
 docs/PROTOCOL.md; project values: forge.json (board.CFG). The app's own tests are in app_suites.py.
+
+No-net mode (forge.json "no_net", harness.py --no-net; ctx.board.no_net): the boot check reads `diag: firmware <ver>`
+and `diag: running from ota_N` instead of forge_ota's `ota: Running` line, the console check wants no `key` / `wifi`,
+screens come over the USB console (`shot`), and the network suites never run (harness.py).
 """
 import os
 import re
@@ -12,7 +16,11 @@ import urllib.request
 
 from board import CFG, ROOT, SETUP_IP, Fail, check, dns_query, http_get, kv, test
 import forgecfg
-import snapshot
+import shot                                            # tools/devloop/shot.py (board.py puts it on the path)
+try:
+    import snapshot  # tools/snapshot.py: HTTPS snapshots (a project on a network); a no-net project may not ship it
+except ImportError:
+    snapshot = None
 
 # Suites that only run when asked for (or with their flag): ota needs --ota
 ON_REQUEST = {'ota'}
@@ -37,9 +45,23 @@ def last_boot(lines):
 
 # ---------------------------------------------------------------- boot
 
+def boot_image(lines, no_net=False):
+    """(version, slot, channel) of the image that booted, from the start-up lines: forge_ota's `ota: Running <ver>
+    from <slot>, channel <ch>`; without a network (no forge_ota) diag's `diag: firmware <ver> (built ...)` and
+    `diag: running from <slot>, N KB at 0x...` (channel None). None when the lines are not there."""
+    if not no_net:
+        m = next((re.search(r'ota: Running (\S+) from (\w+), channel (\w+)', l) for l in lines if 'ota: Running' in l),
+                 None)
+        return (m.group(1), m.group(2), m.group(3)) if m else None
+    fw = next((re.search(r'diag: firmware (\S+)', l) for l in lines if 'diag: firmware ' in l), None)
+    slot = next((re.search(r'diag: running from (\w+)', l) for l in lines if 'diag: running from ' in l), None)
+    return (fw.group(1), slot.group(1), None) if fw and slot else None
+
+
 @test('boot')
 def start_up(ctx):
-    """The last start-up in the log: the app version ESP-IDF prints, the ready line, no error lines, the OTA line."""
+    """The last start-up in the log: the app version ESP-IDF prints, the ready line, no error lines, the OTA line
+    (no-net: diag's firmware and slot lines)."""
     lines = last_boot(ctx.log.lines())
     if not lines:
         ctx.skip('boot_s.*', 'no start-up in this log window (it was reused): restart the board to measure it')
@@ -63,11 +85,14 @@ def start_up(ctx):
                      + (f', internal {mk.group(2)} KB free' if mk.group(2) else ''))
     errors = [l for l in lines if l.startswith('E (')]
     check(not errors, f'{len(errors)} error lines in the start-up, first: {errors[0][:120]}' if errors else '')
-    ota = next((re.search(r'ota: Running (\S+) from (\w+), channel (\w+)', l) for l in lines if 'ota: Running' in l), None)
-    check(ota, 'no "ota: Running <ver> from <slot>, channel <ch>" line in the start-up')
-    check(ota.group(1) == v, f'the OTA line says {ota.group(1)}, the console says {v}')
+    no_net = getattr(ctx.board, 'no_net', False)
+    img = boot_image(lines, no_net)
+    check(img, 'no "diag: firmware <ver>" + "diag: running from ota_N" lines in the start-up' if no_net else
+          'no "ota: Running <ver> from <slot>, channel <ch>" line in the start-up')
+    ver, slot, channel = img
+    check(ver == v, f'the {"diag firmware" if no_net else "OTA"} line says {ver}, the console says {v}')
     reset = next((l.split('diag: ', 1)[1] for l in lines if 'diag: boot ' in l), '')
-    ctx.note(f'{v} from {ota.group(2)}, channel {ota.group(3)}' + (f'; {reset}' if reset else ''))
+    ctx.note(f'{v} from {slot}' + (f', channel {channel}' if channel else '') + (f'; {reset}' if reset else ''))
     crash = next((l.split('diag: ', 1)[1] for l in lines if 'diag: coredump: last crash' in l), '')
     if crash:
         ctx.note(f'the board kept a crash from before this start-up: {crash[:140]}')
@@ -75,15 +100,33 @@ def start_up(ctx):
 
 # ---------------------------------------------------------------- console
 
+WANTED_CORE = ('ping', 'help', 'heap', 'where', 'reboot')            # forge_core
+WANTED_NET = ('key', 'wifi')                                         # forge_net (a board on a network)
+
+
+def wanted_commands(no_net=False):
+    """The console commands `help` must list (an app checks its own in app_suites.py)."""
+    return WANTED_CORE + (() if no_net else WANTED_NET)
+
+
+def unwanted_commands(no_net=False):
+    """Commands `help` must not list: a no-net firmware has no key and no Wi-Fi (forge_net left out)."""
+    return WANTED_NET if no_net else ()
+
+
 @test('console')
 def commands(ctx):
-    """ping, help, heap and where answer in the expected format (PROTOCOL.md §2)."""
+    """ping, help, heap and where answer in the expected format (PROTOCOL.md §2); help lists the expected commands
+    (no-net: and not forge_net's)."""
     b = ctx.board
+    no_net = getattr(b, 'no_net', False)
     v = b.version()
     names = b.cmd('help', r'test: commands: (.*)').group(1)
     have = {c.strip().split(' ')[0] for c in names.split(',')}
-    for want in ('ping', 'help', 'heap', 'where', 'reboot', 'key', 'wifi'):    # forge_core and forge_net
+    for want in wanted_commands(no_net):
         check(want in have, f'"help" does not list "{want}" ({names[:200]})')
+    for bad in unwanted_commands(no_net):
+        check(bad not in have, f'"help" lists "{bad}": this project has no network ({names[:200]})')
     ui = [c for c in ('screen', 'tap', 'press', 'swipe', 'drag', 'fps') if c not in have]
     if ui:
         ctx.note('no display commands: ' + ', '.join(ui) + ' (a firmware without forge_lvgl?)')
@@ -106,10 +149,17 @@ def shot_over_usb(ctx):
     """`shot SCREEN [DIV]` (v0.6.0): a screen rendered off-display and sent over the USB console as base64 RGB565 rows,
     for a session that can't reach the board's HTTPS (tools/snapshot.py) and for screens before Wi-Fi;
     tools/devloop/shot.py turns a log into PNGs. Fails on the old firmware: no such command."""
-    import shot
     b = ctx.board
-    at = len(ctx.log.lines())
     name = (CFG['screens'] or ['current'])[0]
+    if getattr(b, 'no_net', False):                    # the no-net path (Board.snap -> shot): SHOTEND, no reply needed
+        s = b.snap(name, ctx.out(f'shot_{name}.png'), div=4)
+        check(s.w == CFG['screen']['w'] // 4, f'{s.w}x{s.h} decoded, a quarter of the screen expected')
+        lit = sum(1 for i in range(0, len(s.rgb), 3) if s.rgb[i] + s.rgb[i + 1] + s.rgb[i + 2] > 60)
+        check(s.rows == s.h and lit > s.w * s.h // 100,
+              f'{s.rows} of {s.h} rows, {lit} lit pixels of {s.w * s.h}: a broken or blank picture')
+        ctx.note(f'shot {name} 4: {s.w}x{s.h} over USB in {s.ms} ms, {s.rows} rows, {lit} lit pixels (shot_{name}.png)')
+        return
+    at = len(ctx.log.lines())
     m = b.cmd(f'shot {name} 4', r'test: ok shot (\S+) (\d+)x(\d+)', timeout=30)
     ctx.log.wait(r'^SHOTEND', 5, 'the end of the shot', start=at)
     got = list(shot.blocks(ctx.log.lines()[at:]))
@@ -119,7 +169,7 @@ def shot_over_usb(ctx):
           f'{w}x{h} decoded, the console said {m.group(2)}x{m.group(3)}, a quarter of the screen expected')
     lit = sum(1 for i in range(0, len(rgb), 3) if rgb[i] + rgb[i + 1] + rgb[i + 2] > 60)
     check(rows == h and lit > w * h // 100, f'{rows} of {h} rows, {lit} lit pixels of {w * h}: a broken or blank picture')  # hello: text on black, ~4 %
-    shot.png(ctx.out(f'shot_{name}.png'), w, h, rgb)
+    shot.png(ctx.out(f'shot_{name}.png'), w, h, rgb, round_mask=CFG['screen'].get('shape') == 'round')
     ctx.note(f'shot {name} 4: {w}x{h} over USB, {rows} rows, {lit} lit pixels (shot_{name}.png)')
 
 
@@ -128,6 +178,9 @@ def wifi_low_latency(ctx):
     """net_low_latency() (v0.6.0): Wi-Fi power save off while a screen wants fast requests (ESP-IDF's default costs
     ~100 ms a request, MeteoBus's radar), counted; `wifi status` shows ps, lowlat, the download slot and queued jobs."""
     b = ctx.board
+    if getattr(b, 'no_net', False):
+        ctx.note('no network in this project: wifi lowlat not checked')
+        return
     w = b.wifi()
     check('ps' in w and 'lowlat' in w and 'dl' in w and 'bg' in w, f'wifi status lacks ps/lowlat/dl/bg: {w}')
     check(w['ps'] == 'min' and w['lowlat'] == '0', f'at rest: ps={w["ps"]} lowlat={w["lowlat"]}, expected min / 0')
@@ -158,9 +211,32 @@ def heap_settled(read, settle, tries=15, step=2.0, within_kb=2):
     return h
 
 
+# forge_ota's first update check runs a minute after boot (TLS GETs of the channel's index and release notes, a few
+# seconds each): an --ota run reads the heap only once it is over
+OTA_HEAP_UPTIME_S = 90
+
+
+def ota_heap_wait_s(uptime_s, after_s=OTA_HEAP_UPTIME_S):
+    """Seconds to wait before an --ota run reads the heap: past the new firmware's first minute. The run reaches
+    memory.heap_numbers a minute or so after the install's restart (the update is confirmed at 60 s), where the first
+    update check runs: the largest internal block read 32-39 KB there and 43-44 KB in a re-run minutes later, on rc.2,
+    rc.3 and rc.4 alike (2026-10-31), heap_settled() alone did not catch it. Which allocation it is is still open
+    (docs/BACKLOG.md)."""
+    return max(0, after_s - uptime_s)
+
+
 @test('memory')
 def heap_numbers(ctx):
-    h = heap_settled(ctx.board.heap, settle=bool(getattr(ctx.opts, 'ota', None)))   # an --ota run: after the install
+    """The heap numbers for the baseline. An --ota run reads them past the first minute after the install
+    (ota_heap_wait_s), once two readings agree (heap_settled): the update's TLS buffers must not count."""
+    ota = bool(getattr(ctx.opts, 'ota', None))
+    if ota:
+        up = ctx.board.heap().get('uptime_s', OTA_HEAP_UPTIME_S)
+        wait = ota_heap_wait_s(up)
+        if wait:
+            ctx.note(f'heap: {wait} s more for the first-minute update check after the install (uptime {up} s)')
+            time.sleep(wait)
+    h = heap_settled(ctx.board.heap, settle=ota)
     ctx.metric('internal_free_kb', h['internal'])
     ctx.metric('internal_min_kb', h['min'])
     ctx.metric('internal_largest_kb', h['largest'])
@@ -211,6 +287,16 @@ def every_screen(ctx):
             b.show(name)
             b.wait_screen(name, 6)
             time.sleep(0.5)
+        if getattr(b, 'no_net', False):              # over the USB console: every 2nd pixel (Board.snap -> shot)
+            s = b.snap(name, ctx.out(f'screen_{name}.png'))
+            ctx.snapped.add(name)
+            ctx.metric(f'snapshot_ms.{name}', s.ms)
+            check((s.w, s.h) == (CFG['screen']['w'] // 2, CFG['screen']['h'] // 2),
+                  f'shot of {name} is {s.w}x{s.h}, half of forge.json\'s {CFG["screen"]["w"]}x{CFG["screen"]["h"]} '
+                  'expected')
+            check(s.rows == s.h, f'shot of {name}: {s.rows} of {s.h} rows arrived')
+            check(shot.distinct_colors(s.rgb, s.w, s.h) > 1, f'the shot of {name} is blank (one colour)')
+            continue
         ms, bmp = b.snap(name, ctx.out(f'screen_{name}.png'))
         ctx.snapped.add(name)
         ctx.metric(f'snapshot_ms.{name}', round(ms))
@@ -221,6 +307,137 @@ def every_screen(ctx):
     b.show(names[0])
     b.wait_screen(names[0], 6)
     ctx.note('screens: ' + ', '.join(names))
+
+
+# ---------------------------------------------------------------- display
+
+# The board's tear-free display (boards/ws_amoled175 display.c, from esp32-s3-colormesh): every push to the panel
+# starts on the panel's TE pulse (GPIO13, once per refresh, at the start of the vertical blank), so a frame never
+# crosses the scan line. Measured on the AMOLED 1.75: 59 Hz, period 16.85 ms (2026-10-31). A board whose panel has
+# no TE pin sets forge.json "display_te": false.
+TE_HZ = (50, 70)                     # the start-up's 1 s count of rising edges
+TE_PERIOD_MS = (14.5, 18.5)          # `te`'s last period between two rising edges
+TE_LIVE_HZ = (40, 80)                # rises between two `te` readings over the PC's clock (console latency in it)
+TE_BOOT = re.compile(r'display: TE (\d+) Hz on GPIO(\d+) \(period ([\d.]+) ms, high ([\d.]+) ms\)')
+TE_BAD = re.compile(r'display: TE (\d+) Hz on GPIO\d+: not usable|display: TE: no pulse on GPIO\d+: frames not synced')
+
+
+def te_boot(lines):
+    """The start-up's TE check: {'hz', 'gpio', 'period_ms', 'high_ms'} from `display: TE <n> Hz on GPIO<g> (period
+    <p> ms, high <h> ms)`, {'unusable': line} from its warnings (no pulse, or a count outside 30..120 Hz), None when
+    neither is in the lines (it prints ~1 s after the panel starts, often inside the 2.5 s a PC monitor misses after a
+    flash, LESSONS L154; or a firmware before the TE-synced display)."""
+    for l in lines:
+        bad = TE_BAD.search(l)
+        if bad:
+            return {'unusable': l.strip()}
+        m = TE_BOOT.search(l)
+        if m:
+            return {'hz': int(m.group(1)), 'gpio': int(m.group(2)), 'period_ms': float(m.group(3)),
+                    'high_ms': float(m.group(4))}
+    return None
+
+
+def te_status(line):
+    """`test: te state=1 rises=N period_ms=P high_ms=H level=0|1 lvgl=on raw=on chase=on` (after "test: te ") ->
+    {key: number or text}."""
+    return {k: (float(v) if re.fullmatch(r'-?\d+(\.\d+)?', v) else v) for k, v in kv(line).items()}
+
+
+def te_problems(st):
+    """What is wrong in a `te` status (te_status), [] when the display waits for TE as it should: state 1 (the
+    start-up found a usable pulse; 0 still checking, -1 none), the period of a ~60 Hz panel, LVGL frames and raw ones
+    (slide.c's moves) both synced."""
+    out = []
+    for k in ('state', 'rises', 'period_ms', 'lvgl', 'raw'):
+        if k not in st:
+            out.append(f'no {k}=')
+    if out:
+        return out
+    if st['state'] != 1:
+        out.append(f'state={st["state"]:g} (1: a usable TE pulse; 0: still checking, -1: none, frames not synced)')
+    if not TE_PERIOD_MS[0] <= st['period_ms'] <= TE_PERIOD_MS[1]:
+        out.append(f'period {st["period_ms"]} ms, expected {TE_PERIOD_MS[0]}..{TE_PERIOD_MS[1]}')
+    for k in ('lvgl', 'raw'):
+        if st[k] != 'on':
+            out.append(f'{k}={st[k]}: those frames are not synced to TE')
+    return out
+
+
+def fps_te_problems(fps):
+    """What is wrong in an `fps` reply (kv) after some moves: the pushes counted, none started without a TE edge."""
+    if 'pushes' not in fps or 'te_timeouts' not in fps:
+        return ['the fps line has no pushes= / te_timeouts= (a firmware before the TE-synced display)']
+    out = []
+    if int(fps['pushes']) <= 0:
+        out.append('pushes=0 after two swipes: no frame reached the panel through the TE path')
+    if int(fps['te_timeouts']) != 0:
+        out.append(f'te_timeouts={fps["te_timeouts"]}: pushes started without a TE edge (25 ms at most, then anyway)')
+    return out
+
+
+@test('display')
+def te(ctx):
+    """Tear-free frames: the start-up's `display: TE <n> Hz` line (when the log has it: n 50..70), the console's `te`
+    (state=1, period 14.5..18.5 ms, LVGL and raw frames synced, the pulse still coming), then two swipes and `fps`:
+    pushes counted, te_timeouts=0. Fails on the old firmware: no TE line, no `te` command, no pushes= in `fps`."""
+    if CFG.get('display_te') is False:
+        ctx.note('forge.json "display_te": false: the panel has no TE pulse, nothing checked')
+        return
+    b = ctx.board
+    boot = te_boot(last_boot(ctx.log.lines()))
+    if boot:
+        check('unusable' not in boot, f'the start-up found no usable TE pulse: {boot.get("unusable")}')
+        check(TE_HZ[0] <= boot['hz'] <= TE_HZ[1], f'TE at {boot["hz"]} Hz at start-up, expected {TE_HZ[0]}..{TE_HZ[1]}')
+    try:
+        st = te_status(b.cmd('te', r'test: te (state=.*)', timeout=5).group(1))
+        t0 = time.time()                               # both readings timed at their reply: the latency cancels out
+    except Fail as e:
+        raise Fail(f'no `te` console command (a firmware before the TE-synced display?): {e}')
+    problems = te_problems(st)
+    check(not problems, 'te: ' + '; '.join(problems))
+    time.sleep(3)
+    st2 = te_status(b.cmd('te', r'test: te (state=.*)', timeout=5).group(1))
+    live = (st2['rises'] - st['rises']) / max(0.1, time.time() - t0)
+    check(TE_LIVE_HZ[0] <= live <= TE_LIVE_HZ[1],
+          f'TE rises {st["rises"]:g} -> {st2["rises"]:g} in {time.time() - t0:.1f} s ({live:.0f} Hz): '
+          'the pulse stopped?')
+    home = (CFG['screens'] or [None])[0]
+    if home:
+        b.show(home)
+        b.wait_screen(home, 6)
+    b.cmd('fps reset')
+    for c in ('swipe left', 'swipe right'):
+        b.cmd(c)
+        time.sleep(1.5)
+    fps = kv(b.cmd('fps', r'test: fps (.*)').group(1))
+    if home:
+        b.show(home)
+        b.wait_screen(home, 6)
+    problems = fps_te_problems(fps)
+    check(not problems, 'fps: ' + '; '.join(problems))
+    ctx.note('TE: ' + (f'{boot["hz"]} Hz at start-up, ' if boot else 'start-up line not in this log, ')
+             + f'period {st["period_ms"]:g} ms, high {st.get("high_ms", 0):g} ms, ~{live:.0f} Hz live; two swipes: '
+             f'{fps["pushes"]} pushes, push avg {fps.get("push_avg_ms", "?")} ms, TE wait avg '
+             f'{fps.get("te_wait_avg_ms", "?")} max {fps.get("te_wait_max_ms", "?")} ms, 0 timeouts')
+
+
+# ---------------------------------------------------------------- perf helpers (app_suites.py)
+
+SLIDE_DRAG = re.compile(r'slide: drag: first frame after (\d+) ms, (\d+) frames in (\d+) ms \((\d+) fps\), '
+                        r'(to next|to prev|back) \| gap max (\d+) ms')
+
+
+def slide_drag(line):
+    """forge_lvgl's `slide: drag: ...` line (docs/PROTOCOL.md) -> {'first_ms', 'frames', 'ms', 'fps', 'to',
+    'gap_max_ms'}, None if the line is not one. Its gap max is the move's own (between two of its frames): the `fps`
+    counters' gap_max_ms also counts an LVGL redraw of the page landed on within 250 ms of the drag's repaint (the
+    system page's 1 s refresh: 222 ms once where the move's frames were 35-41 ms apart, espforge v0.6.0-rc.4)."""
+    m = SLIDE_DRAG.search(line)
+    if not m:
+        return None
+    return {'first_ms': int(m.group(1)), 'frames': int(m.group(2)), 'ms': int(m.group(3)), 'fps': int(m.group(4)),
+            'to': m.group(5), 'gap_max_ms': int(m.group(6))}
 
 
 # ---------------------------------------------------------------- web

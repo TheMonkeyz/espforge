@@ -14,8 +14,9 @@ Two steps, used by CI (.github/workflows/firmware.yml) and for local previews:
         channels.json, which the page reads to show the Stable / Beta picker and the display's updater reads
         (docs/PROTOCOL.md §5), notes.json, the release notes from CHANGELOG.md, which the display shows before
         installing an update (and the page shows for the selected version), and site.json ({app, repo} from
-        forge.json) for the page's title and links. fonts/ gets main/montserrat.ttf and its license when the
-        project has them (optional). With --emu <dir>, try/ gets a browser build of the firmware (web/emu/build's
+        forge.json) for the page's title and links. config.js (the "Configure over USB" card: a form from the
+        firmware's `cfg schema` over Web Serial) comes with web/flash; its tests (*.test.js) stay out. fonts/ gets
+        main/montserrat.ttf and its license when the project has them (optional). With --emu <dir>, try/ gets a browser build of the firmware (web/emu/build's
         files: index.html, emu.js, emu.wasm, emu-page.js, and the settings page with emu-settings.js; not its
         folders) and channels.json says so ("try"): the page links to it.
 
@@ -164,7 +165,7 @@ def read_changelog(path, keep=15, max_bytes=None):
 def cmd_site(a):
     if os.path.exists(a.out):
         shutil.rmtree(a.out)
-    shutil.copytree(os.path.join(ROOT, "web", "flash"), a.out)
+    shutil.copytree(os.path.join(ROOT, "web", "flash"), a.out, ignore=shutil.ignore_patterns("*.test.js"))
     fonts = [n for n in ("montserrat.ttf", "montserrat-OFL.txt") if os.path.exists(os.path.join(ROOT, "main", n))]
     if fonts:                                                      # the display's font (SIL OFL), optional
         os.makedirs(os.path.join(a.out, "fonts"), exist_ok=True)

@@ -1,16 +1,27 @@
 // CO5300 466x466 AMOLED over QSPI (Waveshare ESP32-S3-Touch-AMOLED-1.75) + LVGL 9 port (see board.h)
+//
+// Tear-free frames: LVGL renders (DIRECT mode) into one full frame in PSRAM, and the frame goes to the panel only once
+// it is complete, in bands of BUF_LINES rows copied into two internal DMA buffers, started on the panel's Tearing
+// Effect signal (TE, GPIO13) so the write runs ahead of the panel's scan. Before: PARTIAL mode in two 32-line bands,
+// each sent as soon as rendered; a full redraw (65-85 ms) spanned four or five panel refreshes, which showed part old,
+// part new frame ("tearing when I tap the screens quickly", esp32-s3-colormesh, 2026-10-31). Moves drawn as pictures
+// (display_raw_frame) and list scrolls going down the screen (display_raw_area) start on TE too.
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG       // the first frames' timings at DEBUG (esp_log_level_set to see them)
 #include "board.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "hal/gpio_ll.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "testcon.h"
 #include "sdkconfig.h"
 #if CONFIG_PM_ENABLE
 #include "esp_pm.h"
@@ -26,22 +37,44 @@ static const char *TAG = "display";
 #define PIN_D2     6
 #define PIN_D3     7
 #define PIN_RST    39
+#define PIN_TE     13           // LCD_TE (the schematic's pin table); the panel pulses it once per refresh (0x35)
 #define X_GAP      6            // the panel's visible area starts at column 6
 // 32 rows per band (two bands, internal DMA RAM): 2 x 30 KB. Bigger bands left too little internal DMA memory for
 // TLS (hardware AES) and the settings page arrived truncated.
 #define BUF_LINES  32
+#define FB_STRIDE  (DISP_W * 2)
+#define TE_TIMEOUT_MS 25        // a frame never waits longer for TE (a missing pulse must not stall the display)
+#define TE_MISSES  3            // pushes in a row without a pulse: TE stopped, no more waits until it pulses again
 
 /* ---- diagnostics: lock contention and frame timing ---- */
 static display_stats_t st, tst;          // st: the diag line; tst: the test console's "fps" (its own, so a diag
                                           // report in the middle of a measurement doesn't reset it)
+static display_stats_t sum;              // the 60 s "display: frames ..." summary
 
 static void count_frame(uint32_t render_us)
 {
-    display_stats_t *s[2] = {&st, &tst};
-    for (int i = 0; i < 2; i++) {
+    display_stats_t *s[3] = {&st, &tst, &sum};
+    for (int i = 0; i < 3; i++) {
         s[i]->frames++;
         s[i]->render_us += render_us;
         if (render_us > s[i]->render_max_us) s[i]->render_max_us = render_us;
+    }
+}
+
+// One push to the panel (an LVGL frame, a raw one or a part of the screen): its time on the bus, its wait for TE, how
+// long after the TE edge its first band started
+static void count_push(uint32_t push_us, uint32_t wait_us, uint32_t lag_us, bool timeout, bool chased)
+{
+    display_stats_t *s[3] = {&st, &tst, &sum};
+    for (int i = 0; i < 3; i++) {
+        s[i]->pushes++;
+        s[i]->push_us += push_us;
+        if (push_us > s[i]->push_max_us) s[i]->push_max_us = push_us;
+        s[i]->te_wait_us += wait_us;
+        if (wait_us > s[i]->te_wait_max_us) s[i]->te_wait_max_us = wait_us;
+        if (timeout) s[i]->te_timeouts++;
+        else if (chased) s[i]->te_chased++;
+        else if (lag_us > s[i]->te_lag_max_us) s[i]->te_lag_max_us = lag_us;
     }
 }
 
@@ -73,11 +106,13 @@ static int64_t lock_t0, render_t0, last_render;
 static esp_lcd_panel_io_handle_t io;
 static SemaphoreHandle_t lvgl_mux;
 volatile int disp_phase;               // breadcrumb for the test console's "where"
-volatile int raw_band;                 // the band a raw frame is sending (with disp_phase 1-6)
-static int lvgl_inflight;              // LVGL band transfers not finished yet (its last band outlives the refresh)
-static void *buf1, *buf2;              // LVGL's two band buffers (internal, DMA), also used by display_raw_frame()
-static volatile bool raw_mode;         // a raw frame is being sent: transfers complete to raw_done, not to LVGL
-static SemaphoreHandle_t raw_done;
+volatile int raw_band;                 // the band a push is sending (with disp_phase 1-6, 9)
+static int band_inflight;              // band transfers not finished yet (always 0 between pushes)
+static void *buf1, *buf2;              // the two band buffers (internal, DMA) every push goes through
+static uint8_t *fb;                    // LVGL's frame (PSRAM, RGB565 as LVGL draws it)
+static SemaphoreHandle_t band_done;
+static display_flush_hook_t flush_hook;
+static volatile bool asleep;           // the panel asleep (display_sleep): no TE pulses, nothing shown
 
 #define CMD(c)  (((uint32_t)0x02 << 24) | ((uint32_t)(c) << 8))
 #define PIXELS  (((uint32_t)0x32 << 24) | ((uint32_t)0x2C << 8))
@@ -89,7 +124,7 @@ static void lcd_cmd(uint8_t c, const uint8_t *d, size_t n)
 
 typedef struct { uint8_t cmd; uint8_t data[4]; uint8_t len; uint16_t delay_ms; } init_cmd_t;
 
-// Vendor init sequence from Waveshare's BSP
+// Vendor init sequence from Waveshare's BSP (0x35 0x00: the TE output on, V-blank only)
 static const init_cmd_t init_cmds[] = {
     {0xFE, {0x20}, 1, 0}, {0x19, {0x10}, 1, 0}, {0x1C, {0xA0}, 1, 0},
     {0xFE, {0x00}, 1, 0}, {0xC4, {0x80}, 1, 0}, {0x3A, {0x55}, 1, 0},
@@ -103,63 +138,201 @@ static const init_cmd_t init_cmds[] = {
 
 static bool on_trans_done(esp_lcd_panel_io_handle_t h, esp_lcd_panel_io_event_data_t *e, void *ctx)
 {
-    if (__atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0) {
-        __atomic_fetch_sub(&lvgl_inflight, 1, __ATOMIC_ACQ_REL);
-        lv_display_flush_ready((lv_display_t *)ctx);
-        return false;
-    }
-    if (raw_mode) {
+    BaseType_t woken = pdFALSE;
+    xSemaphoreGiveFromISR(band_done, &woken);
+    return woken == pdTRUE;
+}
+
+/* ---------- Tearing Effect ----------
+ * The panel raises TE at the start of each vertical blank (measured on board A, 2026-10-31: 59 Hz, period 16.85 ms,
+ * high 0.63 ms), then scans its memory top to bottom in the remaining ~16.2 ms. A push started on the rising edge
+ * (0.01 ms after it) writes rows faster than the scan reads them (a whole frame in 13.9-15.9 ms), so the scan never
+ * overtakes the write: each refresh shows one whole frame. The lead is smallest at the top (the 0.6 ms blank): a stall
+ * of the LVGL task longer than that in the first bands (a flash write with the cache off) can still tear once.
+ * While the panel sleeps (display_sleep) TE stops: pushes don't wait for it then (nothing is shown either). */
+static SemaphoreHandle_t te_sem;        // given on every rising edge
+static volatile uint32_t te_rise_us;    // the last rising edge (esp_timer, low 32 bits: one load across cores)
+static volatile uint32_t te_rises, te_high_us, te_period_us;
+static int te_state;                    // 0 = being checked (wait, bounded), 1 = pulsing, -1 = no TE: never wait
+static bool te_sync_lvgl = true, te_sync_raw = true;   // "te lvgl|raw on|off" in the test console
+static bool te_chase_lvgl = true;       // "te chase on|off": LVGL frames may start behind the scan (te_sync)
+static int te_log_n;                    // "te log N": the next N pushes logged at INFO
+static int te_misses;                   // pushes in a row that timed out waiting for TE
+static uint32_t te_miss_rises;          // te_rises when TE_MISSES was reached: waits again once it moves
+
+static void IRAM_ATTR te_isr(void *arg)
+{
+    uint32_t now = (uint32_t)esp_timer_get_time();
+    if (gpio_ll_get_level(&GPIO, PIN_TE)) {
+        if (te_rise_us) te_period_us = now - te_rise_us;
+        te_rise_us = now;
+        te_rises++;
         BaseType_t woken = pdFALSE;
-        xSemaphoreGiveFromISR(raw_done, &woken);
-        return woken == pdTRUE;
+        xSemaphoreGiveFromISR(te_sem, &woken);
+        if (woken) portYIELD_FROM_ISR();
+    } else if (te_rise_us) {
+        te_high_us = now - te_rise_us;
     }
+}
+
+/* Before a push of rows y1..y2 (`rows` of them, gaps between runs left out, `w` columns wide): when to start.
+ * - edge: on the next TE rising edge (at most TE_TIMEOUT_MS); just past one (TE still high, under 0.3 ms): now. The
+ *   write then runs ahead of the scan all the way down.
+ * - chase (LVGL frames, and a move's first frame): also now, or after a short wait, when the scan is far enough down
+ *   that the write, starting behind it, can never catch it up in this refresh: the rows change only after this
+ *   refresh read them, and the next refresh shows them whole (the same refresh an edge start would reach, sooner for
+ *   rows near the top), without waiting up to 17 ms for the edge. Far enough: the write at most at the bus's speed (a
+ *   full frame in 10.9 ms at 80 MHz, no push is faster; a narrower area proportionally faster), the scan at the
+ *   measured period minus the blank, so the last row y2 must be scanned before the write could reach it: from = blank
+ *   + y2 * scan row time - rows * fastest write row time + 0.5 ms (a full frame: ~6.5 ms after the edge). The write
+ *   then finishes before the next refresh reaches its rows (it is faster than the scan, and starts at least 0.5 ms
+ *   before the next edge, else: the edge). Also now, for rows starting below the scan by more than 1 ms of scan (the
+ *   write starts ahead and outruns it).
+ * *lag = from the last edge to the start. */
+#define BUS_FRAME_US 10900              // 466 x 466 x 2 bytes at 40 MB/s (QSPI, 80 MHz): the fastest possible push
+
+static void te_sync(bool on, bool chase, int y1, int y2, int rows, int w, uint32_t *wait, uint32_t *lag, bool *timeout,
+                    bool *chased)
+{
+    int64_t t0 = esp_timer_get_time();
+    *wait = *lag = 0;
+    *timeout = *chased = false;
+    if (!on || te_state < 0 || asleep) return;
+    if (te_misses >= TE_MISSES) {                        // TE stopped: no 25 ms per push until it pulses again
+        if (te_rises == te_miss_rises) return;
+        te_misses = 0;
+    }
+    disp_phase = 9;
+    uint32_t p = te_period_us, b = te_high_us, since = (uint32_t)t0 - te_rise_us;
+    bool in_blank = te_state > 0 && gpio_get_level(PIN_TE) && since < b && since < 300;
+    int64_t at = -1;                                     // chasing: start at this time
+    if (!in_blank && chase && te_state > 0 && p > 10000 && p < 25000 && b < p / 2 && since < p - 500) {
+        float ls = (float)(p - b) / DISP_H;                                // us per row: scan...
+        float lw = (float)BUS_FRAME_US * w / DISP_W / DISP_H;              // ...and the fastest write
+        float from = b + y2 * ls - rows * lw + 500, ahead = b + y1 * ls - 1000;
+        if (since <= ahead) at = t0;                                       // below the scan: ahead of it
+        else if (from < p - 500) at = t0 + (since < from ? (int64_t)(from - since) : 0);   // full frame: <= 6.2 ms
+    }
+    if (in_blank) {
+    } else if (at >= 0) {
+        int64_t d = at - esp_timer_get_time();
+        if (d > 1500) vTaskDelay(pdMS_TO_TICKS(d / 1000 - 1));            // the bulk asleep, the rest spun
+        while (esp_timer_get_time() < at) {}
+        *chased = true;
+    } else {
+        xSemaphoreTake(te_sem, 0);                                         // an edge already past: not that one
+        *timeout = xSemaphoreTake(te_sem, pdMS_TO_TICKS(TE_TIMEOUT_MS)) != pdTRUE;
+        if (!*timeout) te_misses = 0;
+        else if (++te_misses == TE_MISSES) {
+            te_miss_rises = te_rises;
+            ESP_LOGW(TAG, "TE: no pulse for %d pushes in a row: not waiting for it until it pulses again", TE_MISSES);
+        }
+    }
+    int64_t t1 = esp_timer_get_time();
+    *wait = t1 - t0;
+    *lag = *timeout ? 0 : (uint32_t)t1 - te_rise_us;
+}
+
+/* ---------- pushes: rows of a frame to the panel ----------
+ * Runs of rows (each starting on an even row and ending on an odd one: the CO5300's rule), sent in bands of BUF_LINES
+ * rows (more for a narrower area: the same bytes); fill() writes a band into one DMA buffer while the other is on the
+ * bus. The first band is filled before the wait for TE, so the bus starts at once on the edge. The caller holds the
+ * display lock. */
+typedef struct { int16_t y1, y2; } run_t;
+
+static bool band_wait(void)
+{
+    if (xSemaphoreTake(band_done, pdMS_TO_TICKS(200)) == pdTRUE) return true;
+    ESP_LOGE(TAG, "push: a band transfer did not finish");   // never hang the display (lock held)
     return false;
 }
 
-/* A whole frame without LVGL (forge_lvgl's slide.c): bands of BUF_LINES rows, filled by the caller into one buffer
- * while the other is being sent. The caller holds the display lock, so LVGL isn't using the buffers. */
-static bool raw_wait(void)
+// Columns x0..x0+w-1 (full width: 0, DISP_W) of the runs' rows. bottom_up: one run, its bands from the bottom
+// (display_raw_area: rows moved down in place need the lower rows first); such a push is never synced to TE: it runs
+// against the scan, which crosses it somewhere whenever it starts (a list-sized area takes longer than the scan's
+// time outside it).
+static void push(const run_t *runs, int nruns, int x0, int w, bool bottom_up, display_fill_cb_t fill, void *user,
+                 bool sync, bool chase, const char *kind, uint32_t render_us)
 {
-    if (xSemaphoreTake(raw_done, pdMS_TO_TICKS(200)) == pdTRUE) return true;
-    ESP_LOGE(TAG, "raw frame: a band transfer did not finish");   // never hang the display (lock held)
-    return false;
-}
-
-void display_raw_frame(display_fill_cb_t fill, void *user)
-{
-    const int rows = BUF_LINES;
+    if (nruns <= 0) return;
+    const int lines = w >= DISP_W ? BUF_LINES : (DISP_W * BUF_LINES / w) & ~1;
     disp_phase = 1;
-    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);   // LVGL's last band still going out
-    while (xSemaphoreTake(raw_done, 0) == pdTRUE) {}                     // no stale tokens
-    raw_mode = true;
+    for (int i = 0; i < 100 && __atomic_load_n(&band_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
+    while (xSemaphoreTake(band_done, 0) == pdTRUE) {}                    // no stale tokens
     void *bufs[2] = {buf1, buf2};
-    int inflight = 0;
-    for (int y = 0, k = 0; y < DISP_H; y += rows, k ^= 1) {
-        int n = DISP_H - y < rows ? DISP_H - y : rows;
-        raw_band = y;
-        disp_phase = 2;
-        fill(y, n, bufs[k], user);                        // while the previous band is still going out
+    int r = 0, k = 0, rows = 0;
+    int y = bottom_up ? runs[0].y1 + (runs[0].y2 - runs[0].y1) / lines * lines : runs[0].y1;   // the first band
+    int n = runs[0].y2 - y + 1 < lines ? runs[0].y2 - y + 1 : lines;
+    raw_band = y;
+    disp_phase = 2;
+    fill(y, n, bufs[k], user);
+    int total = 0;
+    for (int i = 0; i < nruns; i++) total += runs[i].y2 - runs[i].y1 + 1;
+    uint32_t wait, lag;
+    bool timeout, chased;
+    te_sync(sync && !bottom_up, chase, runs[0].y1, runs[nruns - 1].y2, total, w, &wait, &lag, &timeout, &chased);
+    int64_t t0 = esp_timer_get_time(), ta;
+    uint32_t us_fill = 0, us_wait = 0, us_cmd = 0;          // where a push's time goes ("te log")
+    for (;;) {
         disp_phase = 3;
+        ta = esp_timer_get_time();
         // No esp_lcd call while a transfer is in flight: tx_param/tx_color take the bus and then wait for the queued
         // transfer, and called during one they hung for good, a few frames in (weather_amoled v1.11.0, breadcrumbs:
         // phase 3). The same rule holds for any esp_lcd call from outside LVGL (display_brightness() waits too).
-        if (inflight) { if (!raw_wait()) break; inflight--; }
-        int cx1 = X_GAP, cx2 = DISP_W - 1 + X_GAP, y2 = y + n - 1;
+        if (band_inflight) { if (!band_wait()) break; __atomic_fetch_sub(&band_inflight, 1, __ATOMIC_ACQ_REL); }
+        int64_t tb = esp_timer_get_time();
+        us_wait += tb - ta;
+        int cx1 = x0 + X_GAP, cx2 = x0 + w - 1 + X_GAP, y2 = y + n - 1;
         uint8_t col[4] = {cx1 >> 8, cx1 & 0xFF, cx2 >> 8, cx2 & 0xFF};
         uint8_t row[4] = {y >> 8, y & 0xFF, y2 >> 8, y2 & 0xFF};
-        lcd_cmd(0x2A, col, 4);
+        if (!rows) lcd_cmd(0x2A, col, 4);                                  // the columns stay: once a push
         lcd_cmd(0x2B, row, 4);
         disp_phase = 4;
-        esp_lcd_panel_io_tx_color(io, PIXELS, bufs[k], DISP_W * n * 2);
+        __atomic_fetch_add(&band_inflight, 1, __ATOMIC_ACQ_REL);
+        esp_lcd_panel_io_tx_color(io, PIXELS, bufs[k], w * n * 2);
         disp_phase = 5;
-        inflight++;
-        st.pixels += DISP_W * n;
-        tst.pixels += DISP_W * n;
+        ta = esp_timer_get_time();
+        us_cmd += ta - tb;
+        rows += n;
+        if (bottom_up) {                                                   // the band above (all full but the last)
+            if (y <= runs[0].y1) break;
+            y -= lines;
+            n = lines;
+        } else {                                                           // the next band
+            y += n;
+            if (y > runs[r].y2) { if (++r >= nruns) break; y = runs[r].y1; }
+            n = runs[r].y2 - y + 1 < lines ? runs[r].y2 - y + 1 : lines;
+        }
+        k ^= 1;
+        raw_band = y;
+        disp_phase = 2;
+        fill(y, n, bufs[k], user);                                         // while the previous band is going out
+        us_fill += esp_timer_get_time() - ta;
     }
     disp_phase = 6;
-    while (inflight-- > 0) if (!raw_wait()) break;
+    while (band_inflight > 0) { if (!band_wait()) break; __atomic_fetch_sub(&band_inflight, 1, __ATOMIC_ACQ_REL); }
+    __atomic_store_n(&band_inflight, 0, __ATOMIC_RELEASE);
     disp_phase = 0;
-    raw_mode = false;
+    uint32_t push_us = esp_timer_get_time() - t0;
+    st.pixels += (uint64_t)w * rows;
+    tst.pixels += (uint64_t)w * rows;
+    count_push(push_us, wait, lag, timeout, chased);
+    static int first = 20;                                                 // the first frames after boot
+    if (te_log_n > 0) {
+        te_log_n--;
+        ESP_LOGI(TAG, "frame %.1f + %.1f ms, te wait %.1f ms (%s, %d rows, edge +%.2f ms; fill %.1f, bus wait %.1f, "
+                 "cmd %.1f ms)%s", render_us / 1000.0f, push_us / 1000.0f, wait / 1000.0f, kind, rows,
+                 lag / 1000.0f, us_fill / 1000.0f, us_wait / 1000.0f, us_cmd / 1000.0f,
+                 timeout ? " TE TIMEOUT" : chased ? " behind / ahead of the scan" : "");
+    } else if (first > 0) {
+        first--;
+        ESP_LOGD(TAG, "frame %.1f + %.1f ms, te wait %.1f ms (%s, %d rows)", render_us / 1000.0f, push_us / 1000.0f,
+                 wait / 1000.0f, kind, rows);
+    }
+}
+
+static void count_raw(void)
+{
     count_frame(0);                                       // counted like LVGL frames (fps in the test console)
     int64_t now = esp_timer_get_time();
     if (last_render && now - last_render < 250000) count_anim(now - last_render, last_raw, true);
@@ -167,8 +340,39 @@ void display_raw_frame(display_fill_cb_t fill, void *user)
     last_raw = true;
 }
 
-// A part of the screen (board.h): bands sized for the area's width, bottom up when asked (rows moved down in place
-// need the lower rows first). From weather_amoled's display.c (its list scrolls, v1.14).
+/* A whole frame without LVGL (forge_lvgl's slide.c): fill() writes each band. The caller holds the display lock, so
+ * LVGL isn't using the band buffers. fb keeps LVGL's last frame: the caller invalidates the screen afterwards. */
+void display_raw_frame(display_fill_cb_t fill, void *user)
+{
+    static const run_t all = {0, DISP_H - 1};
+    static int64_t raw_end;                               // a move's first frame: none in the last 100 ms
+    push(&all, 1, 0, DISP_W, false, fill, user, te_sync_raw, esp_timer_get_time() - raw_end > 100000, "raw", 0);
+    raw_end = esp_timer_get_time();
+    count_raw();
+}
+
+/* A part of the screen (board.h): bands sized for the area's width, bottom up when asked (rows moved down in place
+ * need the lower rows first). From weather_amoled's display.c (its list scrolls, v1.14). Each band is also copied
+ * back into fb: slide.c takes LVGL's redraw requests for the list back after a scroll (they are on the panel
+ * already), so fb would keep the list as it was before, and LVGL's next frame sends whole rows of fb (to the panel,
+ * and through the flush hook into slide.c's shadow). Top down: TE-synced like a move (the chase rule for the first
+ * area in 100 ms, else the edge); bottom up: at once (see push). */
+typedef struct { int x0, w; display_area_fill_cb_t fill; void *user; } area_t;
+
+static void area_fill(int y0, int n, void *dst, void *user)
+{
+    const area_t *a = user;
+    a->fill(a->x0, a->w, y0, n, dst, a->user);
+    const uint32_t *s = dst;                              // x0 and w even: 4-byte aligned, two pixels a word
+    for (int i = 0; i < n; i++) {
+        uint32_t *d = (uint32_t *)(fb + (y0 + i) * FB_STRIDE + a->x0 * 2);
+        for (int j = 0; j < a->w / 2; j++) {
+            uint32_t v = *s++;
+            d[j] = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);   // back to LVGL's byte order
+        }
+    }
+}
+
 void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_area_fill_cb_t fill, void *user)
 {
     x0 &= ~1; y0 &= ~1; x1 |= 1; y1 |= 1;                 // the CO5300's even start / odd end (as the rounder)
@@ -176,61 +380,68 @@ void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_ar
     if (y0 < 0) y0 = 0;
     if (x1 > DISP_W - 1) x1 = DISP_W - 1;
     if (y1 > DISP_H - 1) y1 = DISP_H - 1;
-    const int w = x1 - x0 + 1, rows = (DISP_W * BUF_LINES / w) & ~1;   // a narrow area: more rows per band
-    disp_phase = 1;
-    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
-    while (xSemaphoreTake(raw_done, 0) == pdTRUE) {}                     // no stale tokens
-    raw_mode = true;
-    void *bufs[2] = {buf1, buf2};
-    int inflight = 0;
-    const int last = y0 + (y1 - y0) / rows * rows;       // first row of the last band
-    for (int y = bottom_up ? last : y0, k = 0; bottom_up ? y >= y0 : y <= y1; y += bottom_up ? -rows : rows, k ^= 1) {
-        int n = y1 + 1 - y < rows ? y1 + 1 - y : rows;
-        raw_band = y;
-        disp_phase = 2;
-        fill(x0, w, y, n, bufs[k], user);                 // while the previous band is still going out
-        disp_phase = 3;
-        if (inflight) { if (!raw_wait()) break; inflight--; }   // no esp_lcd call with a transfer in flight
-        int cx1 = x0 + X_GAP, cx2 = x1 + X_GAP, y2 = y + n - 1;
-        uint8_t col[4] = {cx1 >> 8, cx1 & 0xFF, cx2 >> 8, cx2 & 0xFF};
-        uint8_t row[4] = {y >> 8, y & 0xFF, y2 >> 8, y2 & 0xFF};
-        lcd_cmd(0x2A, col, 4);
-        lcd_cmd(0x2B, row, 4);
-        disp_phase = 4;
-        esp_lcd_panel_io_tx_color(io, PIXELS, bufs[k], w * n * 2);
-        disp_phase = 5;
-        inflight++;
-        st.pixels += w * n;
-        tst.pixels += w * n;
-    }
-    disp_phase = 6;
-    while (inflight-- > 0) if (!raw_wait()) break;
-    disp_phase = 0;
-    raw_mode = false;
-    count_frame(0);                                       // counted like LVGL frames (fps in the test console)
-    int64_t now = esp_timer_get_time();
-    if (last_render && now - last_render < 250000) count_anim(now - last_render, last_raw, true);
-    last_render = now;
-    last_raw = true;
+    if (x0 > x1 || y0 > y1) return;
+    // Every area may chase the scan (start now, or after a short wait, when the write can't catch it): an area frame
+    // (strip render, rows moved, the copy back into fb) plus its push did not fit between two edges, and edge starts
+    // halved a list scroll to 30 fps (v0.7.0-align.1: perf.settings_scroll 30.1, 60 before the TE port)
+    const run_t run = {y0, y1};
+    area_t a = {x0, x1 - x0 + 1, fill, user};
+    push(&run, 1, x0, a.w, bottom_up, area_fill, &a, te_sync_raw, true, "area", 0);
+    count_raw();
 }
 
-static display_flush_hook_t flush_hook;
 void display_set_flush_hook(display_flush_hook_t hook) { flush_hook = hook; }
+
+// LVGL's frame -> a DMA band: RGB565 byte-swapped (panel order), two pixels at a time (rows are 4-byte aligned)
+static void fb_fill(int y0, int n, void *dst, void *user)
+{
+    const uint32_t *s = (const uint32_t *)(fb + y0 * FB_STRIDE);
+    uint32_t *d = dst;
+    for (int i = 0, words = n * DISP_W / 2; i < words; i++) {
+        uint32_t v = s[i];
+        d[i] = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);
+    }
+}
+
+/* DIRECT mode: LVGL draws the dirty areas into fb, calling flush_cb once per area (the last flagged); the rows they
+ * cover are collected and pushed on the last one, in order, after TE. Unchanged rows between two areas closer than a
+ * band go too (the frame holds them as they are): fewer, fuller bands. */
+static uint8_t dirty[DISP_H];
+static int dirty_min = DISP_H, dirty_max = -1;
+static int64_t flush_render_us;        // render time of the frame being flushed (RENDER_START to its last area)
 
 static void flush_cb(lv_display_t *disp, const lv_area_t *a, uint8_t *px)
 {
-    int x1 = a->x1 + X_GAP, x2 = a->x2 + X_GAP;
-    uint8_t col[4] = {x1 >> 8, x1 & 0xFF, x2 >> 8, x2 & 0xFF};
-    uint8_t row[4] = {a->y1 >> 8, a->y1 & 0xFF, a->y2 >> 8, a->y2 & 0xFF};
-    lcd_cmd(0x2A, col, 4);
-    lcd_cmd(0x2B, row, 4);
-    uint32_t n = lv_area_get_size(a);
-    st.pixels += n;
-    tst.pixels += n;
-    if (flush_hook) flush_hook(a, px);                    // before the swap: LVGL's own byte order
-    lv_draw_sw_rgb565_swap(px, n);
-    __atomic_fetch_add(&lvgl_inflight, 1, __ATOMIC_ACQ_REL);   // the transfer-done interrupt may run on the other core
-    esp_lcd_panel_io_tx_color(io, PIXELS, px, n * 2);
+    int y1 = a->y1 < 0 ? 0 : a->y1, y2 = a->y2 > DISP_H - 1 ? DISP_H - 1 : a->y2;
+    if (y1 <= y2) {
+        memset(dirty + y1, 1, y2 - y1 + 1);
+        if (y1 < dirty_min) dirty_min = y1;
+        if (y2 > dirty_max) dirty_max = y2;
+    }
+    if (!lv_display_flush_is_last(disp) || dirty_max < 0) { lv_display_flush_ready(disp); return; }
+    uint32_t render_us = esp_timer_get_time() - render_t0;
+    run_t runs[DISP_H / 2 / 2 + 1];
+    int nr = 0;
+    for (int y = dirty_min & ~1; y <= dirty_max; ) {
+        if (!dirty[y]) { y++; continue; }
+        int e = y;
+        while (e + 1 <= dirty_max && dirty[e + 1]) e++;
+        e |= 1;                                           // odd end (the rounder already made it so)
+        if (e > DISP_H - 1) e = DISP_H - 1;
+        if (nr && y - runs[nr - 1].y2 - 1 < BUF_LINES) runs[nr - 1].y2 = e;
+        else runs[nr++] = (run_t){ y & ~1, e };
+        y = e + 1;
+    }
+    memset(dirty + dirty_min, 0, dirty_max - dirty_min + 1);
+    dirty_min = DISP_H; dirty_max = -1;
+    if (flush_hook)                                       // full-width rows, LVGL's own byte order
+        for (int i = 0; i < nr; i++) {
+            lv_area_t ra = { 0, runs[i].y1, DISP_W - 1, runs[i].y2 };
+            flush_hook(&ra, fb + runs[i].y1 * FB_STRIDE);
+        }
+    push(runs, nr, 0, DISP_W, false, fb_fill, NULL, te_sync_lvgl, te_chase_lvgl, "lvgl", render_us);
+    flush_render_us = render_us;
+    lv_display_flush_ready(disp);
 }
 
 // CO5300 needs even start / odd end coordinates
@@ -274,12 +485,14 @@ static void render_evt(lv_event_t *e)
         if (last_render && now - last_render < 250000) count_anim(now - last_render, true, false);   // back-to-back = animation
         last_render = render_t0 = now;
         last_raw = false;
+        flush_render_us = -1;
     } else {
-        count_frame(now - render_t0);
+        // The render alone: up to the last area's flush (the push and its wait for TE are counted apart)
+        count_frame(flush_render_us >= 0 ? flush_render_us : now - render_t0);
     }
 }
 
-int display_lvgl_inflight(void) { return __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE); }
+int display_lvgl_inflight(void) { return __atomic_load_n(&band_inflight, __ATOMIC_ACQUIRE); }
 
 void display_get_stats(display_stats_t *out, bool reset)
 {
@@ -297,12 +510,108 @@ void display_get_test_stats(display_stats_t *out, bool reset)
     display_unlock();
 }
 
+static void log_summary(const display_stats_t *d)
+{
+    ESP_LOGI(TAG, "frames %lu (%lu pushes), render avg %.1f max %.1f ms, push avg %.1f max %.1f ms, te waits avg %.1f "
+                  "max %.1f ms (edge to push max %.2f ms, %lu started off the edge), te timeouts %lu", (unsigned long)d->frames,
+             (unsigned long)d->pushes, d->frames ? d->render_us / 1000.0f / d->frames : 0, d->render_max_us / 1000.0f,
+             d->pushes ? d->push_us / 1000.0f / d->pushes : 0, d->push_max_us / 1000.0f,
+             d->pushes ? d->te_wait_us / 1000.0f / d->pushes : 0, d->te_wait_max_us / 1000.0f,
+             d->te_lag_max_us / 1000.0f, (unsigned long)d->te_chased, (unsigned long)d->te_timeouts);
+}
+
+/* TE check: rising edges counted over a short window at start-up (the 1 s count is logged by te_report). No pulse:
+ * 0x35 sent again (0x00, V-blank only), then 0x01 (V and H blank); still none: never wait for it. A sleep of the
+ * panel during that second (no pulses then) is no verdict: counted again once it is awake (wake_finish). */
+static esp_timer_handle_t te_timer;
+static uint32_t te_count0;
+static volatile bool te_slept;          // the panel slept during the check
+static bool te_recheck;                 // ...count again after the wake
+
+static void te_report(void *arg)
+{
+    if (te_slept || asleep) { te_recheck = true; return; }
+    uint32_t n = te_rises - te_count0;
+    if (n >= 30 && n <= 120) {
+        te_state = 1;
+        ESP_LOGI(TAG, "TE %lu Hz on GPIO%d (period %.2f ms, high %.2f ms)", (unsigned long)n, PIN_TE,
+                 te_period_us / 1000.0f, te_high_us / 1000.0f);
+    } else {
+        te_state = -1;
+        ESP_LOGW(TAG, "TE %lu Hz on GPIO%d: not usable, frames not synced to the panel (tearing possible)",
+                 (unsigned long)n, PIN_TE);
+    }
+}
+
+static void te_check_start(void)
+{
+    te_slept = false;
+    te_count0 = te_rises;
+    if (te_timer) esp_timer_start_once(te_timer, 1000000);
+}
+
+static uint32_t te_count_ms(int ms)
+{
+    uint32_t n0 = te_rises;
+    vTaskDelay(pdMS_TO_TICKS(ms));
+    return te_rises - n0;
+}
+
+static void te_init(void)
+{
+    te_sem = xSemaphoreCreateBinary();
+    gpio_config_t te = { .pin_bit_mask = 1ULL << PIN_TE, .mode = GPIO_MODE_INPUT, .pull_down_en = GPIO_PULLDOWN_ENABLE,
+                         .intr_type = GPIO_INTR_ANYEDGE };
+    ESP_ERROR_CHECK(gpio_config(&te));
+    esp_err_t err = gpio_install_isr_service(0);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(err);
+    ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_TE, te_isr, NULL));
+    uint32_t n = te_count_ms(100);
+    for (int p = 0; n == 0 && p < 2; p++) {               // no pulse yet: the TE command again
+        uint8_t mode = p;
+        ESP_LOGI(TAG, "TE: no pulse on GPIO%d in 100 ms, sending 0x35 0x%02x", PIN_TE, mode);
+        lcd_cmd(0x35, &mode, 1);
+        n = te_count_ms(100);
+    }
+    te_state = n ? 0 : -1;                                // pulsing: checked over 1 s (te_report)
+    const esp_timer_create_args_t a = { .callback = te_report, .name = "te_check" };
+    esp_timer_create(&a, &te_timer);
+    te_check_start();
+    if (!n) ESP_LOGW(TAG, "TE: no pulse on GPIO%d: frames not synced to the panel (tearing possible)", PIN_TE);
+}
+
+// "te": TE status and the pushes' numbers; "te lvgl|raw on|off": sync each kind to TE or not; "te log N": the next N
+// pushes logged
+static void cmd_te(int argc, char **argv)
+{
+    if (argc == 3 && (!strcmp(argv[1], "lvgl") || !strcmp(argv[1], "raw"))) {
+        bool on = !strcmp(argv[2], "on");
+        if (!strcmp(argv[1], "lvgl")) te_sync_lvgl = on; else te_sync_raw = on;
+        ESP_LOGI("test", "ok te %s %s", argv[1], on ? "on" : "off");
+        return;
+    }
+    if (argc == 3 && !strcmp(argv[1], "chase")) {
+        te_chase_lvgl = !strcmp(argv[2], "on");
+        ESP_LOGI("test", "ok te chase %s", te_chase_lvgl ? "on" : "off");
+        return;
+    }
+    if (argc == 3 && !strcmp(argv[1], "log")) {
+        te_log_n = atoi(argv[2]);
+        ESP_LOGI("test", "ok te log %d", te_log_n);
+        return;
+    }
+    ESP_LOGI("test", "te state=%d rises=%lu period_ms=%.2f high_ms=%.2f level=%d lvgl=%s raw=%s chase=%s",
+             te_state, (unsigned long)te_rises, te_period_us / 1000.0f, te_high_us / 1000.0f, gpio_get_level(PIN_TE),
+             te_sync_lvgl ? "on" : "off", te_sync_raw ? "on" : "off", te_chase_lvgl ? "on" : "off");
+}
+
+void display_register_cmds(void) { testcon_register("te", "te [lvgl|raw|chase on|off] [log N]", cmd_te); }
+
 /* The panel asleep while the screen is off (display_sleep: forge_presence's screen_off hook, through the app). Going
  * to sleep is two commands from the calling task (the presence task, core 0), as display_brightness(). Coming back is
  * split: the caller sends SLPOUT (one command, the same rule), and the LVGL task finishes on core 1 (wake_at): the
  * 120 ms the DCS asks for after SLPOUT, a whole frame into the panel's memory, then DISPON. A whole refresh from core 0
  * would be the cross-core race of lesson L81 (the transfer-done interrupt is on core 1). From MeteoBus v0.2.1. */
-static volatile bool asleep;
 static volatile int64_t wake_at;         // SLPOUT sent: DISPON after this time (esp_timer us), 0 = nothing pending
 // Held while the panel is awake or waking: the CPU stays at 240 MHz even when idle (board.c configures 80..240 MHz).
 // Released while it sleeps: an idle core drops to 80 MHz (a running task still gets 240, ESP-IDF's "rtos" locks).
@@ -321,31 +630,47 @@ static void cpu_full_speed(bool on)
     cpu_held = on;
 }
 
-static void wake_finish(void)            // LVGL task, lock held
+// LVGL task, lock held. DIRECT mode: fb is the whole frame. What LVGL still had to draw goes in first, then all of fb
+// (the panel still asleep for push(): no wait for TE, nothing shown before DISPON), copied to the flush hook too.
+static void wake_finish(void)
 {
     int64_t left = wake_at - esp_timer_get_time();
     if (left > 0) vTaskDelay(pdMS_TO_TICKS(left / 1000 + 1));
-    lv_obj_invalidate(lv_screen_active());              // a whole frame into the panel's memory before it shows
     lv_refr_now(NULL);
+    static const run_t all = {0, DISP_H - 1};
+    const lv_area_t whole = {0, 0, DISP_W - 1, DISP_H - 1};
+    if (flush_hook) flush_hook(&whole, fb);
+    push(&all, 1, 0, DISP_W, false, fb_fill, NULL, false, false, "wake", 0);
     disp_phase = 7;
-    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
+    for (int i = 0; i < 100 && __atomic_load_n(&band_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
     disp_phase = 8;
     lcd_cmd(0x29, NULL, 0);                             // DISPON
     disp_phase = 0;
     wake_at = 0;
     asleep = false;
+    if (te_recheck) { te_recheck = false; te_check_start(); }   // TE checked again, awake
     ESP_LOGI(TAG, "panel awake");
 }
 
 static void lvgl_task(void *arg)
 {
+    int64_t next_sum = esp_timer_get_time() + 60000000LL;
     while (1) {
         uint32_t wait = 10;
+        display_stats_t d = {0};
+        bool report = false;
         if (display_lock(-1)) {
             if (wake_at) wake_finish();
             wait = lv_timer_handler();
+            if (esp_timer_get_time() >= next_sum) {
+                next_sum += 60000000LL;
+                d = sum;
+                memset(&sum, 0, sizeof(sum));
+                report = d.pushes > 0;
+            }
             display_unlock();
         }
+        if (report) log_summary(&d);
         // 1 ms minimum: enough to let other tasks run (at 60 fps a frame is 16.7 ms: a 5 ms minimum cost 30 %)
         if (wait < 1) wait = 1;
         if (wait > 50) wait = 50;
@@ -356,17 +681,18 @@ static void lvgl_task(void *arg)
 
 void display_sleep(bool off)
 {
-    // Called with the display lock held, from any task. As display_brightness(): no esp_lcd call while LVGL's last
-    // band is still going out.
+    // Called with the display lock held, from any task. As display_brightness(): no esp_lcd call while a band is
+    // still going out.
     if (off == asleep && !wake_at) return;
     disp_phase = 7;
-    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
+    for (int i = 0; i < 100 && __atomic_load_n(&band_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
     disp_phase = 8;
     if (off) {
         wake_at = 0;                                    // (a wake not finished yet: the panel goes back to sleep)
         lcd_cmd(0x28, NULL, 0);                         // DISPOFF
-        lcd_cmd(0x10, NULL, 0);                         // SLPIN: the panel's oscillator and drivers stop
+        lcd_cmd(0x10, NULL, 0);                         // SLPIN: the panel's oscillator and drivers stop (and TE)
         asleep = true;
+        if (te_state == 0) te_slept = true;             // the TE check running: no verdict from this second
         cpu_full_speed(false);
         ESP_LOGI(TAG, "panel asleep");
     } else if (!wake_at) {
@@ -418,14 +744,21 @@ void display_init(void)
         lcd_cmd(init_cmds[i].cmd, init_cmds[i].len ? init_cmds[i].data : NULL, init_cmds[i].len);
         if (init_cmds[i].delay_ms) vTaskDelay(pdMS_TO_TICKS(init_cmds[i].delay_ms));
     }
+    te_init();
 
+    // Band buffers: internal DMA RAM (L86); the frame: PSRAM (434 KB). One frame is enough: a push copies it into the
+    // band buffers and returns when the last band is out, so LVGL may draw into it again at once (a second frame
+    // would only add LVGL's copy of each dirty area between the two).
     void *b1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     void *b2 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    assert(b1 && b2);
+    size_t fb_bytes = FB_STRIDE * DISP_H;
+    fb = heap_caps_aligned_alloc(64, fb_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    assert(b1 && b2 && fb);
+    memset(fb, 0, fb_bytes);
     buf1 = b1; buf2 = b2;
-    raw_done = xSemaphoreCreateCounting(2, 0);
+    band_done = xSemaphoreCreateCounting(2, 0);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
-    lv_display_set_buffers(disp, b1, b2, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_buffers(disp, fb, NULL, fb_bytes, LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_set_flush_cb(disp, flush_cb);
     lv_display_add_event_cb(disp, rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
     lv_display_add_event_cb(disp, render_evt, LV_EVENT_RENDER_START, NULL);
@@ -434,16 +767,15 @@ void display_init(void)
     lvgl_mux = xSemaphoreCreateRecursiveMutex();
     xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8192, NULL, 4, &lvgl_th, 1);
     cpu_full_speed(true);                                 // the panel is awake: 240 MHz even when idle (display_sleep)
-    ESP_LOGI(TAG, "Display ready (%dx%d)", DISP_W, DISP_H);
+    ESP_LOGI(TAG, "Display ready (%dx%d, frame in PSRAM, DIRECT mode)", DISP_W, DISP_H);
 }
 
 void display_brightness(uint8_t level)
 {
-    // Called with the display lock held, from any task. LVGL lets go of the lock with its last band still on the bus,
-    // and an esp_lcd call during a transfer can hang for good: wait for that band first (any esp_lcd call from
-    // outside LVGL must).
+    // Called with the display lock held, from any task. A push returns with its last band done, but wait anyway (any
+    // esp_lcd call from outside LVGL must: a call during a transfer can hang for good).
     disp_phase = 7;
-    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
+    for (int i = 0; i < 100 && __atomic_load_n(&band_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
     disp_phase = 8;
     lcd_cmd(0x51, &level, 1);
     disp_phase = 0;

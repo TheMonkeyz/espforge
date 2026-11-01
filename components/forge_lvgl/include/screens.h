@@ -1,7 +1,7 @@
 #pragma once
 #include <stdbool.h>
 #include "lvgl.h"
-#include "web.h"
+#include "forge_image.h"
 
 // Named screens, for the test console ("screen" = which one is shown, "screen <name>" = show it) and for
 // GET /api/snapshot?screen=<name> (a picture of a screen rendered off-display, even one not shown). Names match
@@ -23,6 +23,7 @@ typedef struct {
 void screens_register(const screen_def_t *defs, int n);   // static array; register overlays after their screen
 const char *screens_current(void);                        // name of what's shown, "other" if none matches
 
-// For web_set_snapshot(screens_snapshot, screens_snapshot_free): "current" or a registered name
-bool screens_snapshot(const char *name, web_image_t *out);
-void screens_snapshot_free(web_image_t *img);
+// For web_set_snapshot(screens_snapshot, screens_snapshot_free): "current" or a registered name. forge_image_t
+// (forge_core) is forge_net's web_image_t: forge_lvgl needs no forge_net (an app without Wi-Fi leaves it out).
+bool screens_snapshot(const char *name, forge_image_t *out);
+void screens_snapshot_free(forge_image_t *img);

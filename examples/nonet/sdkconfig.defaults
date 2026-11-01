@@ -1,0 +1,43 @@
+# The Wi-Fi starter's sdkconfig.defaults without what Wi-Fi, the web server and updates need (HTTP server limits,
+# HTTPS, mbedTLS, lwIP, Easy Connect, the QR code, the FORGE_* names of forge_net / forge_ota) and without
+# CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE: forge_ota confirmed a new image after 60 s; here nothing would, so an app that
+# updates itself (esp32-s3-colormesh over Bluetooth) turns it on and confirms its own image.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# Quad I/O flash (the Wi-Fi starter's sdkconfig.defaults says why)
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+# Dynamic frequency scaling only (the board's "screen" lock: 240 MHz while the panel is awake). An app with a radio
+# may want it off (esp32-s3-colormesh: Bluetooth LE and the 15 ms touch / LVGL loop want the clock).
+CONFIG_PM_ENABLE=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+CONFIG_FREERTOS_HZ=1000
+# Main task: start-up and the app's loop. Check "main" in the diag tasks line after adding work to it.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_USE_CUSTOM_MALLOC=y
+CONFIG_LV_USE_CLIB_STRING=y
+CONFIG_LV_USE_CLIB_SPRINTF=y
+CONFIG_LV_USE_TINY_TTF=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_BUILD_EXAMPLES=n
+CONFIG_LV_USE_SNAPSHOT=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_LV_DEF_REFR_PERIOD=15
+# No theme style transitions (80 ms fades on press): each one redraws, and a redraw that changes nothing still costs
+CONFIG_LV_THEME_DEFAULT_TRANSITION_TIME=0
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+# A crash is kept in the coredump partition and summarised at the next boot (diag.c)
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y

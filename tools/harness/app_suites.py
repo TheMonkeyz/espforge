@@ -10,6 +10,7 @@ import re
 import time
 
 from board import CFG, SCREEN_C, check, test
+from core_suites import slide_drag
 
 APP_ORDER = ['navigation', 'perf', 'presence']
 APP_WATCH = [
@@ -171,6 +172,107 @@ def moving_press_is_no_long_press(ctx):
     ctx.note('a 70 px drag held 900 ms on the start-up message screen (no pager) opened nothing')
 
 
+def slide_counts(b):
+    """forge_lvgl's "slide": drag_px, scroll_px, lvgl_px and the counters since boot (drags, scrolls, hooked, dropped).
+    Firmware before v0.7.0 has no such command: the console's "test: error" fails the test."""
+    return {k: int(v) for k, v in
+            re.findall(r'(\w+)=(-?\d+)', b.cmd('slide', r'test: slide (drag_px=.*)').group(1))}
+
+
+@test('navigation')
+def drag_threshold(ctx):
+    """A press that moves less than FORGE_SLIDE_DRAG_PX (read from the device) stays a press: no drag, the page stays;
+    a few px more starts a drag (one more in "slide"'s count), and a swipe changes the page. ColorMesh: at 10 px a tap
+    or a hold with a slight finger move became a swipe, so the threshold is a Kconfig option (28 there). The moves stop
+    150 ms before the lift (slide hold ... END_MS): no flick, so a drag just past the threshold goes back."""
+    b = ctx.board
+    go_home(ctx)
+    c0 = slide_counts(b)
+    px = c0['drag_px']
+    x, y = SCREEN_C
+    short, longer = max(px - 4, 1), px + 8
+    at = len(ctx.log.lines())
+    # 160 ms to move, 100 ms still, then the lift: down ~0.3 s, under LVGL's 400 ms long press (which would open
+    # Settings: the screen is checked below)
+    b.cmd(f'slide hold {x} {y} 0 {x - short} {y} 160 100')
+    time.sleep(0.8)
+    c1 = slide_counts(b)
+    check(c1['drags'] == c0['drags'], f'a {short} px move (threshold {px} px) started a drag')
+    check(ctx.log.count(r'slide: drag: first frame', start=at) == 0, f'a {short} px move drew a drag')
+    check(b.screen() == HOME, f'a {short} px move left {HOME} for {b.screen()}')
+    b.cmd(f'slide hold {x} {y} 0 {x - longer} {y} 160 150')
+    ctx.log.wait(r'slide: drag: first frame .* back \|', 4, f'a {longer} px move: a drag, back', start=at)
+    time.sleep(0.8)
+    c2 = slide_counts(b)
+    check(c2['drags'] == c1['drags'] + 1, f'a {longer} px move: {c2["drags"] - c1["drags"]} drag(s), 1 expected')
+    check(b.screen() == HOME, f'a {longer} px move with no flick left {HOME} for {b.screen()}')
+    b.cmd('swipe left')
+    b.wait_screen(NEXT, 4)
+    check(slide_counts(b)['drags'] == c2['drags'] + 1, 'a swipe that changed the page was not counted as a drag')
+    go_home(ctx)
+    ctx.note(f'threshold {px} px (lists {c0["scroll_px"]}, LVGL {c0["lvgl_px"]}): {short} px stayed a press, '
+             f'{longer} px a drag back, a swipe went to {NEXT}')
+
+
+@test('navigation')
+def swipe_calls_drag_hook(ctx):
+    """slide_set_drag_hook: the app hears once per pager drag that its press became one (LVGL sends the pressed object
+    no PRESS_LOST: ColorMesh's "hold" stayed on for the whole swipe). The starter's hook logs "ui: drag started (main)";
+    "slide" counts the calls. Two swipes, one drag each: the hook ran twice, once per drag, for the hello | system
+    pager."""
+    b = ctx.board
+    go_home(ctx)
+    c0 = slide_counts(b)
+    at = len(ctx.log.lines())
+    b.cmd('swipe left')
+    b.wait_screen(NEXT, 4)
+    time.sleep(0.5)
+    b.cmd('swipe right')
+    b.wait_screen(HOME, 4)
+    time.sleep(0.5)
+    c1 = slide_counts(b)
+    drags, hooked = c1['drags'] - c0['drags'], c1['hooked'] - c0['hooked']
+    lines = ctx.log.count(r'ui: drag started \(main\)', start=at)
+    check(drags == 2, f'two swipes made {drags} drag(s)')
+    check(hooked == 2, f'two drags called the drag hook {hooked} time(s)')
+    check(lines == 2, f'two drags logged "ui: drag started (main)" {lines} time(s)')
+    ctx.note('two swipes: two drags, the drag hook called once for each (the hello | system pager)')
+
+
+@test('navigation')
+def long_press_drops_touch(ctx):
+    """slide_drop_touch: after a long press acted (it opened Settings), the finger that moves on is ignored until it
+    lifts. Before (ColorMesh v0.3.0's swatch), slide.c kept tracking the touch: the move scrolled the Settings list
+    under it here, a page drag on a pager. A hold of 1.2 s (the long press at 0.4 s, Settings up by ~0.7 s), then
+    150 px up: "slide" counts one dropped touch, no drag, no list scroll; Settings stays."""
+    b = ctx.board
+    if 'settings' not in CFG['screens']:
+        ctx.note('no "settings" screen in forge.json: not checked')
+        return
+    go_home(ctx)
+    b.wait_online()                                    # offline, a long press opens Wi-Fi setup instead
+    c0 = slide_counts(b)
+    x, y = SCREEN_C
+    at = len(ctx.log.lines())
+    try:
+        b.cmd(f'slide hold {x} {y} 1200 {x} {y - 150} 400', timeout=20)
+        ctx.log.wait(r'slide: touch dropped', 2, 'the long press dropped the touch', start=at)
+        b.wait_screen('settings', 4)
+        time.sleep(0.8)
+        c1 = slide_counts(b)
+        d = {k: c1[k] - c0[k] for k in ('dropped', 'drags', 'scrolls')}
+        check(d['dropped'] == 1, f'the long press dropped {d["dropped"]} touch(es), 1 expected')
+        check(d['drags'] == 0 and d['scrolls'] == 0,
+              f'the finger moving on after the long press still moved: {d["drags"]} drag(s), {d["scrolls"]} scroll(s)')
+        check(ctx.log.count(r'slide: (scroll|drag): ', start=at) == 0, 'a drag or a scroll line after the long press')
+    finally:
+        if b.screen() == 'settings':
+            b.tap(SCREEN_C[0], 42)                     # Done
+        go_home(ctx)
+    ctx.note('long press, then 150 px up with the finger still down: Settings opened, the move ignored '
+             '(1 touch dropped)')
+
+
 def log_ms(line):
     """The ESP-IDF timestamp of a log line, in ms ("I (12345) tag: ...")."""
     m = re.search(r'\((\d+)\)', line)
@@ -198,6 +300,7 @@ def measure(ctx, name, action, settle=1.0):
     if time.localtime().tm_sec > 55:                 # not across a minute change: the clock's redraw right after a
         time.sleep(62 - time.localtime().tm_sec)     # move counts in swipe_gap_max_ms (weather_amoled: 127 ms once)
     b.cmd('fps reset')
+    at = len(ctx.log.lines())
     for c in action:
         b.cmd(c)
     time.sleep(settle)
@@ -205,12 +308,18 @@ def measure(ctx, name, action, settle=1.0):
     kv = dict(x.split('=', 1) for x in line.split() if '=' in x)
     v = {k: float(x) for k, x in kv.items() if re.fullmatch(r'-?[\d.]+', x)}   # gap_max_kind is text
     check(v.get('anim_frames', 0) > 0, f'{name}: no animation frames counted ({line})')
+    # The worst gap is the move's own (its `slide: drag:` line): the fps counters' gap also counts an LVGL redraw of
+    # the page landed on within 250 ms of the move's end (the system page's 1 s refresh: 222 ms once where the move's
+    # frames were 35-41 ms apart, espforge v0.6.0-rc.4). The fps gap stays in the note, as the landing's.
+    moves = [d for d in map(slide_drag, ctx.log.lines()[at:]) if d]
+    gap = max(m['gap_max_ms'] for m in moves) if moves else v['gap_max_ms']
     ctx.metric(f'swipe_fps.{name}', round(v['anim_fps'], 1))
-    ctx.metric(f'swipe_gap_max_ms.{name}', round(v['gap_max_ms']))
+    ctx.metric(f'swipe_gap_max_ms.{name}', round(gap))
     ctx.metric(f'swipe_render_avg_ms.{name}', round(v['render_avg_ms'], 1))
     ctx.note(f'{name}: {v["anim_fps"]:.1f} fps, {int(v["anim_frames"])} frames, render avg {v["render_avg_ms"]:.1f} ms '
-             f'max {v["render_max_ms"]:.1f} ms, worst gap {v["gap_max_ms"]:.0f} ms' +
-             (f' ({kv["gap_max_kind"]}, {kv["gap_max_at_ms"]} ms after the reset)' if 'gap_max_kind' in kv else ''))
+             f'max {v["render_max_ms"]:.1f} ms, worst gap {gap:.0f} ms' + (' (the move\'s)' if moves else '') +
+             (f'; the fps counters\' worst gap {v["gap_max_ms"]:.0f} ms ({kv.get("gap_max_kind", "-")}, '
+              f'{kv.get("gap_max_at_ms", "?")} ms after the reset)' if 'gap_max_kind' in kv else ''))
 
 
 @test('perf')

@@ -18,7 +18,12 @@ bool parse_ver(const char *s, ver_t *o)
     if (!*s) { o->kind = 1; return true; }
     if (*s != '-') return false;
     s++;
-    if (!strncmp(s, "rc.", 3)) { o->kind = 0; o->n = atoi(s + 3); return true; }
+    if (!strncmp(s, "rc.", 3)) {
+        o->kind = 0;
+        o->n = strtol(s + 3, &end, 10);
+        if (*end == '-' && isdigit((unsigned char)end[1]) && strstr(end, "-g")) o->m = atoi(end + 1);   // -M-gHASH
+        return true;
+    }
     if (isdigit((unsigned char)*s) && strstr(s, "-g")) { o->kind = 2; o->n = atoi(s); return true; }
     o->kind = 0;                                   // other suffixes (test builds) count as pre-releases
     o->n = -1;
@@ -29,5 +34,6 @@ int cmp_ver(const ver_t *a, const ver_t *b)
 {
     for (int i = 0; i < 3; i++) if (a->v[i] != b->v[i]) return a->v[i] - b->v[i];
     if (a->kind != b->kind) return a->kind - b->kind;
-    return a->n - b->n;
+    if (a->n != b->n) return a->n - b->n;
+    return a->m - b->m;
 }

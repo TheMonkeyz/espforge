@@ -9,8 +9,16 @@
 # S3's USB connected, so the boot log is whole from ESP-ROM on; esptool's hard reset re-enumerates the USB and the first
 # ~2.5 s are lost (the flash mode, the reset reason: LESSONS L154, L191). Exit code 3 when no boot follows within 4 s
 # (firmware without the console, a hung board): the helper then resets with esptool and runs this again.
+# -AfterFlash: after esptool's reset the port is back ~3 s into the boot and the lines before are lost (`ble: synced`
+# at 2.5 s, L154), so a test cannot wait for an early event. `ping` until the test console answers (up to -AskSeconds),
+# then `reboot` on this open port: the log is one whole boot from ESP-ROM on (the first boot's lines are dropped).
+# A USB flash writes ota_data_initial.bin: no update waits to be confirmed, so this restart cannot roll back (L23).
+# No answer (firmware without the console) or no boot after `reboot`: the log goes on from the flash's own boot, as
+# before. Sets flash.status to "logging" itself, once the log holds the boot it keeps; adds 10 to the exit code when it
+# restarted the board (the helper does not count that restart as an unexpected reset).
 # Baud from forge.json (monitor_baud); port: -Port, else forge.json's port, else the last one esptool used.
-param([string]$Port = "", [int]$Seconds = 75, [int]$Baud = 0, [switch]$Reboot)
+param([string]$Port = "", [int]$Seconds = 75, [int]$Baud = 0, [switch]$Reboot, [switch]$AfterFlash,
+      [int]$AskSeconds = 8)
 
 function Find-Root {
   $d = $PSScriptRoot
@@ -62,6 +70,39 @@ if ($Reboot) {
   }
   Set-Content -Path "flash.status" -Value "logging" -Encoding ASCII   # (the helper waits for this script to end)
 }
+$restarted = $false
+if ($AfterFlash) {
+  $first = New-Object System.Collections.Generic.List[string]
+  $askEnd = (Get-Date).AddSeconds($AskSeconds); $nextPing = Get-Date; $answers = $false
+  while (-not $answers -and (Get-Date) -lt $askEnd) {
+    if ((Get-Date) -ge $nextPing) {
+      try { $sp.Write("ping`n") } catch {}   # (a line sent before the console is up is only lost)
+      $nextPing = (Get-Date).AddSeconds(1)
+    }
+    try { $line = $sp.ReadLine(); Write-Host $line; $first.Add($line); $answers = $line -match 'test: pong' } catch {}
+  }
+  $boot = New-Object System.Collections.Generic.List[string]
+  if ($answers) {
+    try { $sp.Write("reboot`n") } catch {}
+    $bootEnd = (Get-Date).AddSeconds(4)
+    while (-not $restarted -and (Get-Date) -lt $bootEnd) {
+      try { $line = $sp.ReadLine(); Write-Host $line; $boot.Add($line); $restarted = $line -match 'ESP-ROM:|rst:0x' }
+      catch {}
+    }
+  }
+  if ($restarted) {
+    # one boot: the console's "ok restarting" line, then the boot; the old boot's last lines in between are dropped
+    $ok = @($boot | Where-Object { $_ -match 'ok restarting' } | Select-Object -Last 1)
+    $boot = [System.Collections.Generic.List[string]]@($ok + $boot[$boot.Count - 1])
+    Write-Host "Restarted through the test console after the flash: the boot log is whole"
+  }
+  else {
+    Write-Host "No restart through the test console after the flash: logging the flash's own boot"
+    $first.AddRange($boot); $boot = $first
+  }
+  foreach ($l in $boot) { $out.Add($l); $live.WriteLine($l) }
+  Set-Content -Path "flash.status" -Value "logging" -Encoding ASCII
+}
 $end = (Get-Date).AddSeconds($Seconds)
 $stopped = $false; $nextCheck = Get-Date
 while ((Get-Date) -lt $end) {
@@ -93,4 +134,6 @@ while ((Get-Date) -lt $end) {
 $sp.Close()
 $live.Close()
 $out | Set-Content serial_log.txt
-if ($stopped) { Write-Host "Stopped early."; exit 2 }
+$code = if ($restarted) { 10 } else { 0 }
+if ($stopped) { Write-Host "Stopped early."; exit (2 + $code) }
+exit $code

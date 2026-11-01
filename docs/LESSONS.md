@@ -75,7 +75,7 @@ espforge's two helpers the same evening: `rst:0xc`, `SPI Mode : QIO`, `console r
 the port open did not restart the board.
 Check: `reboot.request` sends `reboot` on the open port and waits up to 4 s for `ESP-ROM:` or `rst:0x`, else falls
 back to esptool (no console, a hung board); `flash_helper.log` says which. That restart is not counted in
-`flash.done`'s `resets`. A flash still loses the first seconds: tests must not need lines printed before ~3 s (L154).
+`flash.done`'s `resets`. Since v0.7.0 a flash restarts once more through the console when it answers, so its log is whole too; only firmware without the console loses the first ~3 s (L154).
 
 ## Builds, versions and releases
 
@@ -468,6 +468,9 @@ Why: LVGL 9.2 can't redraw a full 466×466 screen in under ~65-85 ms on this chi
 moves had to be pictures copied straight to the panel (~8 ms from PSRAM, ~11 ms on an 80 MHz QSPI bus).
 Check: `fps`, the render bench; docs/TESTING.md profiling. weather_amoled measured LVGL 8, 9.2 and 9.6 and two draw
 units on October 4: stay on 9.2.2.
+Amended (esp32-s3-colormesh, November 1): the 65-85 ms includes sending the bands to the panel, which PARTIAL mode does
+while it renders. Rendered alone into a PSRAM frame (DIRECT mode, the board since espforge v0.7.0) a full redraw is
+31-36 ms; the push to the panel is ~14-16 ms after it. The floor for LVGL's own animations is then ~20 fps, not 12.
 
 **L88. Panel quirks belong to the board component.**
 Why: the CO5300 needs areas starting on an even and ending on an odd pixel (a rounder callback) and a +6 column
@@ -1234,3 +1237,57 @@ rc.6: "no log line presence: touch on a dark screen").
 Fix: the state machine remembers a wake made by the poll from OFF for `PRESENCE_DARK_TOUCH_S` (0.6 s);
 `presence_sm_take_dark_touch()` answers the filter from the state or that grace, and clears it.
 Check: `tests/host/test_presence.c` (the grace, taken once, expired); on the board `presence.dim_off_wake` ten times.
+
+## Alignment with esp32-s3-colormesh v0.1.0-v0.4.0 (espforge v0.7.0, November 1)
+
+**L214. A continuous Bluetooth LE scan starves a connection on the ESP32-S3's controller.**
+Why: ColorMesh's boards scan all the time (window = interval, 100/100 ms) and pull firmware from each other over GATT.
+The pull ran at 21-22 KB/s whatever the link: 2M PHY, 251-byte data length, 7.5 ms interval, a larger `max_ce_len`, a
+wider write window all granted and none moved it. The controller gives the connection one 251-byte packet per connection
+event while a scan window is open; the host spent 48 of 49 s in the mbuf back-off. With the sender's scan window at 70,
+50, 30 and 0 ms of every 100 ms: 32, 40, 52 and 75 KB/s (linear in the scan-free time).
+Fix: narrow the scan window during a transfer (ColorMesh: 30 ms of each 100 ms, ~52 KB/s, peers still heard) and pause
+the receiver's scan.
+Check: log the transfer's rate with the scan window; a sender-side probe (ColorMesh's `fwtune probe=KB`: abort after N KB,
+the peer backs off and asks again) compares settings without re-flashing the peers.
+
+**L215. NimBLE scanning without duplicate filtering: keep `CONFIG_BT_NIMBLE_HOST_QUEUE_CONG_CHECK` off.**
+Why: its Kconfig help recommends it for exactly that case, but it makes the host pass each address once per ~200
+reports (`ble_hs_hci_evt.c`, `ble_check_adv_list`: 50 addresses, the list cleared every 200 events). A peer advertising
+50 times a second was heard once every 2.7 s (ColorMesh v0.1.0-rc.1).
+Fix: leave it off; the controller's report flow control (`CONFIG_BT_CTRL_ADV_REPORT_FLOW_CTRL_NUM`, ColorMesh 200) is the
+memory guard. Read the source of a "recommended" option before trusting its help text.
+Check: count the reports per second from one peer (ColorMesh's `mesh: peer` lines) against its advertising rate.
+
+**L216. A git-describe build after an rc counted as that rc.**
+Why: ColorMesh tested its signed pull with a test build labelled `v0.4.0-rc.1-1-gsigned` (git describe after rc.1); its
+peers on rc.1 did not take it: forge_core's order read `-rc.N-M-gHASH` as rc.N, equal, not newer. A post-release
+describe build (`vX.Y.Z-N-gHASH`) ranked above the release, but nothing ranked above an rc except the next rc.
+Fix: since espforge v0.7.0 `-rc.N-M-gHASH` ranks above rc.N and below rc.N+1 (`version.c`, the `m` field). An app
+that compares versions with its own code (ColorMesh's mesh_proto.c) has to follow; meanwhile, test with the next rc
+number.
+Check: `tests/host/test_version.c`.
+
+**L217. A long measurement is its own step: a helper agent hands back early.**
+Why: twice in ColorMesh a subagent asked to run a 15-minute measurement returned after a few minutes with partial numbers
+reported as the result.
+Fix: run long measurements in the supervising session (a background command with a log), or give the measurement its
+own agent with the exact end condition ("stop when the log has N lines like ..."), and check the log's time span.
+Check: the report gives the first and last log times of the window it measured.
+
+**L218. In DIRECT mode the frame buffer must stay what the panel shows.**
+Why: with LVGL drawing into one whole frame (the board since v0.7.0), anything sent to the panel around LVGL leaves
+old pixels in the frame: slide.c's list scrolls (`display_raw_area`) drop LVGL's redraw requests for the list, and
+LVGL's next push sends whole rows of the frame, unchanged rows between two dirty areas included. The old list came
+back on the panel and, through the flush hook, into slide.c's shadow picture.
+Fix: `display_raw_area` copies each band back into the frame; a move drawn as pictures is followed by a whole-screen
+invalidate (board.h's contract).
+Check: after a list scroll, a tap or a clock redraw shows no old rows; `pictest` against `current`.
+
+**L219. Waiting for TE fixes a write that runs with the panel's scan, not one against it.**
+Why: the panel scans top to bottom. A band sequence sent bottom up (slide.c's list scrolled down moves its rows in
+place, so it must go bottom up) meets the scan somewhere whenever it starts, unless it fits in the time the scan spends
+outside the area. Waiting for the edge cost time and removed no tear.
+Fix: only top-down pushes wait for TE; a bottom-up area is sent at once (the cure is in slide.c: move the rows first,
+then send top down; BACKLOG).
+Check: `te log 20` names each push's kind and start; `te_timeouts=0` in `fps`.

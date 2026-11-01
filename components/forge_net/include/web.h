@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "esp_http_server.h"
 #include "cJSON.h"
+#include "forge_image.h"
 
 // The settings page and its API (docs/PROTOCOL.md §4). HTTPS on 443 (CONFIG_FORGE_HTTPS_PORT) with this device's own
 // certificate (tlscert) on the home network; plain HTTP on 80 is the captive portal on the setup network and only redirects to HTTPS on the
@@ -19,8 +20,8 @@ typedef struct {
 } web_route_t;
 void web_add_routes(const web_route_t *routes, int n);   // the array must stay valid (static const)
 
-// /api/snapshot?screen=<name>: an RGB565 picture of a screen rendered off-display (forge_lvgl's screens_snapshot)
-typedef struct { const uint8_t *data; int w, h, stride; void *priv; } web_image_t;
+// /api/snapshot?screen=<name>: an RGB565 picture of a screen rendered off-display (forge_lvgl's screens_snapshot).
+// web_image_t is forge_core's forge_image_t (forge_image.h), so forge_lvgl builds without forge_net.
 typedef bool (*web_snapshot_fn)(const char *screen, web_image_t *out);
 typedef void (*web_snapshot_free_fn)(web_image_t *img);
 void web_set_snapshot(web_snapshot_fn take, web_snapshot_free_fn release);

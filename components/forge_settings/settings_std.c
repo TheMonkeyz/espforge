@@ -6,11 +6,18 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "esp_wifi.h"
+#include "esp_system.h"
 #include "forge_i18n.h"
-#include "net.h"
-#include "ota.h"
 #include "presence.h"
+// forge_net and forge_ota are optional (CMakeLists.txt): an app with no Wi-Fi has no phone page, network, IP or
+// updates rows (link errors if it lists them), and Restart restarts at once
+#ifdef FORGE_HAVE_NET
+#include "esp_wifi.h"
+#include "net.h"
+#endif
+#ifdef FORGE_HAVE_OTA
+#include "ota.h"
+#endif
 #include "textfit.h"
 
 static const char *TAG = "settings";
@@ -93,7 +100,9 @@ static void lang_tap(void *u)
 /* ---------- more ---------- */
 
 static void arrow(void *u, char *out, size_t n) { snprintf(out, n, ">"); }
+#ifdef FORGE_HAVE_NET
 static void phone_tap(void *u) { settings_show_phone(); }
+#endif
 
 static void (*wifi_open)(void);
 static void wifi_tap(void *u)
@@ -103,9 +112,12 @@ static void wifi_tap(void *u)
     wifi_open();
 }
 
-static uint32_t checked_at, install_armed, restart_armed;   // lv_tick of the tap; 0 = none
+static uint32_t restart_armed;                      // lv_tick of the tap; 0 = none
 
 static bool recent(uint32_t at, uint32_t ms) { return at && lv_tick_elaps(at) < ms; }
+
+#ifdef FORGE_HAVE_OTA
+static uint32_t checked_at, install_armed;
 
 static void updates_value(void *u, char *out, size_t n)
 {
@@ -137,6 +149,7 @@ static void updates_tap(void *u)
     ota_check_now();
     checked_at = lv_tick_get() | 1;
 }
+#endif
 
 static bool restarting;
 
@@ -145,7 +158,11 @@ static void restart_value(void *u, char *out, size_t n)
     snprintf(out, n, "%s", restarting ? T(SET_T_RESTARTING) : recent(restart_armed, ARMED_MS) ? T(SET_T_TAP_AGAIN) : "");
 }
 
+#ifdef FORGE_HAVE_OTA
 static void do_restart(lv_timer_t *t) { lv_timer_delete(t); ota_restart_when_safe(); }   // (not in an update's first minute)
+#else
+static void do_restart(lv_timer_t *t) { lv_timer_delete(t); esp_restart(); }   // (no forge_ota: no update to wait for)
+#endif
 
 static void restart_tap(void *u)
 {
@@ -160,6 +177,7 @@ static void restart_tap(void *u)
 
 static void version_value(void *u, char *out, size_t n) { snprintf(out, n, "%s", esp_app_get_description()->version); }
 
+#ifdef FORGE_HAVE_NET
 static void network_value(void *u, char *out, size_t n)
 {
     char ssid[NET_SSID_MAX + 1], name[NET_SSID_MAX + 1];
@@ -171,6 +189,7 @@ static void network_value(void *u, char *out, size_t n)
 }
 
 static void ip_value(void *u, char *out, size_t n) { if (!net_get_ip(out, n)) snprintf(out, n, "-"); }
+#endif
 
 static void memory_value(void *u, char *out, size_t n)
 {
@@ -201,16 +220,22 @@ settings_row_t settings_std_language(void (*changed)(void))
     lang_changed = changed;
     return ROW(SET_VALUE, SET_T_LANGUAGE, .value = lang_value, .tap = lang_tap);
 }
+#ifdef FORGE_HAVE_NET
 settings_row_t settings_std_phone(void) { return ROW(SET_ACTION, SET_T_PHONE, .value = arrow, .tap = phone_tap); }
+#endif
 settings_row_t settings_std_wifi(void (*open)(void))
 {
     wifi_open = open;
     return ROW(SET_ACTION, SET_T_WIFI, .value = arrow, .tap = wifi_tap);
 }
+#ifdef FORGE_HAVE_OTA
 settings_row_t settings_std_updates(void) { return ROW(SET_ACTION, SET_T_UPDATES, .value = updates_value, .tap = updates_tap); }
+#endif
 settings_row_t settings_std_restart(void) { return ROW(SET_ACTION, SET_T_RESTART, .value = restart_value, .tap = restart_tap); }
 settings_row_t settings_std_version(void) { return ROW(SET_INFO, SET_T_VERSION, .value = version_value); }
+#ifdef FORGE_HAVE_NET
 settings_row_t settings_std_network(void) { return ROW(SET_INFO, SET_T_NETWORK, .value = network_value); }
 settings_row_t settings_std_ip(void) { return ROW(SET_INFO, SET_T_IP, .value = ip_value); }
+#endif
 settings_row_t settings_std_memory(void) { return ROW(SET_INFO, SET_T_MEMORY, .value = memory_value); }
 settings_row_t settings_std_uptime(void) { return ROW(SET_INFO, SET_T_UPTIME, .value = uptime_value); }

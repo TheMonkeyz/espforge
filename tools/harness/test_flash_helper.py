@@ -9,6 +9,7 @@ missing; ESP-IDF's Python has it (CI installs it).
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -136,16 +137,21 @@ class Reopen(TempDev):
 
 
 class FakeBoard:
-    """A port whose board answers the console's `reboot` with a boot log (answers=True), or ignores it."""
-    BOOT = (b'I (227945) testcon: ok restarting\r\nESP-ROM:esp32s3-20210327\r\n'
+    """A port whose board answers the console's `ping` and `reboot` (with a boot log) when answers=True, or ignores
+    them. `first`: what it prints before (the end of the boot esptool's reset started, from ~3 s on)."""
+    BOOT = (b'I (227945) testcon: ok restarting\r\nI (227950) wifi:flush txq\r\nESP-ROM:esp32s3-20210327\r\n'
             b'rst:0xc (RTC_SW_CPU_RST),boot:0x2b (SPI_FAST_FLASH_BOOT)\r\n'
             b'I (39) boot.esp32s3: SPI Mode       : QIO\r\nI (2969) test: console ready\r\n')
 
-    def __init__(self, answers):
-        self.answers, self.pending, self.written = answers, b'', b''
+    PONG = b'I (3105) test: pong 0.7.0\r\n'
+
+    def __init__(self, answers, first=b''):
+        self.answers, self.pending, self.written = answers, first, b''
 
     def write(self, data):
         self.written += data
+        if self.answers and data == b'ping\n':
+            self.pending += self.PONG
         if self.answers and data == b'reboot\n':
             self.pending += self.BOOT
 
@@ -203,6 +209,155 @@ class ConsoleReboot(TempDev):
 
 
 @unittest.skipIf(fh is None, 'pyserial missing (run from an ESP-IDF shell)')
+class FlashRestart(TempDev):
+    """After a flash the port is back ~3 s into the boot (esptool's reset re-enumerates the USB, L154): early lines
+    (`ble: synced` at 2.5 s) were missing, so a test could not wait for them (esp32-s3-colormesh v0.1.0-rc.5). Once
+    the test console answers, the helper restarts through it with the port open: the log is one whole boot (L191).
+    Firmware without the console is logged as before."""
+    FIRST = b'I (3050) ble: scanning\r\nI (3080) app: the end of the boot esptool started\r\n'
+
+    def setUp(self):
+        super().setUp()
+        self.old = fh.open_port, fh.esptool, fh.flash_args, fh.SETTLE_S, fh.CONSOLE_ASK_S
+        fh.SETTLE_S, fh.CONSOLE_ASK_S = 0, 1.5
+        self.esptool_calls = []
+
+        def fake_esptool(args):
+            self.esptool_calls.append(args)
+            return 0, ['Serial port COM-test', 'Hard resetting via RTS pin...'], 'COM-test'
+        fh.esptool = fake_esptool
+        fh.flash_args = lambda port: (['--port', port, 'write_flash', '0x10000', 'app.bin'], None)
+
+    def tearDown(self):
+        fh.open_port, fh.esptool, fh.flash_args, fh.SETTLE_S, fh.CONSOLE_ASK_S = self.old
+        super().tearDown()
+
+    def flash(self, board):
+        fh.open_port = lambda *a, **k: board
+        t0 = time.time()
+        rc = fh.run_request('flash', 1, port_opt='COM-test', echo=False)
+        self.assertEqual(rc, 0)
+        self.assertLess(time.time() - t0, 8)
+        self.assertEqual(len(self.esptool_calls), 1, 'esptool ran more than the flash')
+        self.assertTrue(self.read('flash.done').startswith('exit=0 port=COM-test '))
+        self.assertEqual(self.read('flash.status').strip(), 'idle')
+        return self.read('serial_log.txt')
+
+    def test_the_boot_log_is_whole_after_a_flash(self):
+        board = FakeBoard(answers=True, first=self.FIRST)
+        log = self.flash(board)
+        self.assertTrue(board.written.startswith(b'ping\n'), board.written)
+        self.assertTrue(board.written.endswith(b'reboot\n'), 'no restart through the console after the flash')
+        for line in ('ESP-ROM:esp32s3', 'rst:0xc', 'SPI Mode       : QIO', 'console ready'):
+            self.assertIn(line, log)
+        first = [i for i, line in enumerate(log.splitlines()) if line.startswith('ESP-ROM:')]
+        self.assertEqual(first, [1], 'the log does not start with the boot (the "ok restarting" line, then ESP-ROM)')
+        self.assertNotIn('ble: scanning', log, 'the tail of the first boot kept: two boots in one log')
+        self.assertIn(' resets=0 ', self.read('flash.done'), 'the restart asked for counted as an unexpected reset')
+
+    def test_firmware_without_the_console_is_logged_as_before(self):
+        board = FakeBoard(answers=False, first=self.FIRST)
+        log = self.flash(board)
+        self.assertNotIn(b'reboot', board.written, 'reboot sent although the console never answered')
+        self.assertIn('ble: scanning', log, 'the boot esptool started was not logged')
+        self.assertIn(' resets=0 ', self.read('flash.done'))
+
+    def test_turned_off_in_forge_json(self):
+        fh.CFG['flash_restart'] = False
+        board = FakeBoard(answers=True, first=self.FIRST)
+        log = self.flash(board)
+        self.assertEqual(board.written, b'', 'the console was asked although forge.json says flash_restart false')
+        self.assertIn('ble: scanning', log)
+
+
+# monitor.ps1 against a fake port: a function named New-Object shadows the cmdlet for SerialPort only (functions win
+# over cmdlets), Start-Sleep is a no-op (the 2 s settle). $env:FAKE_ANSWERS=1: the board answers ping and reboot.
+PS_RUNNER = r'''param($Monitor)
+$global:FakeQ = New-Object System.Collections.Generic.Queue[string]
+$global:FakeQ.Enqueue("I (3050) ble: scanning")
+$global:Fake = [pscustomobject]@{ DtrEnable = $true; RtsEnable = $true; ReadTimeout = 0; IsOpen = $false; Written = "" }
+$global:Fake | Add-Member ScriptMethod Open { $this.IsOpen = $true }
+$global:Fake | Add-Member ScriptMethod Close { $this.IsOpen = $false }
+$global:Fake | Add-Member ScriptMethod Write {
+  param($s)
+  $this.Written += $s
+  if ($env:FAKE_ANSWERS -ne "1") { return }
+  if ($s -eq "ping`n") { $global:FakeQ.Enqueue("I (3105) test: pong 0.7.0") }
+  if ($s -eq "reboot`n") {
+    foreach ($l in "I (227945) test: ok restarting", "I (227950) wifi:flush txq", "ESP-ROM:esp32s3-20210327",
+                   "rst:0xc (RTC_SW_CPU_RST),boot:0x2b (SPI_FAST_FLASH_BOOT)",
+                   "I (39) boot.esp32s3: SPI Mode       : QIO", "I (2969) test: console ready") { $global:FakeQ.Enqueue($l) }
+  }
+}
+$global:Fake | Add-Member ScriptMethod ReadLine {
+  if ($global:FakeQ.Count) { return $global:FakeQ.Dequeue() }
+  [System.Threading.Thread]::Sleep(50); throw [System.TimeoutException]::new("no line")
+}
+function New-Object {
+  param([Parameter(Position = 0)][string]$TypeName, [Parameter(Position = 1)][object[]]$ArgumentList)
+  if ($TypeName -eq "System.IO.Ports.SerialPort") { return $global:Fake }
+  if ($ArgumentList) { Microsoft.PowerShell.Utility\New-Object -TypeName $TypeName -ArgumentList $ArgumentList }
+  else { Microsoft.PowerShell.Utility\New-Object -TypeName $TypeName }
+}
+function Start-Sleep {}
+& $Monitor -Port COM-test -Seconds 1 -AfterFlash -AskSeconds 2
+$code = $LASTEXITCODE
+Set-Content -Path (Join-Path (Split-Path $Monitor) "written.txt") -Value $global:Fake.Written -NoNewline
+exit $code
+'''
+POWERSHELL = shutil.which('powershell') if os.name == 'nt' else None
+
+
+@unittest.skipIf(POWERSHELL is None, 'Windows PowerShell only')
+class MonitorPs1AfterFlash(unittest.TestCase):
+    """The PC's helper, monitor.ps1 -AfterFlash (the twin of restart_after_flash()): a copy in a temporary root, so
+    the real .devloop is not touched."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.dir = os.path.join(self.root, 'tools', 'devloop')
+        os.makedirs(self.dir)
+        shutil.copy(os.path.join(HERE, '..', 'devloop', 'monitor.ps1'), self.dir)
+        with open(os.path.join(self.root, 'forge.json'), 'w') as f:
+            f.write('{}')
+        with open(os.path.join(self.dir, 'runner.ps1'), 'w') as f:
+            f.write(PS_RUNNER)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def run_monitor(self, answers):
+        r = subprocess.run([POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                            os.path.join(self.dir, 'runner.ps1'), os.path.join(self.dir, 'monitor.ps1')],
+                           capture_output=True, text=True, errors='replace', timeout=60,
+                           env={**os.environ, 'FAKE_ANSWERS': '1' if answers else '0'})
+        dev = os.path.join(self.root, '.devloop')
+
+        def read(name):
+            with open(os.path.join(dev, name), encoding='utf-8-sig', errors='replace') as f:
+                return f.read()
+        with open(os.path.join(self.dir, 'written.txt'), encoding='utf-8-sig', errors='replace') as f:
+            written = f.read()
+        return r.returncode, read('serial_log.txt').splitlines(), written, read('flash.status').strip(), r
+
+    def test_the_boot_log_is_whole_after_a_flash(self):
+        code, log, written, status, r = self.run_monitor(answers=True)
+        self.assertEqual(code, 10, f'not "restarted" (10): {r.stdout[-800:]} {r.stderr[-800:]}')
+        self.assertTrue(written.startswith('ping\n') and written.endswith('reboot\n'), repr(written))
+        self.assertEqual(log[1], 'ESP-ROM:esp32s3-20210327', log)
+        self.assertIn('I (39) boot.esp32s3: SPI Mode       : QIO', log)
+        self.assertNotIn('I (3050) ble: scanning', log, 'the tail of the first boot kept: two boots in one log')
+        self.assertEqual(status, 'logging')
+
+    def test_firmware_without_the_console_is_logged_as_before(self):
+        code, log, written, status, r = self.run_monitor(answers=False)
+        self.assertEqual(code, 0, f'{r.stdout[-800:]} {r.stderr[-800:]}')
+        self.assertNotIn('reboot', written)
+        self.assertIn('I (3050) ble: scanning', log)
+        self.assertEqual(status, 'logging')
+
+
+@unittest.skipIf(fh is None, 'pyserial missing (run from an ESP-IDF shell)')
 class Flash(TempDev):
     """What a flash.request writes: the parts in flasher_args.json, from the staged copies, md5-checked (L1)."""
     FILES = {'0x0': 'bootloader/bootloader.bin', '0x8000': 'partition_table/partition-table.bin',
@@ -220,10 +375,10 @@ class Flash(TempDev):
                        'flash_files': self.FILES,
                        'extra_esptool_args': {'after': 'hard_reset', 'before': 'default_reset', 'stub': True,
                                               'chip': 'esp32s3'}}, f)
-        self.old = fh.esptool, fh.monitor
+        self.old = fh.esptool, fh.monitor, fh.open_port, fh.SETTLE_S
 
     def tearDown(self):
-        fh.esptool, fh.monitor = self.old
+        fh.esptool, fh.monitor, fh.open_port, fh.SETTLE_S = self.old
         super().tearDown()
 
     def test_args_name_the_staged_copies_in_offset_order(self):
@@ -290,6 +445,7 @@ class Flash(TempDev):
         calls = []
         fh.esptool = lambda args: (calls.append(args), (0, ['Serial port COM-test'], 'COM-test'))[1]
         fh.monitor = lambda port, secs, **k: ([], False, None)
+        fh.open_port, fh.SETTLE_S = (lambda *a, **k: None), 0     # (no board for the restart after the flash)
         self.assertEqual(fh.run_request('flash', 1, echo=False), 0)
         self.assertEqual(len(calls), 1)
         self.assertIn('write_flash', calls[0])

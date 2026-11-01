@@ -1,7 +1,8 @@
 // Smoke test of the display in the browser (README.md): serves web/emu/build, opens it in headless Chromium and
 // checks, with real mouse events, that it starts, draws, follows a drag and a press and hold, that its settings
 // page talks to it (a language change on the page changes the screen) and that screen dimming's /api/presence answers
-// (forge_presence's real presence.c runs here). Any page or console error fails it.
+// (forge_presence's real presence.c runs here). Any page or console error fails it. A build without the settings page
+// (an app with no Wi-Fi: emu.mk's USE_NET := 0, no settings.html) skips the page's checks and those of its routes.
 //   node web/emu/forge/smoke.js [build dir] [screenshots dir]      (Playwright from tools/webtest: npm ci there;
 //   from an app's .espforge copy: cd tools/webtest && node ../../.espforge/web/emu/forge/smoke.js ../../web/emu/build)
 // Screenshots of the screen at each step: web/emu/build/smoke/ by default. Exit code 0 = passed.
@@ -16,6 +17,7 @@ const { chromium } = require(require.resolve('playwright',
   { paths: [path.join(root, 'tools', 'webtest'), process.cwd()] }));
 const dir = path.resolve(process.argv[2] || path.join(__dirname, '..', 'build'));
 const shots = path.resolve(process.argv[3] || path.join(dir, 'smoke'));
+const hasPage = fs.existsSync(path.join(dir, 'settings.html'));   // (USE_NET := 0: no web server, no page)
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.ttf': 'font/ttf' };
 
 function serve() {                                 // build/ as the site's root (index.html's ../fonts/ is fonts/)
@@ -72,28 +74,31 @@ function serve() {                                 // build/ as the site's root 
     const held = await look('3-held');
     check(held.h !== swiped.h, 'a press and hold changes the screen');
 
-    // The settings page: its /api/ requests are served by the firmware's handlers (emu_web.c)
-    const frame = page.frameLocator('#settings');
-    const langs = frame.locator('#lang option');
-    await langs.nth(1).waitFor({ state: 'attached', timeout: 15000 });
-    check(await langs.count() > 1, 'the settings page reads /api/info (the languages)');
-    // Screen dimming's route, served by forge_presence's real presence.c (its task runs here, without microphones)
-    const pres = await page.evaluate(() => window.emuApi('GET', '/api/presence', ''));
-    let pj = null;
-    try { pj = JSON.parse(pres.body); } catch (e) { /* not JSON: said below */ }
-    check(pj && typeof pj.state === 'string',
-      `/api/presence answers with "state" (${pres.status}: ${String(pres.body).slice(0, 60)})`);
     check(logs.some(t => /presence: microphones/.test(t)), "forge_presence's task started (its microphones line in the log)");
-    await page.reload();                           // back to the first screen, then change the language there
-    await page.waitForFunction(() => document.getElementById('status').textContent === '', null, { timeout: 30000 });
-    const before = await look('4-before-language');
-    const other = await langs.nth(1).getAttribute('value');
-    await frame.locator('#lang').selectOption(other);
-    const after = await look('5-language-' + other);
-    check(after.h !== before.h, `choosing "${other}" on the settings page changes the screen`);
-    // The language is kept (NVS in localStorage): back to the first one for the next run
-    await frame.locator('#lang').selectOption(await langs.nth(0).getAttribute('value'));
-    await page.waitForTimeout(500);
+    if (!hasPage) console.log('(no settings.html: an app with no Wi-Fi, USE_NET := 0; no settings page to check)');
+    else {
+      // The settings page: its /api/ requests are served by the firmware's handlers (emu_web.c)
+      const frame = page.frameLocator('#settings');
+      const langs = frame.locator('#lang option');
+      await langs.nth(1).waitFor({ state: 'attached', timeout: 15000 });
+      check(await langs.count() > 1, 'the settings page reads /api/info (the languages)');
+      // Screen dimming's route, served by forge_presence's real presence.c (its task runs here, without microphones)
+      const pres = await page.evaluate(() => window.emuApi('GET', '/api/presence', ''));
+      let pj = null;
+      try { pj = JSON.parse(pres.body); } catch (e) { /* not JSON: said below */ }
+      check(pj && typeof pj.state === 'string',
+        `/api/presence answers with "state" (${pres.status}: ${String(pres.body).slice(0, 60)})`);
+      await page.reload();                           // back to the first screen, then change the language there
+      await page.waitForFunction(() => document.getElementById('status').textContent === '', null, { timeout: 30000 });
+      const before = await look('4-before-language');
+      const other = await langs.nth(1).getAttribute('value');
+      await frame.locator('#lang').selectOption(other);
+      const after = await look('5-language-' + other);
+      check(after.h !== before.h, `choosing "${other}" on the settings page changes the screen`);
+      // The language is kept (NVS in localStorage): back to the first one for the next run
+      await frame.locator('#lang').selectOption(await langs.nth(0).getAttribute('value'));
+      await page.waitForTimeout(500);
+    }
   } catch (e) {
     check(false, 'ran to the end: ' + e.message.split('\n')[0]);
   }

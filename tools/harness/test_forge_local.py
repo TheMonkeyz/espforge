@@ -258,6 +258,27 @@ class FetchForge(unittest.TestCase):
         self.assertIn('nothing to do', err)
         self.assertEqual(out, self.root.replace('\\', '/') + '/components', 'the checkout\'s own components folder')
 
+    def test_an_explicit_tag_clones_before_the_manifest_names_espforge(self):
+        # a new project's first host-test run: its manifest has no espforge entry yet, and "--tag v0.7.0" printed
+        # "nothing to do" and the project's own (empty) components folder (esp32-s3-colormesh v0.1.0-rc.1)
+        write(self.manifest, COPIES)
+        dest = os.path.join(self.root, '.espforge')
+        calls = []
+
+        def fake_run(cmd, **k):                        # the clone, without a network
+            calls.append(cmd)
+            os.makedirs(cmd[-1], exist_ok=True)
+        fetch_forge.subprocess.run = fake_run
+        code, out, err = self.run_fetch('--tag', 'v0.7.0')
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1, calls)
+        self.assertIn('clone', calls[0])
+        self.assertEqual(calls[0][calls[0].index('--branch') + 1], 'v0.7.0')
+        self.assertEqual(calls[0][-2:], [fetch_forge.REPO, dest])
+        self.assertEqual(out, dest.replace('\\', '/') + '/components')
+        self.assertEqual(read(os.path.join(dest, '.forge_tag')), 'v0.7.0')
+        self.assertNotIn('nothing to do', err)
+
     def test_nothing_to_do_in_espforge_itself(self):
         code, out, err = self.run_fetch(root=ESPFORGE)
         self.assertEqual(code, 0)

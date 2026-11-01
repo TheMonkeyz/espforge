@@ -114,7 +114,8 @@ app only gets espforge versions that passed their own tests, and a framework fix
    the root `CMakeLists.txt`.
 2. **`tools/fetch_forge.py`** (in the template): clones espforge at that tag into `.espforge/` (git-ignored), for
    the builds outside idf.py, and prints the components folder. While the app still has copies (no espforge entry
-   in the manifest) it says there is nothing to do.
+   in the manifest) it says there is nothing to do; `--tag vX.Y.Z` clones that tag even before the manifest names
+   espforge (a new project's first host-test run).
 3. **`tests/host/Makefile`**: the framework files the tests compile come from `managed_components` after an idf.py
    build, else from the clone:
    ```make

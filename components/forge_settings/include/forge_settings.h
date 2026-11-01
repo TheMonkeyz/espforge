@@ -16,6 +16,10 @@
 // QR code), Wi-Fi, updates (forge_ota), restart and an About section: what weather_amoled and esp32-s3-rtcquebec show.
 // The app adds rows of its own anywhere in the list.
 //
+// forge_net and forge_ota are optional: an app with no Wi-Fi (Bluetooth only) builds this without them. Then the rows
+// marked [net] / [ota] below don't exist (a link error if the app lists them), there is no phone page (nor any need
+// for LV_USE_QRCODE), and Restart restarts at once.
+//
 // Texts: the app's. Each row's label is one of the app's text ids (i18n_strings.h, read with i18n_text); the
 // ready-made rows' words come from settings_opts_t.texts, the app's id for each settings_text_t code. Components
 // never show text of their own.
@@ -109,16 +113,16 @@ settings_row_t settings_std_motion(void);
 settings_row_t settings_std_timing(void);
 // The language: a tap goes to the next of the app's languages, saved (i18n_save); changed() then redraws the app
 settings_row_t settings_std_language(void (*changed)(void));
-// The settings page on the phone: a QR code of web_url() (with the key) on a page of its own; a tap goes back
+// [net] The settings page on the phone: a QR code of web_url() (with the key) on a page of its own; a tap goes back
 settings_row_t settings_std_phone(void);
 // Wi-Fi: open() is the app's setup screen; it calls settings_resume() when it closes
 settings_row_t settings_std_wifi(void (*open)(void));
-// Updates (forge_ota): "Check now"; checking, up to date, failed for a few seconds after; an update offered: "Install
-// vX.Y.Z", installed on a second tap within 4 s
+// [ota] Updates (forge_ota): "Check now"; checking, up to date, failed for a few seconds after; an update offered:
+// "Install vX.Y.Z", installed on a second tap within 4 s
 settings_row_t settings_std_updates(void);
-// Restart on a second tap within 4 s (ota_restart_when_safe: not in an update's first minute)
+// Restart on a second tap within 4 s (with forge_ota, ota_restart_when_safe: not in an update's first minute)
 settings_row_t settings_std_restart(void);
-// About: version, network (name and signal), IP address, memory (internal / PSRAM free, KB), uptime
+// About: version, [net] network (name and signal), [net] IP address, memory (internal / PSRAM free, KB), uptime
 settings_row_t settings_std_version(void);
 settings_row_t settings_std_network(void);
 settings_row_t settings_std_ip(void);
@@ -127,7 +131,7 @@ settings_row_t settings_std_uptime(void);
 
 // The internals the ready-made rows use (settings.c)
 const char *settings_text(settings_text_t code);
-void settings_show_phone(void);
+void settings_show_phone(void);                    // [net]
 
 // How the Settings screen (and its phone page) slide in and out: forge_lvgl's slide_to by default. An app with its own
 // slide.c (weather_amoled) gives its own: fn(scr, dir, vertical), dir 1 = from the right / below. NULL = the default.

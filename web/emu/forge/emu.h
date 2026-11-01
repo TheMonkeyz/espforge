@@ -3,7 +3,7 @@
 #include <stdbool.h>
 
 // main.c's app_main() as a task (an Emscripten fiber, emu_tasks.c), as ESP-IDF starts it. The Wi-Fi stubs
-// (emu_stubs.c) say a saved network is there and joined, so it goes from its start-up to what it does once Wi-Fi is up.
+// (emu_net.c) say a saved network is there and joined, so it goes from its start-up to what it does once Wi-Fi is up.
 void emu_start_app_main(void);
 
 // The display's LVGL task and its scheduler, never returns: the due tasks until their next wait, the settings page's
@@ -16,4 +16,4 @@ void emu_step(void);
 // ?key=value in the page's address (e.g. a link to a given place): true and the value in out, else false
 bool emu_param(const char *key, char *out, int n);
 
-void emu_web_poll(void);                          // emu_web.c: serve the settings page's queued requests
+void emu_web_poll(void);                          // emu_web.c: serve the settings page's queued requests (USE_NET)

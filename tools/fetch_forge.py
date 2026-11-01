@@ -8,9 +8,12 @@ components folder: pass it as FORGE= to the Makefiles (docs/NEW-PROJECT.md, "Lat
     python tools/fetch_forge.py                  # .espforge/components at the pinned tag
     make -C tests/host FORGE=$(python tools/fetch_forge.py)
 
+    python tools/fetch_forge.py --tag v0.7.0     # another tag; also before the manifest names espforge
+
 An idf.py build puts the components (not web/emu) in managed_components/, which the host tests use first. In espforge
 itself, or in an app that still has copies of the components (no espforge entry in the manifest), there is nothing to
-fetch: it says so, prints the checkout's own components folder and exits 0.
+fetch: it says so, prints the checkout's own components folder and exits 0. An explicit --tag clones espforge (REPO)
+even then: a new project's first host-test run, before its manifest has an espforge entry (esp32-s3-colormesh).
 """
 import argparse
 import os
@@ -21,6 +24,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # An entry that comes from espforge's repository: git: https://github.com/TheMonkeyz/espforge(.git)
 FORGE_GIT = re.compile(r'github\.com/[^/\s]+/espforge(?:\.git)?/?$', re.I)
+REPO = 'https://github.com/TheMonkeyz/espforge.git'   # for --tag without an espforge entry
 
 
 def manifest_entries(text):
@@ -62,12 +66,15 @@ def pinned_tag(entries):
 def main(argv=None, root=ROOT):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dest', help='where to clone (default .espforge in the project)')
-    ap.add_argument('--tag', help='another tag (default: the one pinned in main/idf_component.yml)')
+    ap.add_argument('--tag', help='another tag (default: the one pinned in main/idf_component.yml); also works '
+                    'before the manifest has an espforge entry')
     opts = ap.parse_args(argv)
     dest = opts.dest or os.path.join(root, '.espforge')
     with open(os.path.join(root, 'main', 'idf_component.yml'), encoding='utf-8') as f:
         entries = manifest_entries(f.read())
     forge = forge_entries(entries)
+    if not forge and opts.tag:                     # an explicit tag clones espforge even before the manifest has it
+        forge = {'forge_core': {'git': REPO, 'version': opts.tag}}
     if not forge:
         print('nothing to do: no espforge entry in main/idf_component.yml (this is espforge itself, or an app with '
               'copies of the components)', file=sys.stderr)

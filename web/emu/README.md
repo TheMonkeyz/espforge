@@ -36,8 +36,9 @@ web/emu/forge/            the framework's: the same in every app
 | `emu_nvs.c` | NVS: a small table saved in the page's `localStorage` (`<app>_emu_nvs`) on each commit |
 | `emu_tasks.c` | FreeRTOS tasks, queues, binary semaphores: each task an Emscripten fiber, run by the main loop between LVGL frames; a wait inside a task goes back to the main loop |
 | `emu_time.c` | `localtime_r` following `TZ` as the firmware sets it (Emscripten's uses the browser's zone) |
-| `emu_web.c` | the web server: the settings page's `/api/` requests, queued by the page and served between LVGL frames by the app's and forge_ota's handlers; `/api/info` as forge_net's; Wi-Fi scan and save answer that they need the real display |
-| `emu_stubs.c` | Wi-Fi (a saved network, joined at once: `main.c` goes straight to what it does once Wi-Fi is up), the setup network and Easy Connect (never start), updates (none; Restart reloads the page), diagnostics and the test console (none: the log is the browser's console), the NTP service (the browser's clock), the board's microphones and motion sensor (not there: Notes) |
+| `emu_web.c` | (not with `USE_NET := 0`) the web server: the settings page's `/api/` requests, queued by the page and served between LVGL frames by the app's and forge_ota's handlers; `/api/info` as forge_net's; Wi-Fi scan and save answer that they need the real display |
+| `emu_net.c` | Wi-Fi (a saved network, joined at once: `main.c` goes straight to what it does once Wi-Fi is up), the setup network and Easy Connect (never start), updates (none; Restart reloads the page), the NTP service (the browser's clock). Not built with `USE_NET := 0` |
+| `emu_stubs.c` | diagnostics and the test console (none: the log is the browser's console), `esp_app_get_description()` (the build's version), `nvs_init()`, the board's microphones and motion sensor (not there: Notes) |
 | `emu_loop.c` | the LVGL task and the scheduler: `app_main()` as a task, then tasks, settings page requests, `lv_timer_handler()`, `emscripten_sleep()`, forever |
 | `shim/` | the ESP-IDF and FreeRTOS headers the firmware includes; `vTaskDelay` hands control back to the browser |
 
@@ -93,6 +94,12 @@ another one, or the page shows the other checkout's build.
    on), `emu_imu.c` (the motion sensor: a phone's `devicemotion`, or a "Pick it up" button) and `emu_partition.c` (a
    flash partition, in memory). A C function the page calls goes in `APP_EXPORTS` (`APP_EXPORTS := ,_emu_mic`); the
    page reaches the module through `window.emuReady`.
+
+An app with **no Wi-Fi** (no forge_net, forge_ota: a Bluetooth LE app such as esp32-s3-colormesh) sets
+`USE_NET := 0` in its Makefile: no `svc.c`, `ota_web.c`, `presence_web.c`, `emu_net.c`, `emu_web.c`, no settings page
+(`settings.html`, `emu-settings.js`), and forge_settings without its phone, network and updates rows, as its firmware
+builds it. Its `index.html` has no `settings` frame; `smoke.js` skips the page's checks when the build has no
+`settings.html`. `examples/nonet/web/emu` is one.
 
 What fails to link is what the app uses and the browser lacks: stub it in the app's `web/emu` file, or, if every
 app would need it, in `forge/`.
