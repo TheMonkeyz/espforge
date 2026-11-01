@@ -11,6 +11,10 @@ reason it stays in the app.
 
 ## Framework code
 
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: forge_lvgl's slide.c takes a drag with `lv_indev_wait_release` and LVGL then
+  sends no `PRESS_LOST` to the pressed object, so an app cannot tell when a press became a drag (ColorMesh's
+  "hold" stays on for the length of a swipe, ~0.4 s). A drag-start callback in slide.c (`slide_set_drag_hook`?).
+
 - [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: a project with **no Wi-Fi** (Bluetooth LE only) cannot drop forge_net:
   `components/forge_lvgl/include/screens.h` includes `web.h` only for `web_image_t`, and forge_lvgl's CMake REQUIRES
   forge_net (which needs dns_server, esp_wifi, the HTTP servers). ColorMesh links forge_net and never starts it
@@ -396,6 +400,12 @@ reason it stays in the app.
   `main` and tags keep building the latest stable release for the site. The `push` trigger is still `main` only.
 
 ## Lessons (docs/LESSONS.md)
+
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: NimBLE scanning without duplicate filtering: `CONFIG_BT_NIMBLE_HOST_QUEUE_CONG_CHECK=y`
+  (recommended by the Kconfig help for exactly that case) makes the host pass each address once per ~200 reports
+  (`ble_hs_hci_evt.c`, `ble_check_adv_list`, 50 addresses, refreshed every 200 events): a peer advertising 50 times a
+  second was heard every 2.7 s. Keep it off; the controller's report flow control is the memory guard. Also: an agent
+  handed back early twice on a 15-minute measurement; measurements need their own uninterrupted step.
 
 - [x] v0.6.0, 2026-10-29, esp32-s3-meteobus port/esp32-p4 (docs/P4-PORT.md "Lessons"): identify a new board from its product
   page or a photo before porting (a guessed EV board and V1 panel table cost hours); take pins from a working setup for
