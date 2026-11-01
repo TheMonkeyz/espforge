@@ -17,7 +17,7 @@ reason it stays in the app.
   read; the schematic routes LCD_TE to GPIO13. ColorMesh copies the board component and adds: TE ISR on GPIO13, full
   frames in PSRAM (RENDER_MODE_DIRECT), bands pushed to the panel right after the TE edge (like display_raw_frame, ~15 ms
   per frame), display_raw_frame TE-synced too. Port to boards/ws_amoled175 once measured (frame/push/TE-wait log lines).
-  **→** PR #ALIGN: ColorMesh's display.c merged onto the board's v0.6.0 one (DIRECT mode, one PSRAM frame, TE on GPIO13,
+  **→** PR #44: ColorMesh's display.c merged onto the board's v0.6.0 one (DIRECT mode, one PSRAM frame, TE on GPIO13,
   edge and "chase" starts, `te` console command, push/TE fields in `fps` and diag). `display_raw_area` (list scrolls)
   goes through the same push and copies its bands back into the frame (in DIRECT mode the frame must stay what the
   panel shows, L218); a bottom-up area is not synced (L219); the wake sends the frame without a re-render; pushes stop
@@ -36,7 +36,7 @@ reason it stays in the app.
   Also wanted: a way for the app to **drop the current touch** in slide.c after it handled a long press (ColorMesh
   v0.3.0: a long press on a swatch sets the wave colour, but a finger that then moves 10 px still starts a pager
   drag because `read_hook` keeps tracking the touch after `lv_indev_wait_release`): `slide_drop_touch()`.
-  **→** PR #ALIGN: `slide_set_drag_hook()` (ColorMesh's), `slide_drop_touch()` (no pager drag, no list scroll, and LVGL
+  **→** PR #44: `slide_set_drag_hook()` (ColorMesh's), `slide_drop_touch()` (no pager drag, no list scroll, and LVGL
   waits for the release: no scroll of its own, no CLICKED on the lift), the threshold as Kconfig `FORGE_SLIDE_DRAG_PX`
   (default 10, so the other apps keep their feel; ColorMesh sets 28; lists drawn as pictures still start at 10, LVGL's
   own limit 10 px past whichever applies), console `slide` (counters) and `slide hold` (a held finger that then moves).
@@ -51,7 +51,7 @@ reason it stays in the app.
   `http_once.h` (move it or make it PRIV where used); `forge_presence`'s `presence_web.c` and `forge_settings`'
   network/updates/phone rows behind an `#if` so both build without forge_net/forge_ota. Then a no-Wi-Fi starter
   variant (main.c without net_init/web/ota: ColorMesh's main.c is the model, `nvs_init()` called by the app).
-  **→** PR #ALIGN: `forge_image.h` (`forge_image_t`; `web_image_t` stays its other name); forge_lvgl requires only lvgl and
+  **→** PR #44: `forge_image.h` (`forge_image_t`; `web_image_t` stays its other name); forge_lvgl requires only lvgl and
   forge_core; forge_core no longer requires `esp_http_client` (`http_once.h` stays; its users require it themselves);
   forge_presence's `presence_web.c` and forge_settings' phone, network, IP and updates rows only when forge_net /
   forge_ota are in the build (`idf_component_optional_requires`, `FORGE_HAVE_NET` / `FORGE_HAVE_OTA`). The no-Wi-Fi
@@ -290,32 +290,32 @@ reason it stays in the app.
   reopened after esptool's reset), so early lines (`ble: synced` at 2.5 s) are missing and a `send` meant to reach the
   board before an early event cannot wait for them. Keep the port open across the reset (as the console reboot path
   does) or document that the first logged line is the trigger (`tools/devloop/flash_helper.ps1`, `monitor.ps1`).
-  **→** PR #ALIGN: after a flash both helpers `ping` until the console answers, then restart through it with the port open
+  **→** PR #44: after a flash both helpers `ping` until the console answers, then restart through it with the port open
   (L191): the log is one boot from `ESP-ROM:` (the old boot's last lines dropped); no console: logged as before;
   `forge.json "flash_restart": false` turns it off. Tests `FlashRestart`, `MonitorPs1AfterFlash`. On COM5:
   "Restarted through the test console after the flash", `resets=0`. weather_amoled's twin helpers can take it.
 - [x] v0.7.0-rc.1, 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: harness **no-net mode** (`forge.json "no_net": true` / `--no-net`): no IP
   wait, no HTTPS, `diag: firmware` + `diag: running from ota_N` instead of `ota: Running`, network suites refused,
   snapshots over the USB console (`tools/harness/board.py`, `harness.py`, `core_suites.py`). Port to espforge's harness.
-  **→** PR #ALIGN: as ColorMesh's, the generic part (no app commands); `wait_online()` returns at once; the network suites
+  **→** PR #44: as ColorMesh's, the generic part (no app commands); `wait_online()` returns at once; the network suites
   refused by name, left out by default; screens over `shot`. Unit tests `NoNetArgs`, `BootCheck`, `SnapOverUsb`.
 - [x] v0.7.0-rc.1, 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: **screenshots over USB**: console command `shot [screen] [div]` (from
   MeteoBus port/esp32-p4's `console.c`, on forge_lvgl's `screens_snapshot`) writing `SHOT name w h` / `S:<base64 RGB565 row>` /
   `SHOTEND` through usb_serial_jtag, and `tools/shot.py` to decode a log into PNGs. Make it a forge_lvgl console command so
   every project has it (a session that can't reach the board's IP, a board without Wi-Fi).
-  **→** The command is forge_lvgl's since v0.6.0-rc.5 (PR #43). PR #ALIGN: ColorMesh's `tools/shot.py` improvements merged
+  **→** The command is forge_lvgl's since v0.6.0-rc.5 (PR #43). PR #44: ColorMesh's `tools/shot.py` improvements merged
   into `tools/devloop/shot.py` (round mask, strict base64, every block of a log), the harness takes screens with it in
   no-net mode; unit test `ShotDecoder`.
 - [x] v0.7.0-rc.1, 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: the Pages flasher site gets a **"Configure over USB" card** (`web/flash/config.js`,
   Web Serial, talks to the test console: `cfg` returns one JSON line, setters reply `test: ok ...`). Framework feature:
   a generic card driven by a `cfg` schema, for projects without a settings page.
-  **→** PR #ALIGN: forge_core `cfgcon.h` (the app registers typed fields; console `cfg`, `cfg schema`, `cfg set KEY VALUE`,
+  **→** PR #44: forge_core `cfgcon.h` (the app registers typed fields; console `cfg`, `cfg schema`, `cfg set KEY VALUE`,
   values checked before the setter; host test `test_cfgcon.c`), the card in `web/flash/config.js` built from the schema
   (`config.test.js`, CI job `webtest`); the starter registers language, update channel, dimming, brightness, address.
   ColorMesh keeps its own card until it registers its settings as fields (its `cfg` line already has the same shape).
 - [x] v0.7.0-rc.1, 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: `tools/fetch_forge.py --tag X` clones espforge before the manifest names it
   (a new project's first host-test run).
-  **→** PR #ALIGN: ColorMesh's change; unit test in `test_forge_local.py`.
+  **→** PR #44: ColorMesh's change; unit test in `test_forge_local.py`.
 
 - [x] v0.6.0-rc.5, 2026-10-29, esp32-s3-meteobus port/esp32-p4: console commands for a board the PC's HTTPS can't reach yet:
   `shot SCREEN [DIV]` (a screenshot over USB as base64 RGB565, `tools/shot.py` makes PNGs; `shot panel` sends the frame
@@ -421,7 +421,7 @@ reason it stays in the app.
   `swipe_gap_max_ms.hello_to_system` 222 and `drag_slow` 99 in two of five runs, 35-41 in the others, "lvgl>lvgl". The
   `fps` counters should stop counting a move's animation at its end (slide.c knows it), or the harness read the
   `slide: drag:` line's own gap max for the move and keep the frame stats for the landing separately.
-  **→** PR #ALIGN: `measure()` takes `swipe_gap_max_ms` from the moves' `slide: drag:` lines (`core_suites.slide_drag`), the
+  **→** PR #44: `measure()` takes `swipe_gap_max_ms` from the moves' `slide: drag:` lines (`core_suites.slide_drag`), the
   fps counters' gap stays in the note as the landing's (on COM5: drag_slow 21 ms, the counters' 130 "lvgl>lvgl");
   unit test `MeasureSwipeGap`.
 - [ ] 2026-10-31, espforge v0.6.0-rc.2 to rc.4 (harness `--ota` on COM5): `memory.heap_numbers`, read right after an
@@ -431,7 +431,7 @@ reason it stays in the app.
   heap for a while. `heap_settled()` only waits for the free size to settle: in an `--ota` run also wait past the
   first minute (as `first_minute_wait_s()` does for perf) or for the largest block to settle, and find out which
   allocation it is.
-  **→** PR #ALIGN (half): in an `--ota` run the suite waits until 90 s of uptime (past the first check's TLS GETs), then
+  **→** PR #44 (half): in an `--ota` run the suite waits until 90 s of uptime (past the first check's TLS GETs), then
   for two readings that agree (`ota_heap_wait_s`, unit test `HeapAfterOta`). Still open: which allocation it is, and
   whether 90 s is enough (the rc's `--ota` run says).
 - [ ] 2026-10-31, espforge v0.6.0-rc.6 to rc.7 (harness on COM5, `presence.dim_off_wake` about 25 times): while the
@@ -441,7 +441,7 @@ reason it stays in the app.
   All three sit on power management's frequency changes (Group B, rc.2). Find out whether the USB console or lwIP
   loses a packet across a DFS switch (an `esp_pm_lock` for the console while a command is pending?); meanwhile the
   harness could resend a console command once when no reply comes, and retry an idempotent PUT once.
-  **→** PR #ALIGN (the harness half): a read-only command with no answer is sent once more (`Board.may_resend`, exact
+  **→** PR #44 (the harness half): a read-only command with no answer is sent once more (`Board.may_resend`, exact
   names only: `power`, `presence`, `te`, `netstat`, ...), said in the report; unit test `Resend`. Still open: the cause
   (USB console or lwIP across a frequency switch) and the PUT retry.
 - [ ] 2026-10-31, esp32-s3-meteobus v0.3.2-rc.1 (harness `--flash` on COM5, PR #25): the display's lowest internal free
@@ -459,7 +459,7 @@ reason it stays in the app.
 - [x] v0.7.0-rc.1, 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: no switch to build the emulator for an app without forge_net
   (`web/emu/forge/emu.mk` always builds svc.c, ota_web.c, presence_web.c, emu_web.c and settings.html from
   `main/web/index.html`). ColorMesh deleted web/emu instead. A `USE_NET := 0` in emu.mk.
-  **→** PR #ALIGN: `USE_NET ?= 1`; 0 leaves out svc.c, ota_web.c, presence_web.c and the new `emu_net.c` (the Wi-Fi,
+  **→** PR #44: `USE_NET ?= 1`; 0 leaves out svc.c, ota_web.c, presence_web.c and the new `emu_net.c` (the Wi-Fi,
   update and web stubs, split out of `emu_stubs.c`), and the settings page; smoke.js skips the page's checks.
   `examples/nonet/web/emu` builds that way, smoke-tested in CI's `emulator` job.
 
