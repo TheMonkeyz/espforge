@@ -238,6 +238,10 @@ reason it stays in the app.
 
 ## Tools and tests
 
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.5: the flash helper's log window starts ~3 s into the boot (the port is
+  reopened after esptool's reset), so early lines (`ble: synced` at 2.5 s) are missing and a `send` meant to reach the
+  board before an early event cannot wait for them. Keep the port open across the reset (as the console reboot path
+  does) or document that the first logged line is the trigger (`tools/devloop/flash_helper.ps1`, `monitor.ps1`).
 - [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: harness **no-net mode** (`forge.json "no_net": true` / `--no-net`): no IP
   wait, no HTTPS, `diag: firmware` + `diag: running from ota_N` instead of `ota: Running`, network suites refused,
   snapshots over the USB console (`tools/harness/board.py`, `harness.py`, `core_suites.py`). Port to espforge's harness.
@@ -408,6 +412,11 @@ reason it stays in the app.
 
 ## Lessons (docs/LESSONS.md)
 
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.5 (L214): a continuous NimBLE scan (window = interval) starves a
+  connection on the ESP32-S3 controller: one 251-byte packet per connection event whatever `max_ce_len`, the PHY or
+  the data length (22 KB/s; 52 KB/s with a 30 ms scan window, 75 with none). Any project that scans and transfers
+  over GATT at the same time must narrow the scan window during the transfer. Also the method: a sender-side
+  probe (`fwtune probe=KB`: abort after N KB, the peer retries) compares settings without re-flashing peers.
 - [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: NimBLE scanning without duplicate filtering: `CONFIG_BT_NIMBLE_HOST_QUEUE_CONG_CHECK=y`
   (recommended by the Kconfig help for exactly that case) makes the host pass each address once per ~200 reports
   (`ble_hs_hci_evt.c`, `ble_check_adv_list`, 50 addresses, refreshed every 200 events): a peer advertising 50 times a
