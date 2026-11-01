@@ -11,6 +11,20 @@ reason it stays in the app.
 
 ## Framework code
 
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: a project with **no Wi-Fi** (Bluetooth LE only) cannot drop forge_net:
+  `components/forge_lvgl/include/screens.h` includes `web.h` only for `web_image_t`, and forge_lvgl's CMake REQUIRES
+  forge_net (which needs dns_server, esp_wifi, the HTTP servers). ColorMesh links forge_net and never starts it
+  (+flash, nothing else). Fix: move `web_image_t` to a forge_core header (`forge_image.h`), `web.h` typedefs from
+  it, drop forge_net from forge_lvgl's REQUIRES; forge_core's REQUIRES `esp_http_client` is only for the inline
+  `http_once.h` (move it or make it PRIV where used); `forge_presence`'s `presence_web.c` and `forge_settings`'
+  network/updates/phone rows behind an `#if` so both build without forge_net/forge_ota. Then a no-Wi-Fi starter
+  variant (main.c without net_init/web/ota: ColorMesh's main.c is the model, `nvs_init()` called by the app).
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: a NimBLE component (`forge_ble`?) for future projects: host bring-up
+  (nimble_port_init, sync, public address as identity, `ble: address`/`ble: synced` lines), legacy advertising with a
+  manufacturer-data payload updated in place, continuous passive scanning with a report queue, the Kconfig set that
+  worked on the S3 (ColorMesh `sdkconfig.defaults`: MEM_ALLOC_MODE_INTERNAL, HOST_QUEUE_CONG_CHECK, SCAN_DUPL_TYPE_DATA_DEVICE,
+  ADV_REPORT_FLOW_CTRL_NUM 200, roles, core 0), and the research in ColorMesh `docs/RESEARCH-BLE.md`.
+
 - [x] v0.6.0-rc.1, 2026-10-30, esp32-s3-meteobus port/esp32-p4 (3fb5c2d): diag's statistics hold interrupts off long enough to
   break an ESP32-P4 MIPI-DSI display: ESP-IDF's DPI driver restarts the frame DMA from an interrupt after every frame
   (~0.9 ms gap), and `uxTaskGetSystemState()` (diag's per-task lines: it measures every task's stack in a critical
@@ -213,6 +227,19 @@ reason it stays in the app.
 
 ## Tools and tests
 
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: harness **no-net mode** (`forge.json "no_net": true` / `--no-net`): no IP
+  wait, no HTTPS, `diag: firmware` + `diag: running from ota_N` instead of `ota: Running`, network suites refused,
+  snapshots over the USB console (`tools/harness/board.py`, `harness.py`, `core_suites.py`). Port to espforge's harness.
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: **screenshots over USB**: console command `shot [screen] [div]` (from
+  MeteoBus port/esp32-p4's `console.c`, on forge_lvgl's `screens_snapshot`) writing `SHOT name w h` / `S:<base64 RGB565 row>` /
+  `SHOTEND` through usb_serial_jtag, and `tools/shot.py` to decode a log into PNGs. Make it a forge_lvgl console command so
+  every project has it (a session that can't reach the board's IP, a board without Wi-Fi).
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: the Pages flasher site gets a **"Configure over USB" card** (`web/flash/config.js`,
+  Web Serial, talks to the test console: `cfg` returns one JSON line, setters reply `test: ok ...`). Framework feature:
+  a generic card driven by a `cfg` schema, for projects without a settings page.
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: `tools/fetch_forge.py --tag X` clones espforge before the manifest names it
+  (a new project's first host-test run).
+
 - [x] v0.6.0-rc.5, 2026-10-29, esp32-s3-meteobus port/esp32-p4: console commands for a board the PC's HTTPS can't reach yet:
   `shot SCREEN [DIV]` (a screenshot over USB as base64 RGB565, `tools/shot.py` makes PNGs; `shot panel` sends the frame
   buffer as shown), `netstat` (lwIP counters: does anything from outside reach the board?), `blitbench` (frame copy
@@ -340,6 +367,10 @@ reason it stays in the app.
   forge_net's web.c around the session open) or give the gate a `net_dl_server_busy()` the pollers check.
 
 ## Emulator (web/emu)
+
+- [ ] 2026-10-31, esp32-s3-colormesh v0.1.0-rc.1: no switch to build the emulator for an app without forge_net
+  (`web/emu/forge/emu.mk` always builds svc.c, ota_web.c, presence_web.c, emu_web.c and settings.html from
+  `main/web/index.html`). ColorMesh deleted web/emu instead. A `USE_NET := 0` in emu.mk.
 
 - [x] v0.3.0-rc.1, 2026-10-07, esp32-s3-rtcquebec v0.1.1: the browser emulator. PR #9 (generic part). The app's port adds, worth
   having in the generic part: `app_main` run as a task with Wi-Fi stubbed "up" (main.c unchanged, no routes moved);
