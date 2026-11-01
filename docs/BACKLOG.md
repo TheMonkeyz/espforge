@@ -433,8 +433,8 @@ reason it stays in the app.
   first minute (as `first_minute_wait_s()` does for perf) or for the largest block to settle, and find out which
   allocation it is.
   **→** PR #44 (half): in an `--ota` run the suite waits until 90 s of uptime (past the first check's TLS GETs), then
-  for two readings that agree (`ota_heap_wait_s`, unit test `HeapAfterOta`). Still open: which allocation it is, and
-  whether 90 s is enough (the rc's `--ota` run says).
+  for two readings that agree (`ota_heap_wait_s`, unit test `HeapAfterOta`). Still open: which allocation it is. 90 s
+  is not enough: v0.7.0-rc.1's `--ota` run read 31 KB at 90 s (v0.6.0's: 32), a re-run 7 minutes later 41.
 - [ ] 2026-10-31, espforge v0.6.0-rc.6 to rc.7 (harness on COM5, `presence.dim_off_wake` about 25 times): while the
   panel sleeps (CPU at 80 MHz, the "screen" lock released) a test-console command was lost twice (`power`, `presence`:
   no reply within 15 s; the next command answered), and once the HTTPS PUT restoring the settings right after the
@@ -444,7 +444,9 @@ reason it stays in the app.
   harness could resend a console command once when no reply comes, and retry an idempotent PUT once.
   **→** PR #44 (the harness half): a read-only command with no answer is sent once more (`Board.may_resend`, exact
   names only: `power`, `presence`, `te`, `netstat`, ...), said in the report; unit test `Resend`. Still open: the cause
-  (USB console or lwIP across a frequency switch) and the PUT retry.
+  (USB console or lwIP across a frequency switch) and the PUT retry. Seen with the screen ON too (v0.7.0-rc.1 `--ota`
+  run, `navigation.swipe_calls_drag_hook`): `screen hello` got no answer in 15 s while `where` did, the next test
+  passed; and once an HTTPS handshake to the board timed out (`settings_row_acts`, passed in the run before).
 - [ ] 2026-10-31, esp32-s3-meteobus v0.3.2-rc.1 (harness `--flash` on COM5, PR #25): the display's lowest internal free
   RAM read 18 KB (its limit 25; the run before, 25 exactly; the rc's `--ota` run, 26) in the minute where the
   harness's HTTPS snapshot (an incoming TLS session on the settings server) overlapped a bus request's TLS GET right
